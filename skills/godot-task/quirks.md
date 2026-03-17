@@ -5,7 +5,7 @@
 - **MultiMeshInstance3D + GLBs** - does NOT render after pack+save (mesh resource reference lost during serialization). Use individual GLB instances instead.
 - **`_ready()` skipped in `_initialize()`** - when running `--script`, `_ready()` on instantiated scene nodes does NOT fire during `_initialize()`. Call `node.generate()` or other init methods manually after `root.add_child()`.
 - **`_process()` signature in SceneTree scripts** - must be `func _process(delta: float) -> bool:` (returns bool), not void.
-- **Autoloads in SceneTree scripts** - cannot reference autoload singletons by name (compile error). Find them via `root.get_children()` and match by `.name`.
+- **Autoloads in SceneTree scripts** - cannot reference autoload singletons by name (compile error). Find them via `root.get_children()` and match by `.name`. See `godot-autoload-architecture`.
 - **`free()` vs `queue_free()` in test harnesses** - `queue_free()` leaves the node in `root.get_children()` until frame end, blocking name reuse. Use `free()` when immediately replacing scenes.
 - **Camera2D has no `current` property** - use `make_current()`, and only after the node is in the scene tree. See `godot-camera-systems` for camera ownership patterns.
 - **`--write-movie` frame 0** - the first movie frame renders before `_process()` runs. Camera position set in `_process()` won't appear until frame 1. Pre-position the camera in `_initialize()` (via `position`/`rotation_degrees`, NOT `look_at()`) or accept a junk frame 0.

@@ -216,6 +216,27 @@ func initialize() -> void:
     # Heavy setup here
 ```
 
+## Headless Builder Caveat
+
+SceneTree builder scripts run outside the normal gameplay script context.
+
+```gdscript
+# Headless SceneTree script
+extends SceneTree
+
+func _initialize() -> void:
+    var game_manager := null
+    for child in root.get_children():
+        if child.name == "GameManager":
+            game_manager = child
+            break
+```
+
+Rules:
+- Do not assume a SceneTree builder script can reference AutoLoads by singleton name the same way runtime node scripts can.
+- In headless builder contexts, discover the autoload instance from `root.get_children()` when needed.
+- Prefer avoiding autoload dependencies entirely during scene generation unless the task explicitly requires them.
+
 ## Reference
 - [Godot Docs: Singletons (AutoLoad)](https://docs.godotengine.org/en/stable/tutorials/scripting/singletons_autoload.html)
 - [Best Practices: Scene Organization](https://docs.godotengine.org/en/stable/tutorials/best_practices/scene_organization.html)

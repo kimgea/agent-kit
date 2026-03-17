@@ -57,6 +57,11 @@ Load these for:
 - performance work
 - debugging and profiling
 
+Use:
+- `godot-composition` for gameplay entities, actors, combatants, and scene-driven game behavior
+- `godot-composition-apps` for tools, apps, menus, dashboards, and UI orchestration
+- `godot-gdscript-mastery` for language-level rules that apply regardless of project type
+
 ### Gameplay Systems
 
 - `godot-ability-system`

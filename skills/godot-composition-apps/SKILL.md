@@ -82,6 +82,9 @@ Components should process the data given to them.
 2.  **The Chain:** Passing data through 4 layers of nodes to get to the destination. (Use Signals).
 3.  **Hard Dependency:** `InputComponent` checking `get_parent().health`. (The component must work on a rock; rocks don't have health).
 
+Direct `%UniqueName` or local `$Child` references are acceptable for strictly local UI widgets that are part of one screen's implementation.
+Do not use them as the dependency mechanism between architectural components.
+
 ## Code Structure Example (General App)
 
 ### Component: `clipboard_copier.gd`

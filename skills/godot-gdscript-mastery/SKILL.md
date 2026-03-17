@@ -97,6 +97,25 @@ Apply the same rule to array and dictionary element access when the result type 
 ### Scene Unique Nodes
 When building complex UI, always toggle "Access as Scene Unique Name" on critical nodes (Labels, Buttons) and access them via `%Name`.
 
+### Ready-Order Signal Timing
+
+Sibling nodes do not become ready simultaneously in the way many projects assume.
+
+```gdscript
+func _ready() -> void:
+    producer.value_changed.connect(_on_value_changed)
+
+    # If producer may already have emitted in its own _ready(),
+    # replay the current state manually after connecting.
+    if producer.has_method("get_current_value"):
+        _on_value_changed(producer.get_current_value())
+```
+
+Rules:
+- Connect signals in `_ready()`, not at script top or in scene builders.
+- If sibling A may emit during its `_ready()`, sibling B must reconcile current state after connecting.
+- Do not assume scene-tree child order is a safe event-delivery mechanism.
+
 ## Reference
 - Official Docs: `tutorials/scripting/gdscript/gdscript_styleguide.rst`
 - Official Docs: `tutorials/best_practices/logic_preferences.rst`

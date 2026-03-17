@@ -2,6 +2,17 @@
 
 Scene builders are GDScript files that run headless in Godot to produce `.tscn` files programmatically. They are NOT runtime scripts - they run once at build-time and exit.
 
+Use specialist skills before broad fallback rules:
+
+- `godot-mcp-scene-builder` when the task is explicitly MCP-driven instead of headless-script-driven
+- `godot-2d-physics` when the scene needs collision layers, masks, triggers, or raycast-heavy setups
+- `godot-camera-systems` for camera rigs and activation behavior
+- `godot-particles` for VFX emitter setup
+- `godot-audio-systems` for audio node choices and bus routing
+- `godot-composition` or `godot-composition-apps` when the scene structure should support component-based orchestration
+
+Keep this file focused on scene-builder mechanics: owner chains, serialization, save flow, and build-time constraints.
+
 ## Scene Output Requirements
 
 Generate a single GDScript file that:
@@ -184,7 +195,7 @@ func set_owner_on_new_nodes(node: Node, scene_owner: Node) -> void:
 - Do NOT use `preload()` - use `load()` (preload fails in headless)
 - Attach scripts only when the task spec explicitly maps a script to that node
 - Do NOT connect signals at build-time - scripts aren't instantiated yet. Signal connections belong in runtime scripts' `_ready()` method
-- ALWAYS set `.name` on every node you create - script generator needs predictable names for `@onready` references
+- ALWAYS set `.name` on every node you create - script generator needs predictable names for `@onready` references and typed wiring
 - Save to the EXACT output path specified by the task
 - **MANDATORY `quit()`** - Script MUST call `quit()` at the end. Without it, Godot runs forever in headless mode.
 - **Units:** 1 unit = 1 meter (3D), pixels (2D)

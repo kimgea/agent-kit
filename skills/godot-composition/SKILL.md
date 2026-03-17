@@ -23,6 +23,9 @@ In Godot, Nodes **are** components. A complex entity (Player) is simply an Orche
 - **NEVER** let components reference the Parent directly (unless absolutely necessary via typed injection).
 - **NEVER** mix Input, Physics, and Game Logic in a single script.
 
+Direct `$Child` or `%UniqueName` lookups are still acceptable for local visual or helper nodes owned by one script.
+The rule above is specifically about component dependencies between architectural parts that should survive scene-tree refactors.
+
 ---
 
 ## Implementation Standards

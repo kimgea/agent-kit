@@ -2,6 +2,16 @@
 
 Runtime scripts define node behavior - movement, combat, AI, signals, and game logic. They attach to nodes in scenes and run when the game plays.
 
+Use specialist skills before broad fallback rules:
+
+- `godot-gdscript-mastery` for script structure, typing, signals, node access, and style rules
+- `godot-composition` for gameplay entity architecture
+- `godot-composition-apps` for app, tool, and UI orchestration
+- `godot-input-handling` when the script reads actions or input events
+- domain skills such as `godot-characterbody-2d`, `godot-animation-player`, `godot-animation-tree-mastery`, `godot-2d-physics`, `godot-audio-systems`, or `godot-navigation-pathfinding` when the script's behavior is specific to that domain
+
+Keep this file focused on generation-time constraints: matching the target node type, using the task spec correctly, and avoiding scene-builder/runtime confusion.
+
 ## Script Output Requirements
 
 Generate a `.gd` file that:
@@ -36,6 +46,8 @@ func _physics_process(delta: float) -> void:
 
 **Script section ordering:** signals -> @onready vars -> private state -> lifecycle methods -> public methods -> private methods -> signal handlers
 
+Prefer `godot-gdscript-mastery` for the canonical rationale behind this layout. Use the ordering here as the minimum generation contract.
+
 ## VehicleBody3D
 
 ```gdscript
@@ -56,10 +68,10 @@ func _physics_process(delta: float) -> void:
 ## Script Constraints
 
 - `extends` MUST match the node type this script attaches to
-- Use `@onready` for node refs, NOT `get_node()` in `_process()`
+- Use `@onready` for node refs, NOT `get_node()` in `_process()`. See `godot-gdscript-mastery`.
 - ONLY use input actions from the task spec's `Inputs` section. Never invent action names. If none are declared, use direct key checks.
-- Connect signals in `_ready()`, NOT in scene builders (scripts aren't instantiated at build-time)
-- **Sibling signal timing:** `_ready()` fires on children in order. If sibling A emits in its `_ready()`, sibling B hasn't connected yet. Fix: after connecting, check if the emitter already has data and call the handler manually.
+- Connect signals in `_ready()`, NOT in scene builders (scripts aren't instantiated at build-time). See `godot-gdscript-mastery` and `godot-composition`.
+- **Sibling signal timing:** `_ready()` fires on children in order. If sibling A emits in its `_ready()`, sibling B hasn't connected yet. Fix: after connecting, check if the emitter already has data and call the handler manually. See `godot-gdscript-mastery`.
 - Do NOT use `preload()` for scenes/resources that may not exist yet - use `load()`. Add spawned children to `get_parent()`, not `self`.
 - When "Available Nodes" section is provided, use ONLY the exact paths and types listed - do not guess or invent node names
 - **CRITICAL: NEVER use `:=` with polymorphic math functions** - `abs`, `sign`, `clamp`, `min`, `max`, `floor`, `ceil`, `round`, `lerp`, `smoothstep`, `move_toward`, `wrap`, `snappedf`, `randf_range`, `randi_range` return Variant (work on multiple types). Use explicit types: `var x: float = abs(y)` not `var x := abs(y)`
