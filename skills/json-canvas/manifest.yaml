@@ -1,0 +1,20 @@
+id: json-canvas
+type: skill
+name: JSON Canvas
+version: 0.1.0
+purpose: Create and edit JSON Canvas files with valid nodes, edges, groups, and connections.
+tags:
+  - software-development
+  - personal
+  - obsidian
+  - canvas
+  - diagrams
+entrypoints:
+  skill: ./SKILL.md
+  openai_agent: ./agents/openai.yaml
+references:
+  - ./references/EXAMPLES.md
+compatibility:
+  providers:
+    - codex
+    - openai

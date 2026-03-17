@@ -1,0 +1,21 @@
+id: godot-task
+type: skill
+name: Godot Task
+version: 0.1.0
+purpose: Execute one Godot development task end to end, including generation, validation, capture, and visual verification.
+tags:
+  - software-development
+  - godot
+  - gdscript
+  - scenes
+  - visual-qa
+entrypoints:
+  skill: ./SKILL.md
+references:
+  - ./gdscript.md
+  - ./quirks.md
+  - ./scene-generation.md
+  - ./script-generation.md
+  - ./test-harness.md
+  - ./capture.md
+  - ./visual-qa.md

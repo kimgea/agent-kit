@@ -33,3 +33,8 @@ Top-level asset directories:
 - `tools/`
 - `workflows/`
 - `bundles/`
+
+
+Some skill sources copied or heavely used as inspiration
+- https://github.com/htdt/godogen
+- https://github.com/kepano/obsidian-skills

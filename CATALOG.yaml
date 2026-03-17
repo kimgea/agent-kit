@@ -51,6 +51,22 @@ assets:
         - obsidian
         - bases
         - notes
+    - id: json-canvas
+      path: skills/json-canvas
+      tags:
+        - software-development
+        - personal
+        - obsidian
+        - canvas
+        - diagrams
+    - id: godot-task
+      path: skills/godot-task
+      tags:
+        - software-development
+        - godot
+        - gdscript
+        - scenes
+        - visual-qa
   prompts: []
   tools: []
   workflows: []

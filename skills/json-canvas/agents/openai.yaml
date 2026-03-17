@@ -1,0 +1,5 @@
+interface:
+  display_name: "JSON Canvas"
+  short_description: "Create and edit JSON Canvas files in my Obsidian vault"
+  default_prompt: "Use $json-canvas to create and edit JSON Canvas files (.canvas) with nodes, edges, groups, and connections."
+
