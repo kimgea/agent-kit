@@ -9,19 +9,38 @@ Use this skill to complete one Godot implementation task end to end.
 
 This skill directory is `skills/godot-task/`. Load files progressively. Read each file when its phase begins instead of loading everything up front.
 
+## Minimum Read Path
+
+Start with this order:
+
+1. `SKILL.md`
+2. `quirks.md`
+3. one of:
+   - `scene-generation.md` if the task writes `.tscn`
+   - `script-generation.md` if the task writes `.gd`
+   - `coordination.md` if it writes both
+4. `test-harness.md` before writing the verification script
+5. `capture.md` before capturing evidence
+6. `visual-qa.md` before final screenshot review
+
+Read `gdscript.md` only when you need syntax or engine-specific coding guidance.
+Read `doc_api/` only when you need a class reference.
+
+## File Roles
+
 | File | Purpose | When to read |
 |------|---------|--------------|
 | `quirks.md` | Known Godot gotchas and workarounds | Before writing any code |
-| `gdscript.md` | GDScript syntax reference | Before writing any code |
+| `gdscript.md` | GDScript syntax reference | Only when syntax or implementation details are unclear |
 | `scene-generation.md` | Building `.tscn` files via headless GDScript builders | Targets include `.tscn` |
 | `script-generation.md` | Writing runtime `.gd` scripts for node behavior | Targets include `.gd` |
 | `coordination.md` | Ordering scene and script generation | Targets include both `.tscn` and `.gd` |
 | `test-harness.md` | Writing `test/test_{id}.gd` verification scripts | Before writing the test harness |
 | `capture.md` | Screenshot and video capture with GPU detection | Before capturing screenshots |
 | `visual-qa.md` | Manual screenshot review guidance | The task has visual output |
-| `doc_api/_common.md` | Index of common Godot classes | Need API ref; scan to find likely class names |
+| `doc_api/_common.md` | Index of common Godot classes | Need API ref; start here |
 | `doc_api/_other.md` | Index of remaining Godot classes | Need API ref; class is not in `_common.md` |
-| `doc_api/{ClassName}.md` | Full API reference for a single Godot class | Need API ref; look up a specific class |
+| `doc_api/{ClassName}.md` | Full API reference for a single Godot class | Need API ref; look up one specific class |
 
 Bootstrap `doc_api` when needed:
 
@@ -48,6 +67,8 @@ Preferred fields:
 - `Script Attachments`: optional mapping from scene nodes to script paths
 
 If one of these sections is missing, infer only what is safe and state the assumption.
+
+If the task is small, do not read every reference file. Read only the minimum files needed for the current phase.
 
 ## Workflow
 
