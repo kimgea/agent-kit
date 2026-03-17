@@ -1,0 +1,20 @@
+id: obsidian-bases
+type: skill
+name: Obsidian Bases
+version: 0.1.0
+purpose: Create and edit Obsidian Bases files with valid YAML, views, filters, formulas, and summaries.
+tags:
+  - software-development
+  - personal
+  - obsidian
+  - bases
+  - notes
+entrypoints:
+  skill: ./SKILL.md
+  openai_agent: ./agents/openai.yaml
+references:
+  - ./references/FUNCTIONS_REFERENCE.md
+compatibility:
+  providers:
+    - codex
+    - openai

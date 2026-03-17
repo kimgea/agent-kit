@@ -43,6 +43,14 @@ assets:
         - obsidian
         - markdown
         - notes
+    - id: obsidian-bases
+      path: skills/obsidian-bases
+      tags:
+        - software-development
+        - personal
+        - obsidian
+        - bases
+        - notes
   prompts: []
   tools: []
   workflows: []
