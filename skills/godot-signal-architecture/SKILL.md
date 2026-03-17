@@ -5,72 +5,83 @@ description: "Expert blueprint for signal-driven architecture using \"Signal Up,
 
 # Signal Architecture
 
-Signal Up/Call Down pattern, typed signals, and event buses define decoupled, maintainable architectures.
+Use this skill when the task needs decoupled communication, event flow, or clear ownership boundaries.
+
+Focus:
+- `signal up, call down`
+- typed signals
+- parent-mediated orchestration
+- AutoLoad event buses for cross-scene events
 
 ## Available Scripts
 
 ### [global_event_bus.gd](scripts/global_event_bus.gd)
-Expert AutoLoad event bus with typed signals and connection management.
+AutoLoad event bus with typed signals and connection management.
 
 ### [signal_debugger.gd](scripts/signal_debugger.gd)
-Runtime signal connection analyzer. Shows all connections in scene hierarchy.
+Runtime signal connection analyzer for scene hierarchies.
 
 ### [signal_spy.gd](scripts/signal_spy.gd)
-Testing utility for observing signal emissions with count tracking and history.
+Testing utility for tracking emissions and counts.
 
-> **MANDATORY - For Event Bus**: Read global_event_bus.gd before implementing cross-scene communication.
+> For event-bus work, read [global_event_bus.gd](scripts/global_event_bus.gd) first.
 
+## Load This Skill When
 
-## NEVER Do in Signal Architecture
+- child nodes need to notify parents or managers
+- systems should react to events without tight coupling
+- multiple scenes need shared events through an AutoLoad
+- the task involves signal ownership, connection lifetime, or debugging duplicate emissions
 
-- **NEVER create circular signal dependencies** — A signals to B, B signals back to A? Infinite loops + stack overflow. Use mediator (parent OR AutoLoad) to break cycle.
-- **NEVER skip signal typing** — `signal moved` without types? No autocomplete OR type safety. Use `signal moved(direction: Vector2)` for editor support.
-- **NEVER forget to disconnect signals** — Node freed but signal still connected? "Attempt to call on null instance" error. Disconnect in `_exit_tree()` OR use `CONNECT_REFERENCE_COUNTED`.
-- **NEVER connect signals in _ready() for dynamic nodes** — Enemy spawned after level load? Signals not connected. Connect when instantiating OR use groups + `await` pattern.
-- **NEVER use signals for parent→child** — Parent signaling to child breaks encapsulation. CALL DOWN directly: `child.method()`. Reserve signals for child→parent communication.
-- **NEVER emit signals with side effects** — `died.emit()` calls `queue_free()` inside? Listeners can't respond before node freed. Emit FIRST, then cleanup.
-- **NEVER use string-based signal names** — `connect("heath_chnaged", ...)` typo = silent failure. Use direct reference: `player.health_changed.connect(...)`.
+## Use Signals For
 
----
+- UI input flowing into game logic
+- child-to-parent notifications
+- score, inventory, combat, or quest events
+- cross-scene communication through a bus
 
-**Use Signals For:**
-- UI button presses → game logic
-- Player death → game over screen
-- Item collected → inventory update
-- Enemy killed → score update
-- Cross-scene communication via AutoLoad
+## Use Direct Calls For
 
-**Use Direct Calls For:**
-- Parent controlling child behavior
-- Accessing child properties
-- Simple, local interactions
+- parent-controlled child behavior
+- local one-to-one interactions
+- direct access to child properties or methods
 
-## Implementation Patterns
+## Never Do
 
-### Pattern 1: Define Typed Signals
+- Never create circular signal dependencies.
+- Never skip signal typing in Godot 4.x when typed parameters are known.
+- Never leave connections alive after their owner is gone.
+- Never assume `_ready()` is enough for dynamically spawned nodes.
+- Never use signals for parent-to-child control when a direct call is clearer.
+- Never hide side effects inside signal emission order.
+- Never prefer string-based signal names over direct typed references.
+
+## Pattern 1: Define Typed Signals
 
 ```gdscript
 extends CharacterBody2D
 
-# ✅ Good - typed signals (Godot 4.x)
 signal health_changed(new_health: int, max_health: int)
 signal died()
 signal item_collected(item_name: String, item_type: int)
+```
 
-# ❌ Bad - untyped signals
+Avoid:
+
+```gdscript
 signal health_changed
 signal died
 ```
 
-### Pattern 2: Emit Signals on State Changes
+## Pattern 2: Emit On State Changes
 
 ```gdscript
-# player.gd
 extends CharacterBody2D
 
 signal health_changed(current: int, maximum: int)
 signal died()
 
+var max_health: int = 100
 var health: int = 100:
     set(value):
         health = clamp(value, 0, max_health)
@@ -78,58 +89,49 @@ var health: int = 100:
         if health <= 0:
             died.emit()
 
-var max_health: int = 100
-
 func take_damage(amount: int) -> void:
-    health -= amount  # Triggers setter, which emits signal
+    health -= amount
 ```
 
-### Pattern 3: Connect Signals in Parent
+Emit first. Cleanup after listeners have had a chance to react.
+
+## Pattern 3: Connect In The Parent
 
 ```gdscript
-# game.gd (parent)
 extends Node2D
 
 @onready var player: CharacterBody2D = $Player
 @onready var ui: Control = $UI
 
 func _ready() -> void:
-    # Connect child signals
     player.health_changed.connect(_on_player_health_changed)
     player.died.connect(_on_player_died)
 
 func _on_player_health_changed(current: int, maximum: int) -> void:
-    # Call down to UI
     ui.update_health_bar(current, maximum)
 
 func _on_player_died() -> void:
-    # Orchestrate game over
     ui.show_game_over()
     get_tree().paused = true
 ```
 
-### Pattern 4: Global Signals via AutoLoad
-
-For cross-scene communication:
+## Pattern 4: AutoLoad Event Bus
 
 ```gdscript
-# events.gd (AutoLoad)
+# events.gd
 extends Node
 
 signal level_completed(level_number: int)
 signal player_spawned(player: Node2D)
 signal boss_defeated(boss_name: String)
 
-# Any script can emit:
 Events.level_completed.emit(3)
-
-# Any script can listen:
 Events.level_completed.connect(_on_level_completed)
 ```
 
-## Advanced Patterns
+Use this for cross-scene events, not as a replacement for all local signal wiring.
 
-### Pattern 5: Signal Chains
+## Pattern 5: Signal Chains
 
 ```gdscript
 # enemy.gd
@@ -149,23 +151,18 @@ func _on_enemy_died(score_value: int) -> void:
     Events.enemy_killed.emit()
 ```
 
-### Pattern 6: One-Shot Connections
-
-For single-use signal connections:
+## Pattern 6: One-Shot Connections
 
 ```gdscript
-# Connect with CONNECT_ONE_SHOT flag
 timer.timeout.connect(_on_timer_timeout, CONNECT_ONE_SHOT)
 
 func _on_timer_timeout() -> void:
     print("This only fires once")
-    # Connection automatically removed
 ```
 
-### Pattern 7: Custom Signal Arguments
+## Pattern 7: Structured Payloads
 
 ```gdscript
-# item.gd
 signal picked_up(item_data: Dictionary)
 
 func _on_player_enter() -> void:
@@ -175,55 +172,32 @@ func _on_player_enter() -> void:
         "value": item_value,
         "icon": item_icon
     })
-
-# inventory.gd
-func _on_item_picked_up(item_data: Dictionary) -> void:
-    add_item(
-        item_data.name,
-        item_data.type,
-        item_data.value
-    )
 ```
+
+Use small typed parameter lists when possible. Use a dictionary or resource payload when the event data is naturally grouped.
 
 ## Best Practices
 
-### 1. Descriptive Signal Names
+### Descriptive Names
 
 ```gdscript
-# ✅ Good
 signal button_pressed()
 signal enemy_defeated(enemy_type: String)
 signal animation_finished(animation_name: String)
-
-# ❌ Bad
-signal pressed()
-signal done()
-signal finished()
 ```
 
-### 2. Avoid Circular Dependencies
+Avoid vague names like `done()` or `finished()` when multiple meanings are possible.
 
-```gdscript
-# ❌ BAD: A signals to B, B signals back to A
-# A.gd
-signal data_requested
-func _ready():
-    B.data_ready.connect(_on_data_ready)
-    data_requested.emit()
+### Avoid Circular Dependencies
 
-# B.gd
-signal data_ready
-func _ready():
-    A.data_requested.connect(_on_data_requested)
+Bad:
+- `A` requests data from `B`
+- `B` depends on a signal from `A`
 
-# ✅ GOOD: Use a mediator (parent or AutoLoad)
-# Parent.gd
-func _ready():
-    A.data_requested.connect(_on_A_data_requested)
-    B.data_ready.connect(_on_B_data_ready)
-```
+Good:
+- a parent or AutoLoad mediates the flow
 
-### 3. Disconnect Signals When Nodes Are Freed
+### Clean Up Connections
 
 ```gdscript
 func _ready() -> void:
@@ -234,27 +208,26 @@ func _exit_tree() -> void:
         player.died.disconnect(_on_player_died)
 ```
 
-**Or use automatic cleanup:**
+Or:
+
 ```gdscript
-# Signal auto-disconnects when this node is freed
 player.died.connect(_on_player_died, CONNECT_REFERENCE_COUNTED)
 ```
 
-### 4. Group Related Signals
+### Group Related Signals
 
 ```gdscript
-# ✅ Good organization
-# Combat signals
-signal health_changed(current: int, max: int)
+# Combat
+signal health_changed(current: int, max_health: int)
 signal died()
 signal respawned()
 
-# Movement signals
+# Movement
 signal jumped()
 signal landed()
 signal direction_changed(direction: Vector2)
 
-# Inventory signals
+# Inventory
 signal item_added(item: Dictionary)
 signal item_removed(item: Dictionary)
 signal inventory_full()
@@ -266,37 +239,39 @@ signal inventory_full()
 func test_health_signal() -> void:
     var signal_emitted := false
     var received_health := 0
-    
+
     player.health_changed.connect(
         func(current: int, _max: int):
             signal_emitted = true
             received_health = current
     )
-    
+
     player.health = 50
+
     assert(signal_emitted, "Signal was not emitted")
     assert(received_health == 50, "Health value incorrect")
 ```
 
 ## Common Gotchas
 
-**Issue**: Signal not firing
-- **Check**: Is the signal spelled correctly when connecting?
-- **Check**: Is the emitting code path actually being executed?
-- **Check**: Use `print()` before `emit()` to verify
+Issue: signal is not firing
+- Check the connection target and code path.
+- Verify the emitter is actually reached.
 
-**Issue**: Signal firing multiple times
-- **Cause**: Multiple connections to the same signal
-- **Solution**: Check connections or use `CONNECT_ONE_SHOT`
+Issue: signal fires multiple times
+- Check for repeated connections.
+- Use `CONNECT_ONE_SHOT` where appropriate.
 
-**Issue**: "Attempt to call function on a null instance"
-- **Cause**: Node was freed but signal still connected
-- **Solution**: Disconnect in `_exit_tree()` or use `CONNECT_REFERENCE_COUNTED`
+Issue: callback runs on a freed node
+- Disconnect in `_exit_tree()`.
+- Or use `CONNECT_REFERENCE_COUNTED`.
 
 ## Reference
+
 - [Godot Docs: Signals](https://docs.godotengine.org/en/stable/getting_started/step_by_step/signals.html)
-- [Best Practices: Signals Up, Calls Down](https://docs.godotengine.org/en/stable/tutorials/best_practices/scene_organization.html)
+- [Godot Docs: Scene Organization](https://docs.godotengine.org/en/stable/tutorials/best_practices/scene_organization.html)
 
+## Related
 
-### Related
-- Master Skill: [godot-master](../godot-master/SKILL.md)
+- [godot-task](../godot-task/SKILL.md)
+- [godot-master](../godot-master/SKILL.md)

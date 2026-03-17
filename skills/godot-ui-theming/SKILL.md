@@ -5,59 +5,75 @@ description: "Expert blueprint for UI themes using Theme resources, StyleBoxes, 
 
 # UI Theming
 
-Theme resources, StyleBox styling, font management, and override system define consistent UI visual identity.
+Use this skill when the task needs a consistent visual language across multiple UI controls.
+
+Focus:
+- `Theme` resources
+- `StyleBox` reuse
+- font management
+- inheritance and selective overrides
 
 ## Available Scripts
 
 ### [global_theme_manager.gd](scripts/global_theme_manager.gd)
-Expert theme manager with dynamic switching, theme variants, and fallback handling.
+Theme manager for switching variants and handling fallbacks.
 
 ### [ui_scale_manager.gd](scripts/ui_scale_manager.gd)
-Runtime theme switching and DPI/Resolution scale management.
+Scaling helper for DPI and resolution-sensitive UI.
 
-## NEVER Do in UI Theming
+## Load This Skill When
 
-- **NEVER create StyleBox in _ready() for many nodes** — 100 buttons × `StyleBoxFlat.new()` in `_ready()`? 100 duplicate objects. Create ONCE in theme resource, reuse via inheritance.
-- **NEVER forget theme inheritance** — Child Control with custom theme? Parent theme ignored. Set `theme` on root Control, children auto-inherit unless overriding.
-- **NEVER hardcode colors in StyleBox** — `style.bg_color = Color(0.2, 0.3, 0.5)`? Unmaintainable. Define colors in theme, reference via `theme.get_color("primary", "Button")`.
-- **NEVER use add_theme_override for global styles** — Call `add_theme_*_override()` on 50 nodes? Brittle. Define in Theme resource for automatic propagation.
-- **NEVER skip corner_radius_all shortcut** — Set 4 corner radii individually? Verbose. Use `corner_radius_all = 5` for uniform corners (StyleBoxFlat only).
-- **NEVER modify theme during rendering** — Change theme in `_draw()` OR `_process()`? Constant re-layout = performance tank. Load themes at initialization OR on user action only.
+- establishing a shared UI look
+- supporting theme variants
+- replacing ad hoc per-node overrides
+- working with fonts, styleboxes, and reusable color choices
 
----
+## Never Do
 
-1. Project Settings → **GUI → Theme**
-2. Create new Theme resource
-3. Assign to root Control node
-4. All children inherit theme
+- Never create duplicate `StyleBox` instances per node when the style belongs in a shared theme.
+- Never break inheritance accidentally by assigning themes at the wrong level.
+- Never hardcode colors everywhere when the theme should own them.
+- Never use per-node theme overrides for a style that is meant to be global.
+- Never churn theme changes every frame.
+
+## Basic Workflow
+
+1. Open `Project Settings -> GUI -> Theme`.
+2. Create a `Theme` resource.
+3. Assign it at the appropriate root `Control`.
+4. Let child controls inherit unless a local override is intentional.
 
 ## StyleBox Pattern
 
 ```gdscript
-# Create StyleBoxFlat for buttons
 var style := StyleBoxFlat.new()
 style.bg_color = Color.DARK_BLUE
-style.corner_radius_top_left = 5
-style.corner_radius_top_right = 5
-style.corner_radius_bottom_left = 5
-style.corner_radius_bottom_right = 5
+style.corner_radius_all = 5
 
-# Apply to button
 $Button.add_theme_stylebox_override("normal", style)
 ```
+
+Prefer storing shared versions of this in a `Theme` resource instead of rebuilding them repeatedly.
 
 ## Font Loading
 
 ```gdscript
-# Load custom font
 var font := load("res://fonts/my_font.ttf")
 $Label.add_theme_font_override("font", font)
 $Label.add_theme_font_size_override("font_size", 24)
 ```
 
+## Theme Ownership Guidance
+
+- Put global style rules in the shared `Theme`.
+- Use local overrides only for one-off exceptions.
+- Keep semantic colors and font choices centralized.
+
 ## Reference
+
 - [Godot Docs: GUI Theming](https://docs.godotengine.org/en/stable/tutorials/ui/gui_skinning.html)
 
+## Related
 
-### Related
-- Master Skill: [godot-master](../godot-master/SKILL.md)
+- [godot-task](../godot-task/SKILL.md)
+- [godot-master](../godot-master/SKILL.md)

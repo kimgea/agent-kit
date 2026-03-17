@@ -205,6 +205,90 @@ assets:
         - software-development
         - godot
         - performance-optimization
+    - id: godot-procedural-generation
+      path: skills/godot-procedural-generation
+      tags:
+        - software-development
+        - godot
+        - procedural-generation
+    - id: godot-project-foundations
+      path: skills/godot-project-foundations
+      tags:
+        - software-development
+        - godot
+        - project-foundations
+    - id: godot-project-templates
+      path: skills/godot-project-templates
+      tags:
+        - software-development
+        - godot
+        - project-templates
+    - id: godot-quest-system
+      path: skills/godot-quest-system
+      tags:
+        - software-development
+        - godot
+        - quest-system
+    - id: godot-resource-data-patterns
+      path: skills/godot-resource-data-patterns
+      tags:
+        - software-development
+        - godot
+        - resource-data-patterns
+    - id: godot-rpg-stats
+      path: skills/godot-rpg-stats
+      tags:
+        - software-development
+        - godot
+        - rpg-stats
+    - id: godot-save-load-systems
+      path: skills/godot-save-load-systems
+      tags:
+        - software-development
+        - godot
+        - save-load-systems
+    - id: godot-scene-management
+      path: skills/godot-scene-management
+      tags:
+        - software-development
+        - godot
+        - scene-management
+    - id: godot-server-architecture
+      path: skills/godot-server-architecture
+      tags:
+        - software-development
+        - godot
+        - server-architecture
+    - id: godot-shaders-basics
+      path: skills/godot-shaders-basics
+      tags:
+        - software-development
+        - godot
+        - shaders-basics
+    - id: godot-signal-architecture
+      path: skills/godot-signal-architecture
+      tags:
+        - software-development
+        - godot
+        - signal-architecture
+    - id: godot-skill-discovery
+      path: skills/godot-skill-discovery
+      tags:
+        - software-development
+        - godot
+        - skill-discovery
+    - id: godot-skill-judge
+      path: skills/godot-skill-judge
+      tags:
+        - software-development
+        - godot
+        - skill-judge
+    - id: godot-state-machine-advanced
+      path: skills/godot-state-machine-advanced
+      tags:
+        - software-development
+        - godot
+        - state-machine-advanced
     - id: godot-task
       path: skills/godot-task
       tags:
@@ -213,6 +297,48 @@ assets:
         - gdscript
         - scenes
         - visual-qa
+    - id: godot-testing-patterns
+      path: skills/godot-testing-patterns
+      tags:
+        - software-development
+        - godot
+        - testing-patterns
+    - id: godot-tilemap-mastery
+      path: skills/godot-tilemap-mastery
+      tags:
+        - software-development
+        - godot
+        - tilemap-mastery
+    - id: godot-turn-system
+      path: skills/godot-turn-system
+      tags:
+        - software-development
+        - godot
+        - turn-system
+    - id: godot-tweening
+      path: skills/godot-tweening
+      tags:
+        - software-development
+        - godot
+        - tweening
+    - id: godot-ui-containers
+      path: skills/godot-ui-containers
+      tags:
+        - software-development
+        - godot
+        - ui-containers
+    - id: godot-ui-rich-text
+      path: skills/godot-ui-rich-text
+      tags:
+        - software-development
+        - godot
+        - ui-rich-text
+    - id: godot-ui-theming
+      path: skills/godot-ui-theming
+      tags:
+        - software-development
+        - godot
+        - ui-theming
     - id: grill-me
       path: skills/grill-me
       tags:

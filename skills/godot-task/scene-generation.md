@@ -9,6 +9,10 @@ Use specialist skills before broad fallback rules:
 - `godot-camera-systems` for camera rigs and activation behavior
 - `godot-particles` for VFX emitter setup
 - `godot-audio-systems` for audio node choices and bus routing
+- `godot-scene-management` when the scene participates in transitions, persistence, or async loading flow
+- `godot-tilemap-mastery` when the scene is tile-driven
+- `godot-ui-containers`, `godot-ui-rich-text`, and `godot-ui-theming` when the scene is UI-heavy
+- `godot-shaders-basics` when custom materials or post-processing are part of the scene contract
 - `godot-composition` or `godot-composition-apps` when the scene structure should support component-based orchestration
 
 Keep this file focused on scene-builder mechanics: owner chains, serialization, save flow, and build-time constraints.

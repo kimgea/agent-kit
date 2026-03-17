@@ -87,7 +87,7 @@ If the task spec is underspecified, use `task-spec-template.md` as the canonical
 
 If the task is small, do not read every reference file. Read only the minimum files needed for the current phase.
 
-If the task is clearly about animation, cameras, combat, inventory, debugging, performance, exports, or another specialist domain, load the relevant skill from `specialist-skills.md` before falling back to broad internal references.
+If the task is clearly about animation, cameras, combat, inventory, debugging, performance, exports, testing, save/load, UI, shaders, data modeling, state machines, or another specialist domain, load the relevant skill from `specialist-skills.md` before falling back to broad internal references.
 
 ## Workflow
 

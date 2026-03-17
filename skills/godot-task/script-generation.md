@@ -8,7 +8,11 @@ Use specialist skills before broad fallback rules:
 - `godot-composition` for gameplay entity architecture
 - `godot-composition-apps` for app, tool, and UI orchestration
 - `godot-input-handling` when the script reads actions or input events
-- domain skills such as `godot-characterbody-2d`, `godot-animation-player`, `godot-animation-tree-mastery`, `godot-2d-physics`, `godot-audio-systems`, or `godot-navigation-pathfinding` when the script's behavior is specific to that domain
+- `godot-resource-data-patterns` when the script should operate on `Resource` or `RefCounted` data models
+- `godot-signal-architecture` when event flow and decoupling are central to the script
+- `godot-state-machine-advanced` when the script implements hierarchical or stacked state behavior
+- `godot-testing-patterns` when the task also requires reusable automated verification
+- domain skills such as `godot-characterbody-2d`, `godot-animation-player`, `godot-animation-tree-mastery`, `godot-2d-physics`, `godot-audio-systems`, `godot-navigation-pathfinding`, `godot-rpg-stats`, `godot-turn-system`, or `godot-quest-system` when the script's behavior is specific to that domain
 
 Keep this file focused on generation-time constraints: matching the target node type, using the task spec correctly, and avoiding scene-builder/runtime confusion.
 
