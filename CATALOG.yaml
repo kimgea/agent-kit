@@ -35,6 +35,14 @@ assets:
         - obsidian
         - notes
         - automation
+    - id: obsidian-markdown
+      path: skills/obsidian-markdown
+      tags:
+        - software-development
+        - personal
+        - obsidian
+        - markdown
+        - notes
   prompts: []
   tools: []
   workflows: []

@@ -1,0 +1,22 @@
+id: obsidian-markdown
+type: skill
+name: Obsidian Markdown
+version: 0.1.0
+purpose: Create and edit Obsidian Flavored Markdown with valid Obsidian-specific syntax and conventions.
+tags:
+  - software-development
+  - personal
+  - obsidian
+  - markdown
+  - notes
+entrypoints:
+  skill: ./SKILL.md
+  openai_agent: ./agents/openai.yaml
+references:
+  - ./references/CALLOUTS.md
+  - ./references/EMBEDS.md
+  - ./references/PROPERTIES.md
+compatibility:
+  providers:
+    - codex
+    - openai
