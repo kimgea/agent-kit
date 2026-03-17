@@ -1,0 +1,11 @@
+﻿id: godot-rpg-stats
+type: skill
+name: godot-rpg-stats
+version: 0.1.0
+purpose: Expert blueprint for RPG stat systems (attributes, leveling, modifiers, damage formulas) using Resource-based stats, stackable modifiers, and derived stat calculations. Use when implementing character progression OR equipment/buff systems. Keywords stats, attributes, leveling, modifiers, CharacterStats, derived stats, damage calculation, XP.
+tags:
+  - software-development
+  - godot
+  - rpg-stats
+entrypoints:
+  skill: ./SKILL.md

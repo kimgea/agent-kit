@@ -1,0 +1,11 @@
+﻿id: godot-ui-rich-text
+type: skill
+name: godot-ui-rich-text
+version: 0.1.0
+purpose: Expert blueprint for RichTextLabel with BBCode formatting (bold, italic, colors, images, clickable links) and custom effects. Covers meta tags, RichTextEffect shaders, and dynamic content. Use when implementing dialogue systems OR formatted text. Keywords RichTextLabel, BBCode, [b], [color], [url], meta_clicked, RichTextEffect, dialogue.
+tags:
+  - software-development
+  - godot
+  - ui-rich-text
+entrypoints:
+  skill: ./SKILL.md

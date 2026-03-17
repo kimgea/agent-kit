@@ -1,0 +1,11 @@
+﻿id: godot-scene-management
+type: skill
+name: godot-scene-management
+version: 0.1.0
+purpose: Expert blueprint for scene loading, transitions, async (background) loading, instance management, and caching. Covers fade transitions, loading screens, dynamic spawning, and scene persistence. Use when implementing level changes OR dynamic content loading. Keywords scene, loading, transition, async, ResourceLoader, change_scene, preload, PackedScene, fade.
+tags:
+  - software-development
+  - godot
+  - scene-management
+entrypoints:
+  skill: ./SKILL.md

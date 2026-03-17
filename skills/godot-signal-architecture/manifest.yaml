@@ -1,0 +1,11 @@
+﻿id: godot-signal-architecture
+type: skill
+name: godot-signal-architecture
+version: 0.1.0
+purpose: Expert blueprint for signal-driven architecture using \
+tags:
+  - software-development
+  - godot
+  - signal-architecture
+entrypoints:
+  skill: ./SKILL.md

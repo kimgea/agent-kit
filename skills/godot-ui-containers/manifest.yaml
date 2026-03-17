@@ -1,0 +1,11 @@
+﻿id: godot-ui-containers
+type: skill
+name: godot-ui-containers
+version: 0.1.0
+purpose: Expert blueprint for responsive UI layouts using Container nodes (HBoxContainer, VBoxContainer, GridContainer, MarginContainer, ScrollContainer). Covers size flags, anchors, split containers, and dynamic layouts. Use when building adaptive interfaces OR implementing responsive menus. Keywords Container, HBoxContainer, VBoxContainer, GridContainer, size_flags, EXPAND_FILL, anchors, responsive.
+tags:
+  - software-development
+  - godot
+  - ui-containers
+entrypoints:
+  skill: ./SKILL.md

@@ -48,6 +48,12 @@ Load these for:
 - `godot-gdscript-mastery`
 - `godot-debugging-profiling`
 - `godot-performance-optimization`
+- `godot-project-foundations`
+- `godot-project-templates`
+- `godot-resource-data-patterns`
+- `godot-signal-architecture`
+- `godot-state-machine-advanced`
+- `godot-testing-patterns`
 
 Load these for:
 - project architecture
@@ -56,11 +62,22 @@ Load these for:
 - GDScript style, typing, signal architecture, and node access
 - performance work
 - debugging and profiling
+- project setup and folder conventions
+- reusable data and resource modeling
+- event-bus and signal topology
+- hierarchical state machines
+- automated and integration testing
 
 Use:
 - `godot-composition` for gameplay entities, actors, combatants, and scene-driven game behavior
 - `godot-composition-apps` for tools, apps, menus, dashboards, and UI orchestration
 - `godot-gdscript-mastery` for language-level rules that apply regardless of project type
+- `godot-project-foundations` when creating or refactoring overall repo and project structure
+- `godot-project-templates` when bootstrapping a new Godot project shape
+- `godot-resource-data-patterns` when data ownership should live in `Resource` or `RefCounted`
+- `godot-signal-architecture` when event flow and decoupling are the main problem
+- `godot-state-machine-advanced` when a basic FSM is no longer enough
+- `godot-testing-patterns` when the task needs automated verification beyond the local harness
 
 ### Gameplay Systems
 
@@ -70,6 +87,9 @@ Use:
 - `godot-economy-system`
 - `godot-inventory-system`
 - `godot-audio-systems`
+- `godot-quest-system`
+- `godot-rpg-stats`
+- `godot-turn-system`
 
 Load these for:
 - combat
@@ -78,6 +98,9 @@ Load these for:
 - inventory
 - economy
 - audio routing and runtime audio behavior
+- quest tracking and progression
+- RPG stats, modifiers, and derived values
+- turn order, phases, and tactical combat flow
 
 ### Loops and Mechanics
 
@@ -95,16 +118,56 @@ Load these for:
 - revival or death-loop mechanics
 - secrets and hidden systems
 
+### World, Scene Flow, and Content Generation
+
+- `godot-procedural-generation`
+- `godot-scene-management`
+- `godot-tilemap-mastery`
+
+Load these for:
+- procedural level or world generation
+- scene loading, transitions, caching, and persistence between scenes
+- tile-based world building, autotiling, and runtime tile manipulation
+
+### UI, Text, and Presentation
+
+- `godot-shaders-basics`
+- `godot-tweening`
+- `godot-ui-containers`
+- `godot-ui-rich-text`
+- `godot-ui-theming`
+
+Load these for:
+- shader-driven visuals and post-processing
+- tweened transitions and procedural UI motion
+- responsive container-based UI layout
+- rich text, BBCode, and dialogue formatting
+- theme resources, style boxes, and visual consistency
+
 ### Build and Tooling
 
 - `godot-export-builds`
 - `godot-mcp-setup`
 - `godot-mcp-scene-builder`
+- `godot-save-load-systems`
+- `godot-server-architecture`
 
 Load these for:
 - export pipelines
 - MCP setup
 - MCP-assisted scene generation
+- save/load persistence and migration
+- low-level server APIs and RID-based performance work
+
+### Skill Library Maintenance
+
+- `godot-skill-discovery`
+- `godot-skill-judge`
+
+Load these only when:
+- working on the Godot skill library itself
+- validating skill metadata, indexing, or discoverability
+- maintaining agent-facing skill quality rather than a game project
 
 ### Broad Reference
 

@@ -1,0 +1,11 @@
+﻿id: godot-turn-system
+type: skill
+name: godot-turn-system
+version: 0.1.0
+purpose: Expert blueprint for turn-based combat with turn order, action points, phase management, and timeline systems for strategy/RPG games. Covers speed-based initiative, interrupts, and simultaneous turns. Use when implementing turn-based combat OR tactical systems. Keywords turn-based, initiative, action points, phase, round, turn order, combat.
+tags:
+  - software-development
+  - godot
+  - turn-system
+entrypoints:
+  skill: ./SKILL.md

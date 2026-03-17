@@ -1,0 +1,11 @@
+﻿id: godot-save-load-systems
+type: skill
+name: godot-save-load-systems
+version: 0.1.0
+purpose: Expert blueprint for save/load systems using JSON/binary serialization, PERSIST group pattern, versioning, and migration. Covers player progress, settings, game state persistence, and error recovery. Use when implementing save systems OR data persistence. Keywords save, load, JSON, FileAccess, user://, serialization, version migration, PERSIST group.
+tags:
+  - software-development
+  - godot
+  - save-load-systems
+entrypoints:
+  skill: ./SKILL.md
