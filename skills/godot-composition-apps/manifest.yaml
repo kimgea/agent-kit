@@ -1,0 +1,11 @@
+id: godot-composition-apps
+type: skill
+name: godot-composition-apps
+version: 0.1.0
+purpose: Expert architectural standards for building scalable Godot applications (Apps, Tools, UI, or Games) using the Composition pattern. Use when designing node structures, refactoring monolithic scripts, or implementing complex behaviors. Enforces \"Has-A\" relationships over \"Is-A\" inheritance.
+tags:
+  - software-development
+  - godot
+  - composition-apps
+entrypoints:
+  skill: ./SKILL.md

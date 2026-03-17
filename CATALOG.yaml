@@ -19,6 +19,200 @@ asset_types:
 assets:
   agents: []
   skills:
+    - id: godot-2d-animation
+      path: skills/godot-2d-animation
+      tags:
+        - software-development
+        - godot
+        - 2d-animation
+    - id: godot-2d-physics
+      path: skills/godot-2d-physics
+      tags:
+        - software-development
+        - godot
+        - 2d-physics
+    - id: godot-ability-system
+      path: skills/godot-ability-system
+      tags:
+        - software-development
+        - godot
+        - ability-system
+    - id: godot-animation-player
+      path: skills/godot-animation-player
+      tags:
+        - software-development
+        - godot
+        - animation-player
+    - id: godot-animation-tree-mastery
+      path: skills/godot-animation-tree-mastery
+      tags:
+        - software-development
+        - godot
+        - animation-tree-mastery
+    - id: godot-audio-systems
+      path: skills/godot-audio-systems
+      tags:
+        - software-development
+        - godot
+        - audio-systems
+    - id: godot-autoload-architecture
+      path: skills/godot-autoload-architecture
+      tags:
+        - software-development
+        - godot
+        - autoload-architecture
+    - id: godot-camera-systems
+      path: skills/godot-camera-systems
+      tags:
+        - software-development
+        - godot
+        - camera-systems
+    - id: godot-characterbody-2d
+      path: skills/godot-characterbody-2d
+      tags:
+        - software-development
+        - godot
+        - characterbody-2d
+    - id: godot-combat-system
+      path: skills/godot-combat-system
+      tags:
+        - software-development
+        - godot
+        - combat-system
+    - id: godot-composition
+      path: skills/godot-composition
+      tags:
+        - software-development
+        - godot
+        - composition
+    - id: godot-composition-apps
+      path: skills/godot-composition-apps
+      tags:
+        - software-development
+        - godot
+        - composition-apps
+    - id: godot-debugging-profiling
+      path: skills/godot-debugging-profiling
+      tags:
+        - software-development
+        - godot
+        - debugging-profiling
+    - id: godot-dialogue-system
+      path: skills/godot-dialogue-system
+      tags:
+        - software-development
+        - godot
+        - dialogue-system
+    - id: godot-economy-system
+      path: skills/godot-economy-system
+      tags:
+        - software-development
+        - godot
+        - economy-system
+    - id: godot-export-builds
+      path: skills/godot-export-builds
+      tags:
+        - software-development
+        - godot
+        - export-builds
+    - id: godot-game-loop-collection
+      path: skills/godot-game-loop-collection
+      tags:
+        - software-development
+        - godot
+        - game-loop-collection
+    - id: godot-game-loop-harvest
+      path: skills/godot-game-loop-harvest
+      tags:
+        - software-development
+        - godot
+        - game-loop-harvest
+    - id: godot-game-loop-time-trial
+      path: skills/godot-game-loop-time-trial
+      tags:
+        - software-development
+        - godot
+        - game-loop-time-trial
+    - id: godot-game-loop-waves
+      path: skills/godot-game-loop-waves
+      tags:
+        - software-development
+        - godot
+        - game-loop-waves
+    - id: godot-gdscript-mastery
+      path: skills/godot-gdscript-mastery
+      tags:
+        - software-development
+        - godot
+        - gdscript-mastery
+    - id: godot-input-handling
+      path: skills/godot-input-handling
+      tags:
+        - software-development
+        - godot
+        - input-handling
+    - id: godot-inventory-system
+      path: skills/godot-inventory-system
+      tags:
+        - software-development
+        - godot
+        - inventory-system
+    - id: godot-master
+      path: skills/godot-master
+      tags:
+        - software-development
+        - godot
+        - master
+    - id: godot-mcp-scene-builder
+      path: skills/godot-mcp-scene-builder
+      tags:
+        - software-development
+        - godot
+        - mcp-scene-builder
+    - id: godot-mcp-setup
+      path: skills/godot-mcp-setup
+      tags:
+        - software-development
+        - godot
+        - mcp-setup
+    - id: godot-mechanic-revival
+      path: skills/godot-mechanic-revival
+      tags:
+        - software-development
+        - godot
+        - mechanic-revival
+    - id: godot-mechanic-secrets
+      path: skills/godot-mechanic-secrets
+      tags:
+        - software-development
+        - godot
+        - mechanic-secrets
+    - id: godot-navigation-pathfinding
+      path: skills/godot-navigation-pathfinding
+      tags:
+        - software-development
+        - godot
+        - navigation-pathfinding
+    - id: godot-particles
+      path: skills/godot-particles
+      tags:
+        - software-development
+        - godot
+        - particles
+    - id: godot-performance-optimization
+      path: skills/godot-performance-optimization
+      tags:
+        - software-development
+        - godot
+        - performance-optimization
+    - id: godot-task
+      path: skills/godot-task
+      tags:
+        - software-development
+        - godot
+        - gdscript
+        - scenes
+        - visual-qa
     - id: grill-me
       path: skills/grill-me
       tags:
@@ -27,6 +221,22 @@ assets:
         - planning
         - critique
         - personal
+    - id: json-canvas
+      path: skills/json-canvas
+      tags:
+        - software-development
+        - personal
+        - obsidian
+        - canvas
+        - diagrams
+    - id: obsidian-bases
+      path: skills/obsidian-bases
+      tags:
+        - software-development
+        - personal
+        - obsidian
+        - bases
+        - notes
     - id: obsidian-cli
       path: skills/obsidian-cli
       tags:
@@ -43,30 +253,6 @@ assets:
         - obsidian
         - markdown
         - notes
-    - id: obsidian-bases
-      path: skills/obsidian-bases
-      tags:
-        - software-development
-        - personal
-        - obsidian
-        - bases
-        - notes
-    - id: json-canvas
-      path: skills/json-canvas
-      tags:
-        - software-development
-        - personal
-        - obsidian
-        - canvas
-        - diagrams
-    - id: godot-task
-      path: skills/godot-task
-      tags:
-        - software-development
-        - godot
-        - gdscript
-        - scenes
-        - visual-qa
   prompts: []
   tools: []
   workflows: []

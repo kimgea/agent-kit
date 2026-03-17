@@ -34,9 +34,11 @@ Start with this order:
 5. `capture.md` before capturing evidence
 6. `visual-qa.md` before final screenshot review
 7. `task-spec-template.md` only when the incoming task spec is missing structure or is ambiguous
+8. `specialist-skills.md` when the task clearly matches a specialist domain
 
 Read `gdscript.md` only when you need syntax or engine-specific coding guidance.
 Read `doc_api/` only when you need a class reference.
+Read `specialist-skills.md` when you need to decide which smaller Godot skill to load.
 
 ## File Roles
 
@@ -51,6 +53,7 @@ Read `doc_api/` only when you need a class reference.
 | `capture.md` | Screenshot and video capture with GPU detection | Before capturing screenshots |
 | `visual-qa.md` | Manual screenshot review guidance | The task has visual output |
 | `task-spec-template.md` | Preferred shape for incoming task specs | When the task spec is underspecified or inconsistent |
+| `specialist-skills.md` | Routing guide for smaller Godot specialist skills | When the task is domain-specific |
 | `doc_api/_common.md` | Index of common Godot classes | Need API ref; start here |
 | `doc_api/_other.md` | Index of remaining Godot classes | Need API ref; class is not in `_common.md` |
 | `doc_api/{ClassName}.md` | Full API reference for a single Godot class | Need API ref; look up one specific class |
@@ -83,6 +86,8 @@ If one of these sections is missing, infer only what is safe and state the assum
 If the task spec is underspecified, use `task-spec-template.md` as the canonical shape.
 
 If the task is small, do not read every reference file. Read only the minimum files needed for the current phase.
+
+If the task is clearly about animation, cameras, combat, inventory, debugging, performance, exports, or another specialist domain, load the relevant skill from `specialist-skills.md` before falling back to broad internal references.
 
 ## Workflow
 

@@ -1,0 +1,11 @@
+id: godot-autoload-architecture
+type: skill
+name: godot-autoload-architecture
+version: 0.1.0
+purpose: Expert patterns for Godot AutoLoad (singleton) architecture including global state management, scene transitions, signal-based communication, dependency injection, autoload initialization order, and anti-patterns to avoid. Use for game managers, save systems, audio controllers, or cross-scene resources. Trigger keywords: AutoLoad, singleton, GameManager, SceneTransitioner, SaveManager, global_state, autoload_order, signal_bus, dependency_injection.
+tags:
+  - software-development
+  - godot
+  - autoload-architecture
+entrypoints:
+  skill: ./SKILL.md

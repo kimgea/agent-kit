@@ -1,0 +1,11 @@
+id: godot-game-loop-waves
+type: skill
+name: godot-game-loop-waves
+version: 0.1.0
+purpose: Expert patterns for managing combat waves, difficulty scaling, and automated enemy spawning in Godot 4. Use when building wave-based shooters, tower defense, or arena games.
+tags:
+  - software-development
+  - godot
+  - game-loop-waves
+entrypoints:
+  skill: ./SKILL.md

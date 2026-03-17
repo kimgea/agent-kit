@@ -1,0 +1,11 @@
+id: godot-mechanic-secrets
+type: skill
+name: godot-mechanic-secrets
+version: 0.1.0
+purpose: Use when implementing cheat codes, hidden interactions, or unlockable content based on player input/behavior.
+tags:
+  - software-development
+  - godot
+  - mechanic-secrets
+entrypoints:
+  skill: ./SKILL.md

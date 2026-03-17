@@ -1,0 +1,11 @@
+id: godot-dialogue-system
+type: skill
+name: godot-dialogue-system
+version: 0.1.0
+purpose: Expert patterns for branching dialogue systems including dialogue graphs (Resource-based), character portraits, player choices, conditional dialogue (flags/quests), typewriter effects, localization support, and voice acting integration. Use for narrative games, RPGs, or visual novels. Trigger keywords: DialogueLine, DialogueChoice, DialogueGraph, dialogue_manager, typewriter_effect, branching_dialogue, dialogue_flags, localization, voice_acting.
+tags:
+  - software-development
+  - godot
+  - dialogue-system
+entrypoints:
+  skill: ./SKILL.md

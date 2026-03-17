@@ -1,0 +1,11 @@
+id: godot-game-loop-harvest
+type: skill
+name: godot-game-loop-harvest
+version: 0.1.0
+purpose: Data-driven resource harvesting system (mining, logging, foraging) for Godot 4. Use when implementing gathering mechanics with tool/tier validation, health depletion, item spawning, and persistence.
+tags:
+  - software-development
+  - godot
+  - game-loop-harvest
+entrypoints:
+  skill: ./SKILL.md

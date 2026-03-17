@@ -1,0 +1,11 @@
+id: godot-game-loop-collection
+type: skill
+name: godot-game-loop-collection
+version: 0.1.0
+purpose: Use when implementing collection quests, scavenger hunts, or "find all X" objectives.
+tags:
+  - software-development
+  - godot
+  - game-loop-collection
+entrypoints:
+  skill: ./SKILL.md

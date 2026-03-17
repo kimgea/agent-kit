@@ -1,0 +1,11 @@
+id: godot-mechanic-revival
+type: skill
+name: godot-mechanic-revival
+version: 0.1.0
+purpose: Use when implementing player death, resurrection, or "second chance" mechanics.
+tags:
+  - software-development
+  - godot
+  - mechanic-revival
+entrypoints:
+  skill: ./SKILL.md
