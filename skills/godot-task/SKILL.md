@@ -33,6 +33,22 @@ Execute one development task from `PLAN.md` or an equivalent task specification:
 
 $ARGUMENTS
 
+## Expected Task Spec
+
+This skill does not require a file literally named `PLAN.md`, but it does require task information with equivalent fields.
+
+Preferred fields:
+
+- `Goal`: what the task should achieve
+- `Targets`: output file paths to create or modify
+- `Requirements`: constraints, mechanics, visuals, and asset usage rules
+- `Verify`: what evidence should prove the task is complete
+- `Available Nodes`: optional exact node paths and types the script may rely on
+- `Inputs`: optional allowed input actions
+- `Script Attachments`: optional mapping from scene nodes to script paths
+
+If one of these sections is missing, infer only what is safe and state the assumption.
+
 ## Workflow
 
 1. Analyze the task. Read the task's targets to determine what to generate:

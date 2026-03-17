@@ -9,7 +9,7 @@ Generate a single GDScript file that:
 2. Implements `_initialize()` as entry point
 3. Builds complete node hierarchy with all properties set
 4. Sets `owner` on ALL descendants for serialization
-5. Attaches scripts from STRUCTURE.md via `set_script()`
+5. Attaches scripts via `set_script()` when the task spec explicitly requires script attachment
 6. Saves scene using `PackedScene.pack()` + `ResourceSaver.save()`
 7. Calls `quit()` when done
 
@@ -66,7 +66,7 @@ pivot.add_child(camera)
 ## Script Attachment (in Scenes)
 
 ```gdscript
-# Attach scripts listed in STRUCTURE.md "Attaches to" fields
+# Attach scripts when the task spec says this node should own one
 var script := load("res://scripts/player_controller.gd")
 player_node.set_script(script)
 ```
@@ -182,7 +182,7 @@ func set_owner_on_new_nodes(node: Node, scene_owner: Node) -> void:
 - Use ONLY nodes and resources available in Godot - look up unfamiliar classes in `doc_api`
 - Do NOT use `@onready` or scene-time annotations (this runs at build-time)
 - Do NOT use `preload()` - use `load()` (preload fails in headless)
-- ATTACH all scripts listed in STRUCTURE.md using `node.set_script(load("path"))`
+- Attach scripts only when the task spec explicitly maps a script to that node
 - Do NOT connect signals at build-time - scripts aren't instantiated yet. Signal connections belong in runtime scripts' `_ready()` method
 - ALWAYS set `.name` on every node you create - script generator needs predictable names for `@onready` references
 - Save to the EXACT output path specified by the task
