@@ -139,6 +139,30 @@ func swap_skin(new_skin: String) -> void:
 | Need to blend/crossfade animations | AnimationPlayer (AnimationTree support) |
 | Pixel-perfect retro game | AnimatedSprite2D (simpler frame control) |
 
+### Animation Speed Driven by Movement
+
+```gdscript
+@onready var anim_player: AnimationPlayer = $AnimationPlayer
+@onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
+
+func update_run_animation(speed: float, max_speed: float) -> void:
+    var ratio := clamp(speed / max_speed, 0.0, 1.0)
+
+    anim_player.speed_scale = max(ratio, 0.1)
+    if not anim_player.is_playing() or anim_player.current_animation != "run":
+        anim_player.play("run")
+
+func play_variant(variants: Array[StringName]) -> void:
+    if variants.is_empty():
+        return
+    sprite.play(variants.pick_random())
+```
+
+Use this when:
+- run cadence should match movement speed
+- you want light randomization between equivalent sprite loops
+- full AnimationTree setup would be overkill
+
 ---
 
 ## Expert Pattern: Procedural Squash & Stretch

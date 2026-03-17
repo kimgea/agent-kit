@@ -68,6 +68,32 @@ Follow the standard Godot script layout:
 ### The "Safe" Dictionary Lookup
 Avoid `dict["key"]` if you aren't 100% sure it exists. Use `dict.get("key", default)`.
 
+### Variant Inference Traps
+
+Avoid `:=` when the right-hand side is Variant-typed or polymorphic.
+
+```gdscript
+# WRONG: polymorphic helpers return Variant
+var amount := abs(speed)
+var blend := clamp(value, 0.0, 1.0)
+var lowest := min(a, b)
+
+# CORRECT: add an explicit type or use plain =
+var amount: float = abs(speed)
+var blend: float = clamp(value, 0.0, 1.0)
+var lowest = min(a, b)
+
+# WRONG: instantiate() is treated as Variant for inference
+var scene: PackedScene = load("res://enemy.tscn")
+var enemy := scene.instantiate()
+
+# CORRECT
+var scene: PackedScene = load("res://enemy.tscn")
+var enemy = scene.instantiate()
+```
+
+Apply the same rule to array and dictionary element access when the result type is not statically known.
+
 ### Scene Unique Nodes
 When building complex UI, always toggle "Access as Scene Unique Name" on critical nodes (Labels, Buttons) and access them via `%Name`.
 

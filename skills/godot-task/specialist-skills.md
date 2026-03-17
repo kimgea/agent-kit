@@ -53,7 +53,7 @@ Load these for:
 - project architecture
 - autoload design
 - composition patterns
-- GDScript style and correctness
+- GDScript style, typing, signal architecture, and node access
 - performance work
 - debugging and profiling
 

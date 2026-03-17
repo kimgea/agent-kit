@@ -146,6 +146,9 @@ const SPEED := 200.0
 const ACCELERATION := 1500.0
 const FRICTION := 1000.0
 
+func _ready() -> void:
+    motion_mode = MOTION_MODE_FLOATING
+
 func _physics_process(delta: float) -> void:
     # Get input direction (normalized for diagonal movement)
     var input_vector := Input.get_vector(
@@ -168,6 +171,8 @@ func _physics_process(delta: float) -> void:
     
     move_and_slide()
 ```
+
+**Top-down rule:** `MOTION_MODE_FLOATING` disables floor logic and gravity assumptions. Use it for overhead movement, twin-stick controls, and other non-platformer controllers.
 
 ### Top-Down with Rotation (Tank Controls)
 
@@ -368,6 +373,18 @@ func _physics_process(delta: float) -> void:
     if Input.is_action_just_pressed("jump") and can_jump:
         velocity.y = JUMP_VELOCITY
         can_jump = false
+```
+
+**Issue**: Top-down character snags on tile corners
+```gdscript
+# Solution: use a collision shape slightly smaller than the visual tile footprint
+# Example: 48px capsule inside a 64px tile character
+```
+
+**Issue**: Top-down controller fights floor logic
+```gdscript
+func _ready() -> void:
+    motion_mode = MOTION_MODE_FLOATING
 ```
 
 ## Reference

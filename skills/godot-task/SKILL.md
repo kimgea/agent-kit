@@ -44,8 +44,8 @@ Read `specialist-skills.md` when you need to decide which smaller Godot skill to
 
 | File | Purpose | When to read |
 |------|---------|--------------|
-| `quirks.md` | Known Godot gotchas and workarounds | Before writing any code |
-| `gdscript.md` | GDScript syntax reference | Only when syntax or implementation details are unclear |
+| `quirks.md` | Workflow-specific Godot gotchas and fallback notes | Before writing any code |
+| `gdscript.md` | GDScript syntax reference plus compact fallback patterns | Only when syntax or implementation details are unclear |
 | `scene-generation.md` | Building `.tscn` files via headless GDScript builders | Targets include `.tscn` |
 | `script-generation.md` | Writing runtime `.gd` scripts for node behavior | Targets include `.gd` |
 | `coordination.md` | Ordering scene and script generation | Targets include both `.tscn` and `.gd` |

@@ -48,6 +48,20 @@ func _process(delta: float) -> void:
         )
 ```
 
+### Activating Camera2D Correctly
+
+```gdscript
+extends Camera2D
+
+func _ready() -> void:
+    make_current()
+```
+
+Rules:
+- `Camera2D` does not use a `current` property. Use `make_current()`.
+- Call `make_current()` only after the camera is inside the tree.
+- If another gameplay camera re-asserts itself every frame, the harness or debug camera must disable that camera continuously or disable its controller.
+
 ## Position Smoothing
 
 ```gdscript
@@ -275,6 +289,35 @@ func _ready() -> void:
     drag_left_margin = 0.3
     drag_right_margin = 0.3
 ```
+
+### Detached Follow Cameras
+
+```gdscript
+extends Camera3D
+
+@export var target: Node3D
+@export var offset := Vector3(0, 3, 6)
+@export var smooth_speed := 6.0
+var _initialized := false
+
+func _ready() -> void:
+    top_level = true
+
+func _physics_process(delta: float) -> void:
+    if not target:
+        return
+
+    var desired := target.global_position + offset
+    if not _initialized:
+        global_position = desired
+        _initialized = true
+    else:
+        global_position = global_position.lerp(desired, smooth_speed * delta)
+
+    look_at(target.global_position)
+```
+
+Use `top_level = true` when the camera should remain a child in the scene tree but operate in world space.
 
 ## Reference
 - [Godot Docs: Camera2D](https://docs.godotengine.org/en/stable/classes/class_camera2d.html)

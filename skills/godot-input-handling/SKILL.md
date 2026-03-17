@@ -52,6 +52,38 @@ var direction := Input.get_axis("move_left", "move_right")
 var input_vector := Input.get_vector("left", "right", "up", "down")
 ```
 
+## Polling vs Event Flow
+
+Use polling for continuous gameplay state and events for discrete input details.
+
+```gdscript
+func _physics_process(_delta: float) -> void:
+    var move_axis := Input.get_axis("move_left", "move_right")
+    var throttle := Input.get_action_strength("accelerate")
+
+    if Input.is_action_just_pressed("jump"):
+        jump()
+
+    if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+        hold_fire()
+
+func _unhandled_input(event: InputEvent) -> void:
+    if event.is_action_pressed("pause"):
+        toggle_pause()
+
+    if event is InputEventMouseButton and event.pressed:
+        click_position = event.position
+
+func sample_mouse_position() -> Vector2:
+    return Input.get_mouse_position()
+```
+
+Rules:
+- Poll actions in `_physics_process()` for movement, jumping, held fire, and other gameplay state.
+- Use `_unhandled_input()` for one-shot events that should respect UI consumption.
+- Use `_input()` only when you intentionally need raw events before UI handling.
+- Prefer InputMap actions over hardcoded keys. Use direct key checks only when the task spec explicitly calls for them.
+
 ## InputEvent Processing
 
 ```gdscript

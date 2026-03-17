@@ -7,12 +7,12 @@
 - **`_process()` signature in SceneTree scripts** - must be `func _process(delta: float) -> bool:` (returns bool), not void.
 - **Autoloads in SceneTree scripts** - cannot reference autoload singletons by name (compile error). Find them via `root.get_children()` and match by `.name`.
 - **`free()` vs `queue_free()` in test harnesses** - `queue_free()` leaves the node in `root.get_children()` until frame end, blocking name reuse. Use `free()` when immediately replacing scenes.
-- **Camera2D has no `current` property** - use `make_current()`, and only after the node is in the scene tree.
+- **Camera2D has no `current` property** - use `make_current()`, and only after the node is in the scene tree. See `godot-camera-systems` for camera ownership patterns.
 - **`--write-movie` frame 0** - the first movie frame renders before `_process()` runs. Camera position set in `_process()` won't appear until frame 1. Pre-position the camera in `_initialize()` (via `position`/`rotation_degrees`, NOT `look_at()`) or accept a junk frame 0.
 - **`await` during `--write-movie`** - `await get_tree().process_frame` advances the movie frame counter each tick. A single await takes many movie frames, not 1. Use `_init_frames` counter in `_physics_process()` instead of await chains.
 - **Collision layer bitmask vs UI index** - `collision_layer` and `collision_mask` are bitmasks in code, NOT UI layer numbers. UI Layer 1 = bitmask 1, Layer 2 = bitmask 2, Layer 3 = bitmask 4, Layer 4 = bitmask 8 (powers of 2). `collision_layer = 4` means UI Layer 3, NOT Layer 4.
 - **GLB `material_override` doesn't serialize** - setting `material_override` on GLB-internal MeshInstance3D nodes does NOT persist in .tscn because `set_owner_on_new_nodes()` skips GLB children (has `scene_file_path`). Use procedural ArrayMesh when custom material is required.
-- **Camera lerp from origin** - cameras using `lerp()` in `_physics_process()` will visibly swoop from (0,0,0) on the first frame. Use an `_initialized` flag to snap position on the first frame, then lerp on subsequent frames.
+- **Camera lerp from origin** - cameras using `lerp()` in `_physics_process()` will visibly swoop from (0,0,0) on the first frame. Use an `_initialized` flag to snap position on the first frame, then lerp on subsequent frames. See `godot-camera-systems`.
 - **Chase camera `current` re-assertion** - game cameras that set `current = true` in `_physics_process()` override the test harness camera every frame. Test harnesses must disable the game camera EVERY frame.
 - **`CharacterBody3D.MOTION_MODE_FLOATING`** - also needed for 3D non-platformer movement (vehicles on slopes, snowboards). GROUNDED mode's `floor_stop_on_slope` fights slope movement.
 

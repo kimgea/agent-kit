@@ -1,5 +1,8 @@
 # GDScript Syntax Reference
 
+Prefer `godot-gdscript-mastery` for project conventions, static typing discipline, signal architecture, node access patterns, and performance-sensitive scripting rules.
+Use this file as a broad syntax and fallback reference.
+
 ## Language Notes
 
 - Indentation-based; a script file defines a class.
@@ -563,6 +566,9 @@ randi_range(from, to)        # Int in range
 
 ## Input
 
+Prefer `godot-input-handling` for input architecture, buffering, rebinding, device support, and event routing.
+Use the examples here only as compact fallback guidance.
+
 ```gdscript
 # Actions
 Input.is_action_pressed("move_right")      # Held down
@@ -609,6 +615,13 @@ position = position.clamp(Vector2.ZERO, screen_size)
 ```
 
 ## Animation Patterns
+
+Prefer:
+- `godot-2d-animation` for AnimatedSprite2D, frame events, sprite-frame workflows, and procedural 2D animation
+- `godot-animation-player` for track authoring, callbacks, and timeline-driven animation
+- `godot-animation-tree-mastery` for blend trees, state machines, and transition parameters
+
+Keep the snippets below as quick fallback reminders only.
 
 ```gdscript
 # AnimationPlayer:
@@ -659,6 +672,8 @@ for i in range(get_slide_collision_count()):
 
 ## Movement Feel
 
+Prefer `godot-characterbody-2d` for 2D movement controllers and `godot-input-handling` for analog input conventions.
+
 ```gdscript
 # Walk/stop force asymmetry for momentum:
 if abs(input_dir) > 0.2:
@@ -693,6 +708,9 @@ var states_stack: Array[State]  # push_front for temp, pop_front to return
 ```
 
 ## Navigation Patterns
+
+Prefer `godot-navigation-pathfinding` for pathfinding setup, deferred initialization, avoidance, and dynamic navigation updates.
+Use the snippets below only as minimal fallback.
 
 ```gdscript
 # 2D: NavigationAgent2D as child of CharacterBody2D
@@ -787,6 +805,8 @@ var text = FileAccess.get_file_as_string(path)
 
 ## Physics Gotchas
 
+For debugging workflow and performance triage, prefer `godot-debugging-profiling` and `godot-performance-optimization`.
+
 - BoxShape3D on RigidBody3D snags on trimesh collision edges (well-known Godot/Jolt bug). Use CapsuleShape3D for objects that slide across trimesh surfaces (vehicles, rolling objects).
 - `reset_physics_interpolation()` - call when teleporting or switching cameras to prevent visible interpolation glitch.
 
@@ -803,13 +823,16 @@ var text = FileAccess.get_file_as_string(path)
 
 ## 2D Top-Down Patterns
 
-- `CharacterBody2D.motion_mode = MOTION_MODE_FLOATING` - required for top-down 2D (disables gravity and floor detection). Also needed for 3D non-platformer movement (vehicles on slopes, snowboards) where `GROUNDED` mode's `floor_stop_on_slope` fights slope movement.
-- Collision shape slightly smaller than tile (e.g., 48px in 64px grid) allows smooth cornering through 1-tile corridors.
-- Grid alignment assist: when moving horizontally, snap Y to nearest row center (`round(pos.y / tile_size) * tile_size + tile_size / 2`), and vice versa. Prevents snagging on corridor entrances.
-- For modifiable grids (breakable blocks), Sprite2D + StaticBody2D per cell is simpler than TileMapLayer - allows individual node removal without atlas manipulation.
+Prefer `godot-characterbody-2d` for movement controllers and collision-shape recommendations.
+
+- `CharacterBody2D.motion_mode = MOTION_MODE_FLOATING` is the default for top-down 2D because it disables floor logic and gravity assumptions.
+- Slightly undersized collision shapes help cornering through tight corridors.
+- For modifiable grids, Sprite2D + StaticBody2D per cell is often simpler than TileMapLayer.
 - TileMapLayer coordinate conversion: `local_to_map(position)` -> cell coords, `map_to_local(cell)` -> world position.
 
 ## Camera Patterns
+
+Prefer `godot-camera-systems` for follow rigs, deadzones, limits, shake, detached cameras, and activation rules.
 
 - **Detach child camera:** Set `top_level = true` in `_ready()` on a Camera3D that's a child of a moving node. It operates in world space while remaining a scene child.
 - **Smooth follow (3D):** `camera.position = camera.position.lerp(target.position + offset, smooth * delta)`, then `camera.look_at(target.position)`.
