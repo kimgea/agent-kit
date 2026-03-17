@@ -1,0 +1,18 @@
+id: grill-me
+type: skill
+name: Grill Me
+version: 0.1.0
+purpose: Pressure-test ideas, plans, specs, reviews, diagnoses, and decisions through focused questioning and pushback.
+tags:
+  - software-development
+  - review
+  - planning
+  - critique
+  - personal
+entrypoints:
+  skill: ./SKILL.md
+  openai_agent: ./agents/openai.yaml
+compatibility:
+  providers:
+    - codex
+    - openai

@@ -1,0 +1,33 @@
+version: 1
+repo:
+  id: agent-kit
+  purpose: Agent-first registry for reusable agent assets.
+  source_roots:
+    - agents
+    - skills
+    - prompts
+    - tools
+    - workflows
+    - bundles
+asset_types:
+  - agents
+  - skills
+  - prompts
+  - tools
+  - workflows
+  - bundles
+assets:
+  agents: []
+  skills:
+    - id: grill-me
+      path: skills/grill-me
+      tags:
+        - software-development
+        - review
+        - planning
+        - critique
+        - personal
+  prompts: []
+  tools: []
+  workflows: []
+  bundles: []

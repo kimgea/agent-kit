@@ -1,0 +1,11 @@
+# Local artifacts
+*.tmp
+*.bak
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+
+# PowerShell artifacts
+*.ps1xml

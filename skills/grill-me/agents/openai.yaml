@@ -1,0 +1,4 @@
+interface:
+  display_name: "Grill Me"
+  short_description: "Relentless idea and decision grilling"
+  default_prompt: "Use $grill-me to pressure-test this plan until the decisions, risks, and next steps are solid."
