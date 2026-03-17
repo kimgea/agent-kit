@@ -22,6 +22,7 @@ Start with this order:
 4. `test-harness.md` before writing the verification script
 5. `capture.md` before capturing evidence
 6. `visual-qa.md` before final screenshot review
+7. `task-spec-template.md` only when the incoming task spec is missing structure or is ambiguous
 
 Read `gdscript.md` only when you need syntax or engine-specific coding guidance.
 Read `doc_api/` only when you need a class reference.
@@ -38,6 +39,7 @@ Read `doc_api/` only when you need a class reference.
 | `test-harness.md` | Writing `test/test_{id}.gd` verification scripts | Before writing the test harness |
 | `capture.md` | Screenshot and video capture with GPU detection | Before capturing screenshots |
 | `visual-qa.md` | Manual screenshot review guidance | The task has visual output |
+| `task-spec-template.md` | Preferred shape for incoming task specs | When the task spec is underspecified or inconsistent |
 | `doc_api/_common.md` | Index of common Godot classes | Need API ref; start here |
 | `doc_api/_other.md` | Index of remaining Godot classes | Need API ref; class is not in `_common.md` |
 | `doc_api/{ClassName}.md` | Full API reference for a single Godot class | Need API ref; look up one specific class |
@@ -67,6 +69,7 @@ Preferred fields:
 - `Script Attachments`: optional mapping from scene nodes to script paths
 
 If one of these sections is missing, infer only what is safe and state the assumption.
+If the task spec is underspecified, use `task-spec-template.md` as the canonical shape.
 
 If the task is small, do not read every reference file. Read only the minimum files needed for the current phase.
 

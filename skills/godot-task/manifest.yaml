@@ -19,3 +19,4 @@ references:
   - ./test-harness.md
   - ./capture.md
   - ./visual-qa.md
+  - ./task-spec-template.md
