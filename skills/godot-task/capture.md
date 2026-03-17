@@ -25,16 +25,19 @@ Screenshots go in `screenshots/` (gitignored). Each task gets a subfolder.
 
 ```bash
 MOVIE=screenshots/{task_folder}
-rm -rf $MOVIE && mkdir -p $MOVIE
+if [ -n "$MOVIE" ] && [[ "$MOVIE" == screenshots/* ]]; then
+  rm -rf -- "$MOVIE"
+fi
+mkdir -p -- "$MOVIE"
 touch screenshots/.gdignore
 if [ -n "$GPU_DISPLAY" ]; then
   timeout 30 DISPLAY=$GPU_DISPLAY godot --rendering-method forward_plus \
-      --write-movie $MOVIE/frame.png \
+      --write-movie "$MOVIE/frame.png" \
       --fixed-fps 10 --quit-after {N} \
       --script test/test_task.gd 2>&1
 else
   timeout 30 xvfb-run -a -s '-screen 0 1280x720x24' godot --rendering-driver vulkan \
-      --write-movie $MOVIE/frame.png \
+      --write-movie "$MOVIE/frame.png" \
       --fixed-fps 10 --quit-after {N} \
       --script test/test_task.gd 2>&1
 fi
@@ -56,18 +59,21 @@ Where `{task_folder}` is derived from the task name/number (e.g., `task_01_terra
 
 ```bash
 VIDEO=screenshots/presentation
-rm -rf $VIDEO && mkdir -p $VIDEO
+if [ -n "$VIDEO" ] && [[ "$VIDEO" == screenshots/* ]]; then
+  rm -rf -- "$VIDEO"
+fi
+mkdir -p -- "$VIDEO"
 touch screenshots/.gdignore
 timeout 60 DISPLAY=$GPU_DISPLAY godot --rendering-method forward_plus \
-    --write-movie $VIDEO/output.avi \
+    --write-movie "$VIDEO/output.avi" \
     --fixed-fps 30 --quit-after 900 \
     --script test/presentation.gd 2>&1
 # Convert AVI (MJPEG) to MP4 (H.264)
-ffmpeg -i $VIDEO/output.avi \
+ffmpeg -i "$VIDEO/output.avi" \
     -c:v libx264 -pix_fmt yuv420p -crf 28 -preset slow \
     -vf "scale='min(1280,iw)':-2" \
     -movflags +faststart \
-    $VIDEO/gameplay.mp4 2>&1
+    "$VIDEO/gameplay.mp4" 2>&1
 ```
 
 **AVI to MP4:** Godot outputs MJPEG AVI. ffmpeg converts to H.264 MP4. CRF 28 + `-preset slow` targets ~2-5MB for a 30s clip at 720p. `-movflags +faststart` enables Telegram preview streaming. Scale filter caps width at 1280px (no-op if already smaller).

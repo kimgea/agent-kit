@@ -9,6 +9,17 @@ Use this skill to complete one Godot implementation task end to end.
 
 This skill directory is `skills/godot-task/`. Load files progressively. Read each file when its phase begins instead of loading everything up front.
 
+## Trust Boundary
+
+This skill runs Godot commands against the target project, including headless import, validation, scene-builder scripts, and test harness scripts.
+
+Use it only on:
+
+- trusted Godot workspaces, or
+- isolated sandboxes where running project code is acceptable
+
+Do not treat this skill as safe for arbitrary untrusted projects.
+
 ## Minimum Read Path
 
 Start with this order:
