@@ -97,6 +97,27 @@ Apply the same rule to array and dictionary element access when the result type 
 ### Scene Unique Nodes
 When building complex UI, always toggle "Access as Scene Unique Name" on critical nodes (Labels, Buttons) and access them via `%Name`.
 
+### Annotation Pitfalls
+
+Annotations are useful, but a few combinations create brittle scripts.
+
+```gdscript
+# GOOD: resolve optional nodes explicitly
+var optional_label: Label = null
+
+func _ready() -> void:
+    optional_label = get_node_or_null("OptionalLabel")
+
+# BAD: conditional @onready lookup is easy to misread and harder to debug
+@onready var maybe_label = $OptionalLabel if has_node("OptionalLabel") else null
+```
+
+Rules:
+- Use `@onready` for stable node references that should exist when the node enters the tree.
+- For optional nodes, prefer a typed nullable variable plus `get_node_or_null()` in `_ready()`.
+- Avoid mixing `@export` and `@onready` for the same value; `@onready` will overwrite the exported assignment.
+- Use `class_name` for reusable scripts that should appear as types in other scripts or inspector fields.
+
 ### Ready-Order Signal Timing
 
 Sibling nodes do not become ready simultaneously in the way many projects assume.

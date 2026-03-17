@@ -75,6 +75,21 @@ func enable_layers(base_layer: int, count: int) -> void:
 collision_mask = 0b110110  # What does this mean?!
 ```
 
+### UI Layer Number vs Code Bitmask
+
+Godot's inspector shows layer numbers, but code works with bitmasks.
+
+```gdscript
+# UI Layer 1 -> bitmask 1
+# UI Layer 2 -> bitmask 2
+# UI Layer 3 -> bitmask 4
+# UI Layer 4 -> bitmask 8
+
+collision_layer = 4  # Means UI Layer 3, not Layer 4
+```
+
+Prefer `set_collision_layer_value()` and `set_collision_mask_value()` when readability matters more than raw bit math.
+
 ### Common Patterns
 
 ```gdscript
@@ -164,6 +179,22 @@ func _process(delta: float) -> void:
             body.take_damage(damage_per_tick)
             _damage_timers[body] = tick_rate
 ```
+
+### Collision State Changes During Callbacks
+
+Physics callbacks run while the engine is processing overlap queries.
+
+```gdscript
+# BAD: can trigger "Can't change state while flushing queries"
+func _on_body_entered(_body: Node2D) -> void:
+    $CollisionShape2D.disabled = true
+
+# GOOD: defer the state change
+func _on_body_entered(_body: Node2D) -> void:
+    $CollisionShape2D.set_deferred("disabled", true)
+```
+
+Use `set_deferred()` when enabling or disabling collision objects inside `body_entered`, `body_exited`, `area_entered`, or `area_exited`.
 
 ---
 

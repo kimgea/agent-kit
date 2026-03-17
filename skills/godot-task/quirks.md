@@ -10,7 +10,7 @@
 - **Camera2D has no `current` property** - use `make_current()`, and only after the node is in the scene tree. See `godot-camera-systems` for camera ownership patterns.
 - **`--write-movie` frame 0** - the first movie frame renders before `_process()` runs. Camera position set in `_process()` won't appear until frame 1. Pre-position the camera in `_initialize()` (via `position`/`rotation_degrees`, NOT `look_at()`) or accept a junk frame 0.
 - **`await` during `--write-movie`** - `await get_tree().process_frame` advances the movie frame counter each tick. A single await takes many movie frames, not 1. Use `_init_frames` counter in `_physics_process()` instead of await chains.
-- **Collision layer bitmask vs UI index** - `collision_layer` and `collision_mask` are bitmasks in code, NOT UI layer numbers. UI Layer 1 = bitmask 1, Layer 2 = bitmask 2, Layer 3 = bitmask 4, Layer 4 = bitmask 8 (powers of 2). `collision_layer = 4` means UI Layer 3, NOT Layer 4.
+- **Collision layer bitmask vs UI index** - `collision_layer` and `collision_mask` are bitmasks in code, NOT UI layer numbers. UI Layer 1 = bitmask 1, Layer 2 = bitmask 2, Layer 3 = bitmask 4, Layer 4 = bitmask 8 (powers of 2). `collision_layer = 4` means UI Layer 3, NOT Layer 4. See `godot-2d-physics`.
 - **GLB `material_override` doesn't serialize** - setting `material_override` on GLB-internal MeshInstance3D nodes does NOT persist in .tscn because `set_owner_on_new_nodes()` skips GLB children (has `scene_file_path`). Use procedural ArrayMesh when custom material is required.
 - **Camera lerp from origin** - cameras using `lerp()` in `_physics_process()` will visibly swoop from (0,0,0) on the first frame. Use an `_initialized` flag to snap position on the first frame, then lerp on subsequent frames. See `godot-camera-systems`.
 - **Chase camera `current` re-assertion** - game cameras that set `current = true` in `_physics_process()` override the test harness camera every frame. Test harnesses must disable the game camera EVERY frame.
@@ -46,11 +46,11 @@ var val = my_dict["key"]         # OK (untyped)
 
 **init() vs _ready() timing:**
 - `init()` / `setup()` called before `add_child()` -> `@onready` vars are null. Store params in plain vars, apply to nodes in `_ready()`.
-- `@onready var x = $Node if has_node("Node") else null` is unreliable. Declare `var x: Type = null` and resolve in `_ready()` with `get_node_or_null()`.
+- `@onready var x = $Node if has_node("Node") else null` is unreliable. Declare `var x: Type = null` and resolve in `_ready()` with `get_node_or_null()`. See `godot-gdscript-mastery`.
 - `get_path()` is a built-in Node method (returns NodePath). Cannot override - name yours `get_track_path()`, `get_road_path()`, etc.
 
 **Collision state changes in callbacks:**
-- Changing collision shape `.disabled` inside `body_entered`/`body_exited` -> "Can't change state while flushing queries". Use `set_deferred("disabled", false)`.
+- Changing collision shape `.disabled` inside `body_entered`/`body_exited` -> "Can't change state while flushing queries". Use `set_deferred("disabled", false)`. See `godot-2d-physics`.
 
 **Spawn immunity for revealed items:**
 - Items spawned inside an active Area2D (e.g., power-up revealed by explosion) get `area_entered` immediately -> destroyed same frame.

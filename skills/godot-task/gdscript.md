@@ -94,6 +94,8 @@ Raw strings do not process escapes and cannot end with an odd number of `\`.
 
 ## Variables & Constants
 
+Prefer `godot-gdscript-mastery` for typing strategy, `class_name`, and inference rules.
+
 ```gdscript
 var x = 5                    # Variant (no type)
 var y: int = 5               # Explicit type
@@ -287,6 +289,8 @@ class InnerEnemy:
 
 ## Node References
 
+Prefer `godot-gdscript-mastery` for node-access strategy, unique-name usage, and when to cache references.
+
 ```gdscript
 $NodeName                    # Get child node
 $Path/To/Node                # Nested path
@@ -299,6 +303,8 @@ has_node("Path")             # Check existence
 ```
 
 ## Signals
+
+Prefer `godot-gdscript-mastery` for signal architecture, connection rules, and ready-order pitfalls.
 
 ```gdscript
 # Define
@@ -327,6 +333,8 @@ var result = await some_async_func()
 ```
 
 ## Annotations
+
+Prefer `godot-gdscript-mastery` for `@onready`, `@export`, `class_name`, and annotation pitfalls.
 
 ```gdscript
 @export var visible_in_editor: int
@@ -414,6 +422,8 @@ float("3.14")                # Parse float
 ```
 
 ## Arrays & Dictionaries
+
+Prefer `godot-gdscript-mastery` for safe dictionary access patterns and typed-container guidance in gameplay code.
 
 ```gdscript
 # Arrays
