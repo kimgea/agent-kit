@@ -1,61 +1,47 @@
 # Visual Quality Assurance
 
-Analyze game screenshots against the visual reference. Use one of two modes based on scene type.
+Use manual visual review to inspect screenshots against the task goal and, when available, `reference.png`.
 
-## Static Mode
+This skill does not use API-backed screenshot analysis. Visual QA is performed by the agent directly from the captured frames.
 
-For scenes without meaningful motion such as decoration, terrain, or UI. Use two images: the reference and one representative screenshot.
+## What To Check
 
-```bash
-mkdir -p visual-qa
-N=$(ls visual-qa/*.md 2>/dev/null | wc -l); N=$((N + 1))
-python3 skills/godot-task/scripts/visual_qa.py \
-  --context "Goal: ...\nRequirements: ...\nVerify: ..." \
-  reference.png screenshots/{task}/frame0003.png > visual-qa/${N}.md
-```
+Check these in order:
 
-Pick a representative frame, not the first frame, because initialization artifacts often show up there.
+1. Task goal: does the scene match the task's verify description?
+2. Visual consistency: if `reference.png` exists, compare palette, scale relationships, camera angle, composition, and visual density.
+3. Visual quality: clipping, floating objects, missing textures, wrong assets, text overflow, overlapping UI, broken composition, implausible motion.
+4. Harness output: any `ASSERT FAIL` lines in stdout mean the task is not complete.
 
-## Dynamic Mode
+## Static Scenes
 
-For scenes with motion, animation, or physics. Use the reference plus frames sampled at 2 FPS cadence, meaning every `capture_fps / 2` frame.
+For decoration, terrain, menus, or other mostly static output:
 
-```bash
-# Example: captured at --fixed-fps 10 -> step=5, select every 5th frame
-# 30s at 10fps = 300 frames -> 60 selected frames + 1 reference = 61 images
-mkdir -p visual-qa
-N=$(ls visual-qa/*.md 2>/dev/null | wc -l); N=$((N + 1))
-STEP=5  # capture_fps / 2
-FRAMES=$(ls screenshots/{task}/frame*.png | awk "NR % $STEP == 0")
-python3 skills/godot-task/scripts/visual_qa.py \
-  --context "Goal: ...\nRequirements: ...\nVerify: ..." \
-  reference.png $FRAMES > visual-qa/${N}.md
-```
+- pick one or more representative frames
+- avoid the first frame if initialization artifacts are likely
+- inspect composition, placement, scale, readability, and obvious bugs
 
-Gemini handles large image batches well for this workflow.
+## Dynamic Scenes
 
-## --context
+For motion, animation, physics, or gameplay:
 
-Pass the task's goal, requirements, and verify text from `PLAN.md` or the active task specification.
+- inspect a sequence of representative frames
+- compare consecutive frames for jitter, teleporting, stuck entities, broken collisions, animation mismatch, or camera problems
+- use enough frames to cover the important part of the interaction
 
-The QA has two objectives:
+## Reporting
 
-1. Quality verification first: visual defects, bugs, implementation shortcuts, and logic problems.
-2. Goal verification second: whether the result matches what the task asked for.
+When visual review is complete, report:
 
-## Common
-
-- Output: markdown report with verdict (`pass`, `fail`, or `warning`), reference match, goal assessment, and per-issue details
-- Severity: `major` and `minor` must be fixed; `note` is cosmetic
-- Save stdout to `visual-qa/{N}.md` as test evidence
-- Requires `GEMINI_API_KEY` or `GOOGLE_API_KEY`
-- Depends on the `google-genai` Python package
+- `VQA report: manual review`
+- which frames were inspected
+- whether the result passes or fails visual review
+- the issues found, if any
 
 ## Handling Failures
 
-When verdict is `fail`, treat the issues as high-signal feedback.
+When visual review fails:
 
-- Fixable issues such as placement, scale, materials, clipping, z-fighting, or animation logic should be fixed, then re-captured and re-checked.
-- If the issue is upstream, such as wrong assets, a wrong approach, or an architectural mismatch, stop and report it clearly to the caller.
-
-Use at most three fix-and-rerun cycles. If the result is still failing after that, report the remaining issues and stop.
+- fix issues that are clearly local, such as placement, scale, materials, clipping, or camera framing
+- re-capture screenshots and review again
+- stop when the remaining problem is upstream, architectural, or no longer converging

@@ -18,7 +18,7 @@ This skill directory is `skills/godot-task/`. Load files progressively. Read eac
 | `coordination.md` | Ordering scene and script generation | Targets include both `.tscn` and `.gd` |
 | `test-harness.md` | Writing `test/test_{id}.gd` verification scripts | Before writing the test harness |
 | `capture.md` | Screenshot and video capture with GPU detection | Before capturing screenshots |
-| `visual-qa.md` | Automated screenshot comparison against reference | `reference.png` exists and the task has visual output |
+| `visual-qa.md` | Manual screenshot review guidance | The task has visual output |
 | `doc_api/_common.md` | Index of common Godot classes | Need API ref; scan to find likely class names |
 | `doc_api/_other.md` | Index of remaining Godot classes | Need API ref; class is not in `_common.md` |
 | `doc_api/{ClassName}.md` | Full API reference for a single Godot class | Need API ref; look up a specific class |
@@ -68,12 +68,12 @@ If one of these sections is missing, infer only what is safe and state the assum
    - Visual quality and logic: look for clipping, floating objects, wrong assets, text overflow, or overlapping UI.
    - Also check harness stdout for `ASSERT FAIL`.
    - If any check fails, fix the scene, script, or test and repeat from step 3.
-10. Run automated visual QA when applicable.
+10. Perform manual visual QA on the captured evidence.
 11. Store final evidence in `screenshots/{task_folder}/` before reporting completion.
 
 ## Iteration Tracking
 
-Steps 3-10 form an implement -> capture -> verify -> VQA loop.
+Steps 3-10 form an implement -> capture -> verify loop.
 
 There is no fixed iteration limit. Use judgment:
 
@@ -88,7 +88,7 @@ Always end with:
 - Screenshot path: `screenshots/{task_folder}/`
 - The best representative frames, for example `frame0003.png`
 - One line per chosen frame describing what it shows
-- VQA report path, or `skipped` if non-visual
+- Visual QA result, or `skipped` if the task is non-visual
 
 On failure, also include:
 
