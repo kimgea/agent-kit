@@ -45,6 +45,12 @@ Reason:
 
 Add specialist skills only when the project or task clearly needs them.
 
+If a bundle is available for the project type, prefer the bundle over manually assembling the same set.
+
+Current Godot bundles:
+- `godot-core`
+- `godot-ui`
+
 ## When To Add More Skills
 
 Add a specialist skill when one or more of these is true:
@@ -55,7 +61,7 @@ Add a specialist skill when one or more of these is true:
 - the project has bugs or design pressure concentrated in that area
 
 Common examples:
-- UI-heavy project -> `godot-ui-containers`, `godot-ui-theming`, `godot-ui-rich-text`
+- UI-heavy project -> prefer `godot-ui`, or add `godot-ui-containers`, `godot-ui-theming`, `godot-ui-rich-text`, `godot-tweening`, and `godot-composition-apps`
 - RPG or quest-heavy project -> `godot-quest-system`, `godot-rpg-stats`, `godot-turn-system`
 - action or platforming project -> `godot-input-handling`, `godot-characterbody-2d`, `godot-camera-systems`, `godot-2d-animation`
 - shader or VFX-heavy project -> `godot-shaders-basics`, `godot-particles`
@@ -123,6 +129,11 @@ Use `godot-task` plus one specialist skill for:
 - testing task -> `godot-task` + `godot-testing-patterns`
 - save/load task -> `godot-task` + `godot-save-load-systems`
 - architecture-heavy signal work -> `godot-task` + `godot-signal-architecture`
+
+Use `godot-ui` for:
+- UI-heavy game projects
+- HUD, menus, overlays, and app-like flows that are central to the project
+- projects where layout, theming, text rendering, and UI motion are part of the core workload
 
 Use `godot-master` first for:
 - "what Godot pattern should we use here?"

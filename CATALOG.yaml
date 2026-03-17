@@ -382,4 +382,23 @@ assets:
   prompts: []
   tools: []
   workflows: []
-  bundles: []
+  bundles:
+    - id: godot-core
+      path: bundles/godot-core
+      tags:
+        - software-development
+        - godot
+        - core
+    - id: godot-ui
+      path: bundles/godot-ui
+      tags:
+        - software-development
+        - godot
+        - ui
+    - id: obsidian-core
+      path: bundles/obsidian-core
+      tags:
+        - software-development
+        - personal
+        - obsidian
+        - core

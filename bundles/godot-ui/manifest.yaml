@@ -1,0 +1,24 @@
+id: godot-ui
+type: bundle
+name: Godot UI
+version: 0.1.0
+purpose: Bundle for Godot projects where UI is a central implementation surface.
+tags:
+  - software-development
+  - godot
+  - ui
+dependencies:
+  skills:
+    - godot-task
+    - godot-master
+    - godot-gdscript-mastery
+    - godot-project-foundations
+    - godot-testing-patterns
+    - godot-ui-containers
+    - godot-ui-theming
+    - godot-ui-rich-text
+    - godot-tweening
+    - godot-composition-apps
+entrypoints:
+  bundle: ./bundle.yaml
+

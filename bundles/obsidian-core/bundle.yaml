@@ -1,0 +1,16 @@
+includes:
+  skills:
+    - obsidian-cli
+    - obsidian-markdown
+    - obsidian-bases
+
+entrypoint:
+  default_skill: obsidian-cli
+
+on_demand_skills: []
+
+rules:
+  - Use this bundle for normal Obsidian vault work.
+  - Use obsidian-cli as the operational entrypoint when terminal access to the vault is needed.
+  - Use obsidian-markdown for note syntax and obsidian-bases for .base files and views.
+

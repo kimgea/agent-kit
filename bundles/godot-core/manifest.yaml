@@ -1,0 +1,19 @@
+id: godot-core
+type: bundle
+name: Godot Core
+version: 0.1.0
+purpose: Default bundle for general Godot development work.
+tags:
+  - software-development
+  - godot
+  - core
+dependencies:
+  skills:
+    - godot-task
+    - godot-master
+    - godot-gdscript-mastery
+    - godot-project-foundations
+    - godot-testing-patterns
+entrypoints:
+  bundle: ./bundle.yaml
+

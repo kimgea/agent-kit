@@ -1,0 +1,27 @@
+includes:
+  skills:
+    - godot-task
+    - godot-master
+    - godot-gdscript-mastery
+    - godot-project-foundations
+    - godot-testing-patterns
+    - godot-ui-containers
+    - godot-ui-theming
+    - godot-ui-rich-text
+    - godot-tweening
+    - godot-composition-apps
+
+entrypoint:
+  default_skill: godot-task
+
+on_demand_skills:
+  - godot-shaders-basics
+  - godot-signal-architecture
+  - godot-save-load-systems
+  - godot-audio-systems
+
+rules:
+  - Use this bundle when menus, HUD, overlays, panels, or app-like interface flows are a major part of the project.
+  - Treat godot-composition-apps as the main architecture reference for UI orchestration.
+  - Add on-demand skills only when the interface needs those systems directly.
+
