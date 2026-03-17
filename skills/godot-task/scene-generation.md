@@ -1,6 +1,6 @@
 # Scene Generation
 
-Scene builders are GDScript files that run headless in Godot to produce `.tscn` files programmatically. They are NOT runtime scripts — they run once at build-time and exit.
+Scene builders are GDScript files that run headless in Godot to produce `.tscn` files programmatically. They are NOT runtime scripts - they run once at build-time and exit.
 
 ## Scene Output Requirements
 
@@ -25,9 +25,9 @@ func set_owner_on_new_nodes(node: Node, scene_owner: Node) -> void:
     for child in node.get_children():
         child.owner = scene_owner
         if child.scene_file_path.is_empty():
-            # Node created with .new() — recurse into children
+            # Node created with .new() - recurse into children
             set_owner_on_new_nodes(child, scene_owner)
-        # else: instantiated scene (GLB/TSCN) — don't recurse, keeps as reference
+        # else: instantiated scene (GLB/TSCN) - don't recurse, keeps as reference
 ```
 
 **WRONG patterns** (cause missing nodes in saved .tscn):
@@ -39,7 +39,7 @@ terrain.owner = root  # Terrain's children (Mesh, Collision) have NO owner!
 set_owner_on_new_nodes(track_container, root)  # track_container itself has NO owner!
 ```
 
-**GLB OWNERSHIP BUG** — Never use unconditional recursion. If you recurse into instantiated GLB models, ALL internal mesh/material nodes get serialized inline as text, causing 100MB+ .tscn files.
+**GLB OWNERSHIP BUG** - Never use unconditional recursion. If you recurse into instantiated GLB models, ALL internal mesh/material nodes get serialized inline as text, causing 100MB+ .tscn files.
 
 ## Common Node Compositions
 
@@ -80,7 +80,7 @@ var model_scene: PackedScene = load("res://assets/glb/car.glb")
 var model = model_scene.instantiate()
 model.name = "CarModel"
 
-# Measure for scaling — find MeshInstance3D (GLB structure varies, may be nested)
+# Measure for scaling - find MeshInstance3D (GLB structure varies, may be nested)
 var mesh_inst: MeshInstance3D = find_mesh_instance(model)
 var aabb: AABB = mesh_inst.get_aabb() if mesh_inst else AABB(Vector3.ZERO, Vector3.ONE)
 
@@ -96,18 +96,18 @@ func find_mesh_instance(node: Node) -> MeshInstance3D:
     if node is MeshInstance3D:
         return node
     for child in node.get_children():
-        var found = find_mesh_instance(child)  # Recursive — use = not :=
+        var found = find_mesh_instance(child)  # Recursive - use = not :=
         if found:
             return found
     return null
 ```
 
-**GLB orientation:** Imported models often face the wrong axis. After instantiating, check the AABB: the longest dimension tells you which local axis the model faces. If a car's AABB is longest on Z but your game expects forward=negative Z, no rotation needed; if longest on X, rotate 90°. For animals/characters, the forward-facing axis must align with the direction of movement — an animal moving sideways is a clear bug. Verify this in screenshots: if the bounding box or silhouette doesn't match the movement direction, fix the rotation.
+**GLB orientation:** Imported models often face the wrong axis. After instantiating, check the AABB: the longest dimension tells you which local axis the model faces. If a car's AABB is longest on Z but your game expects forward=negative Z, no rotation needed; if longest on X, rotate 90 degrees. For animals/characters, the forward-facing axis must align with the direction of movement - an animal moving sideways is a clear bug. Verify this in screenshots: if the bounding box or silhouette doesn't match the movement direction, fix the rotation.
 
-**Collision shapes for 3D models:** Always use simple primitives (BoxShape3D, SphereShape3D, CapsuleShape3D). Never use `create_convex_shape()` or `create_trimesh_shape()` on imported GLB meshes — causes <1 FPS on high-poly models (100k+ triangles).
+**Collision shapes for 3D models:** Always use simple primitives (BoxShape3D, SphereShape3D, CapsuleShape3D). Never use `create_convex_shape()` or `create_trimesh_shape()` on imported GLB meshes - causes <1 FPS on high-poly models (100k+ triangles).
 
 ```gdscript
-# Box from AABB — use this for all imported models
+# Box from AABB - use this for all imported models
 var box := BoxShape3D.new()
 box.size = aabb.size * model.scale
 collision_shape.shape = box
@@ -134,7 +134,7 @@ var car = car_scene.instantiate()
 car.name = "PlayerCar"
 car.position = Vector3(0, 0, 5)
 root.add_child(car)
-car.owner = root  # Child internals already have owner — just set on instance root
+car.owner = root  # Child internals already have owner - just set on instance root
 ```
 
 ## Scene Template
@@ -179,17 +179,17 @@ func set_owner_on_new_nodes(node: Node, scene_owner: Node) -> void:
 
 ## Scene Constraints
 
-- Use ONLY nodes and resources available in Godot — look up unfamiliar classes in `doc_api`
+- Use ONLY nodes and resources available in Godot - look up unfamiliar classes in `doc_api`
 - Do NOT use `@onready` or scene-time annotations (this runs at build-time)
-- Do NOT use `preload()` — use `load()` (preload fails in headless)
+- Do NOT use `preload()` - use `load()` (preload fails in headless)
 - ATTACH all scripts listed in STRUCTURE.md using `node.set_script(load("path"))`
-- Do NOT connect signals at build-time — scripts aren't instantiated yet. Signal connections belong in runtime scripts' `_ready()` method
-- ALWAYS set `.name` on every node you create — script generator needs predictable names for `@onready` references
+- Do NOT connect signals at build-time - scripts aren't instantiated yet. Signal connections belong in runtime scripts' `_ready()` method
+- ALWAYS set `.name` on every node you create - script generator needs predictable names for `@onready` references
 - Save to the EXACT output path specified by the task
-- **MANDATORY `quit()`** — Script MUST call `quit()` at the end. Without it, Godot runs forever in headless mode.
+- **MANDATORY `quit()`** - Script MUST call `quit()` at the end. Without it, Godot runs forever in headless mode.
 - **Units:** 1 unit = 1 meter (3D), pixels (2D)
-- **2D/3D consistency** — Use ONLY 2D nodes (Node2D, CharacterBody2D, Area2D, Camera2D) OR 3D nodes. Never mix dimensions in the same scene hierarchy.
-- **No spatial methods in `_initialize()`** — `look_at()`, `to_global()`, etc. fail because nodes aren't in the tree yet. Use `rotation_degrees` or compute transforms manually.
+- **2D/3D consistency** - Use ONLY 2D nodes (Node2D, CharacterBody2D, Area2D, Camera2D) OR 3D nodes. Never mix dimensions in the same scene hierarchy.
+- **No spatial methods in `_initialize()`** - `look_at()`, `to_global()`, etc. fail because nodes aren't in the tree yet. Use `rotation_degrees` or compute transforms manually.
 
 ## Environment & Lighting (3D Scenes)
 
@@ -222,7 +222,7 @@ root.add_child(sun)
 
 ## CSG for Rapid Prototyping
 
-CSG nodes generate collision automatically — no separate CollisionShape needed:
+CSG nodes generate collision automatically - no separate CollisionShape needed:
 
 ```gdscript
 var floor := CSGBox3D.new()
@@ -261,6 +261,6 @@ tex.bump_strength = 2.0
 
 Beyond basic albedo, useful properties for richer materials:
 - `normal_enabled = true` + `normal_texture` + `normal_scale = 2.0`
-- `rim_enabled = true` + `rim_tint = 1.0` — silhouette glow
-- `emission_enabled = true` + `emission_texture` — self-illumination
+- `rim_enabled = true` + `rim_tint = 1.0` - silhouette glow
+- `emission_enabled = true` + `emission_texture` - self-illumination
 - `texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC`

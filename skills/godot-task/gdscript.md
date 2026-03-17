@@ -30,7 +30,7 @@
 
 **Variant:** Means untyped; not a real type for inference by default.
 
-**Value vs reference:** Built-in types (`bool`, `int`, `float`, `Vector2/3`, `AABB`, `Transform2D/3D`, `Color`, `Rect2`, etc.) are value types — passing them to a function creates a copy, assignments inside the function do NOT update the caller. `Object`, `Array`, `Dictionary`, and packed arrays are reference types (use `duplicate()` to copy).
+**Value vs reference:** Built-in types (`bool`, `int`, `float`, `Vector2/3`, `AABB`, `Transform2D/3D`, `Color`, `Rect2`, etc.) are value types - passing them to a function creates a copy, assignments inside the function do NOT update the caller. `Object`, `Array`, `Dictionary`, and packed arrays are reference types (use `duplicate()` to copy).
 
 ## Keywords
 
@@ -615,7 +615,7 @@ position = position.clamp(Vector2.ZERO, screen_size)
 $AnimationPlayer.play("run")
 $AnimationPlayer.speed_scale = velocity.length() / max_speed  # tie to movement
 
-# AnimatedSprite2D — pick random animation:
+# AnimatedSprite2D - pick random animation:
 $AnimatedSprite2D.play(anim_names.pick_random())
 
 # AnimationTree blend parameters (3D):
@@ -628,7 +628,7 @@ $AnimationPlayer.animation_finished.connect(_on_animation_finished)
 ## Character Facing/Rotation
 
 ```gdscript
-# 3D — face movement direction:
+# 3D - face movement direction:
 if direction != Vector3.ZERO:
     basis = Basis.looking_at(direction)
 
@@ -673,7 +673,7 @@ velocity.x = clamp(velocity.x, -MAX_SPEED, MAX_SPEED)
 horizontal_vel = horizontal_vel.lerp(target_vel, accel * delta)
 
 # Analog input (triggers, sticks):
-var throttle: float = Input.get_action_strength("accelerate")  # 0.0–1.0
+var throttle: float = Input.get_action_strength("accelerate")  # 0.0-1.0
 ```
 
 ## State Machine Pattern
@@ -755,7 +755,7 @@ draw_circle(pos, radius, color, filled, width, antialiased)
 draw_rect(Rect2(pos, size), color, filled, width, antialiased)
 draw_polygon(points, colors)
 draw_texture(texture, pos, modulate)
-draw_set_transform(pos, rotation, scale)  # stateful — affects subsequent draws
+draw_set_transform(pos, rotation, scale)  # stateful - affects subsequent draws
 queue_redraw()  # call in _process() to trigger redraw
 ```
 
@@ -788,26 +788,26 @@ var text = FileAccess.get_file_as_string(path)
 ## Physics Gotchas
 
 - BoxShape3D on RigidBody3D snags on trimesh collision edges (well-known Godot/Jolt bug). Use CapsuleShape3D for objects that slide across trimesh surfaces (vehicles, rolling objects).
-- `reset_physics_interpolation()` — call when teleporting or switching cameras to prevent visible interpolation glitch.
+- `reset_physics_interpolation()` - call when teleporting or switching cameras to prevent visible interpolation glitch.
 
 ## MultiMeshInstance3D Gotchas
 
-- `Mesh.duplicate()` needed before freeing the source GLB instance — otherwise the mesh resource is garbage-collected.
+- `Mesh.duplicate()` needed before freeing the source GLB instance - otherwise the mesh resource is garbage-collected.
 - `custom_aabb` must cover the entire visible area. Without it, the MultiMesh gets frustum-culled when the camera moves to edges.
 - Has no `set_surface_override_material()`. Use `material_override` on the GeometryInstance3D, or keep materials from the source mesh.
 
 ## ProceduralSkyMaterial
 
 - Automatically uses DirectionalLight3D direction and color for the sun disc in the sky.
-- Set `sky_mode = SKY_MODE_LIGHT_AND_SKY` on the sun light, `SKY_MODE_LIGHT_ONLY` on fill lights — otherwise multiple sun discs appear.
+- Set `sky_mode = SKY_MODE_LIGHT_AND_SKY` on the sun light, `SKY_MODE_LIGHT_ONLY` on fill lights - otherwise multiple sun discs appear.
 
 ## 2D Top-Down Patterns
 
-- `CharacterBody2D.motion_mode = MOTION_MODE_FLOATING` — required for top-down 2D (disables gravity and floor detection). Also needed for 3D non-platformer movement (vehicles on slopes, snowboards) where `GROUNDED` mode's `floor_stop_on_slope` fights slope movement.
+- `CharacterBody2D.motion_mode = MOTION_MODE_FLOATING` - required for top-down 2D (disables gravity and floor detection). Also needed for 3D non-platformer movement (vehicles on slopes, snowboards) where `GROUNDED` mode's `floor_stop_on_slope` fights slope movement.
 - Collision shape slightly smaller than tile (e.g., 48px in 64px grid) allows smooth cornering through 1-tile corridors.
 - Grid alignment assist: when moving horizontally, snap Y to nearest row center (`round(pos.y / tile_size) * tile_size + tile_size / 2`), and vice versa. Prevents snagging on corridor entrances.
-- For modifiable grids (breakable blocks), Sprite2D + StaticBody2D per cell is simpler than TileMapLayer — allows individual node removal without atlas manipulation.
-- TileMapLayer coordinate conversion: `local_to_map(position)` → cell coords, `map_to_local(cell)` → world position.
+- For modifiable grids (breakable blocks), Sprite2D + StaticBody2D per cell is simpler than TileMapLayer - allows individual node removal without atlas manipulation.
+- TileMapLayer coordinate conversion: `local_to_map(position)` -> cell coords, `map_to_local(cell)` -> world position.
 
 ## Camera Patterns
 
@@ -824,5 +824,5 @@ var text = FileAccess.get_file_as_string(path)
   var diff: float = fmod(target_yaw - current_yaw + 3.0 * PI, TAU) - PI
   current_yaw += diff * rotation_speed * delta
   ```
-- **Snap on first frame:** Use an `_initialized` flag to skip lerp on the first `_physics_process()` call — prevents camera starting at origin and visibly swooping to the target.
-- **Dynamic FOV:** `camera.fov = clamp(base_fov + (speed - threshold) * factor, base_fov, max_fov)` — speed-based for vehicles.
+- **Snap on first frame:** Use an `_initialized` flag to skip lerp on the first `_physics_process()` call - prevents camera starting at origin and visibly swooping to the target.
+- **Dynamic FOV:** `camera.fov = clamp(base_fov + (speed - threshold) * factor, base_fov, max_fov)` - speed-based for vehicles.

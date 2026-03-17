@@ -17,7 +17,7 @@ for lock in /tmp/.X*-lock; do
 done
 ```
 
-When `GPU_DISPLAY` is set, Godot uses hardware Vulkan with `--rendering-method forward_plus` — real shadows, SSR, SSAO, glow, volumetric fog. Without it, `xvfb-run` uses lavapipe (software rasterizer).
+When `GPU_DISPLAY` is set, Godot uses hardware Vulkan with `--rendering-method forward_plus` - real shadows, SSR, SSAO, glow, volumetric fog. Without it, `xvfb-run` uses lavapipe (software rasterizer).
 
 ## Screenshot Capture
 
@@ -42,17 +42,17 @@ fi
 
 Where `{task_folder}` is derived from the task name/number (e.g., `task_01_terrain`). Use lowercase with underscores.
 
-**Timeout:** `timeout 30` is a safety net — `--quit-after` handles exit normally. Exit code 124 means timeout fired.
+**Timeout:** `timeout 30` is a safety net - `--quit-after` handles exit normally. Exit code 124 means timeout fired.
 
 ### Frame Rate and Duration
 
 `--quit-after {N}` is the frame count. Choose based on scene type:
 - **Static scenes** (decoration, terrain, UI): `--fixed-fps 1`. Adjust `--quit-after` for however many views needed (e.g. 8 frames for a camera orbit).
-- **Dynamic scenes** (physics, movement, gameplay): `--fixed-fps 10`. Low FPS breaks physics — `delta` becomes too large, causing tunneling and erratic behavior. Typical: 3-10s (30-100 frames).
+- **Dynamic scenes** (physics, movement, gameplay): `--fixed-fps 10`. Low FPS breaks physics - `delta` becomes too large, causing tunneling and erratic behavior. Typical: 3-10s (30-100 frames).
 
 ## Video Capture
 
-**Requires GPU** — video capture only works with a GPU display (`$GPU_DISPLAY` set). Software rendering is too slow and low quality for video. If no GPU is available, skip video capture and report that to the caller.
+**Requires GPU** - video capture only works with a GPU display (`$GPU_DISPLAY` set). Software rendering is too slow and low quality for video. If no GPU is available, skip video capture and report that to the caller.
 
 ```bash
 VIDEO=screenshots/presentation
