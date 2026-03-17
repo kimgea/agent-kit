@@ -1,0 +1,20 @@
+id: obsidian-cli
+type: skill
+name: Obsidian CLI
+version: 0.1.0
+purpose: Operate Obsidian vaults from the CLI for note management, search, automation, and plugin or theme debugging.
+tags:
+  - software-development
+  - personal
+  - obsidian
+  - notes
+  - automation
+entrypoints:
+  skill: ./SKILL.md
+  openai_agent: ./agents/openai.yaml
+references:
+  - ./references/command-reference.md
+compatibility:
+  providers:
+    - codex
+    - openai

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Obsidian CLI"
+  short_description: "Operate Obsidian vaults from the CLI"
+  default_prompt: "Use $obsidian-cli to read, update, or search my Obsidian vault, or debug a plugin with the Obsidian CLI."

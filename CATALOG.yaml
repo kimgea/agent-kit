@@ -27,6 +27,14 @@ assets:
         - planning
         - critique
         - personal
+    - id: obsidian-cli
+      path: skills/obsidian-cli
+      tags:
+        - software-development
+        - personal
+        - obsidian
+        - notes
+        - automation
   prompts: []
   tools: []
   workflows: []
