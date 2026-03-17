@@ -38,3 +38,4 @@ Top-level asset directories:
 Some skill sources copied or heavely used as inspiration
 - https://github.com/htdt/godogen
 - https://github.com/kepano/obsidian-skills
+- https://github.com/thedivergentai/gd-agentic-skills

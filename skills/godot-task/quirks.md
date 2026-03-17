@@ -1,5 +1,10 @@
 # Known Quirks
 
+Read this file for workflow-specific Godot pitfalls that affect headless generation, validation, capture, and harness execution.
+If a quirk is primarily about language rules, physics behavior, camera systems, or architecture, prefer the referenced specialist skill and use this file only as fallback.
+
+## Workflow-Specific Quirks
+
 - **RID leak errors on exit** - headless scene builders always produce these. Harmless; ignore them.
 - **`add_to_group()` in scene builders** - groups set at build-time persist in saved .tscn files.
 - **MultiMeshInstance3D + GLBs** - does NOT render after pack+save (mesh resource reference lost during serialization). Use individual GLB instances instead.
@@ -16,9 +21,12 @@
 - **Chase camera `current` re-assertion** - game cameras that set `current = true` in `_physics_process()` override the test harness camera every frame. Test harnesses must disable the game camera EVERY frame.
 - **`CharacterBody3D.MOTION_MODE_FLOATING`** - also needed for 3D non-platformer movement (vehicles on slopes, snowboards). GROUNDED mode's `floor_stop_on_slope` fights slope movement.
 
+## Fallback Language and Runtime Pitfalls
+
 ## Type Inference Errors
 
-Three common issues - applies in both scene builders and runtime scripts:
+See `godot-gdscript-mastery` for the canonical typing and inference rules.
+Keep these examples as compact fallback reminders for scene builders and runtime scripts:
 
 ```gdscript
 # WRONG - load() returns Resource, which has no instantiate():
@@ -57,7 +65,7 @@ var val = my_dict["key"]         # OK (untyped)
 - Fix: track `_alive_time` in `_process()`, ignore `area_entered` for ~0.8s (longer than the triggering effect's lifetime).
 
 **Pass-by-value types in functions:**
-- `bool`, `int`, `float`, `Vector3`, `AABB`, `Transform3D` etc. are value types - assigning to a parameter inside a function does NOT update the caller's variable. Use Array/Dictionary accumulator for out-parameters:
+- `bool`, `int`, `float`, `Vector3`, `AABB`, `Transform3D` etc. are value types - assigning to a parameter inside a function does NOT update the caller's variable. See `godot-gdscript-mastery`. Use Array/Dictionary accumulator for out-parameters:
   ```gdscript
   # WRONG - result never updates caller:
   func collect(node: Node, result: AABB) -> void:

@@ -94,6 +94,28 @@ var enemy = scene.instantiate()
 
 Apply the same rule to array and dictionary element access when the result type is not statically known.
 
+### Value Types vs Reference Types
+
+Many Godot built-in math and transform types are copied by value.
+
+```gdscript
+# WRONG: modifying the parameter does not update the caller
+func collect(node: Node, result: AABB) -> void:
+    result = result.merge(node.get_aabb())
+
+# CORRECT: return the value or write into a mutable container
+func merge_aabb(result: AABB, other: AABB) -> AABB:
+    return result.merge(other)
+
+func collect(node: Node, out: Array) -> void:
+    out.append(node.get_aabb())
+```
+
+Rules:
+- `bool`, `int`, `float`, `Vector2`, `Vector3`, `AABB`, `Transform2D`, `Transform3D`, and similar built-ins are value types.
+- `Array`, `Dictionary`, `Object`, `Resource`, and other reference-based containers carry shared state unless duplicated.
+- When you need out-parameters, return the value explicitly or write into a mutable container.
+
 ### Scene Unique Nodes
 When building complex UI, always toggle "Access as Scene Unique Name" on critical nodes (Labels, Buttons) and access them via `%Name`.
 
