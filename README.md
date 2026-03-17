@@ -18,6 +18,7 @@ Read this order:
 1. `AGENTKIT_SPEC.md`
 2. `CATALOG.yaml`
 3. directory `README.md` files for the area being changed
+4. domain routing docs when they exist, for example `skills/GODOT_ROUTING.md`
 
 Repository rules:
 - add real assets only
