@@ -104,4 +104,4 @@ After installation, verify the MCP tools are available by checking if `mcp_godot
 
 
 ### Related
-- Master Skill: [godot-master](../godot-master/SKILL.md)
+- [godot-master](../godot-master/SKILL.md)

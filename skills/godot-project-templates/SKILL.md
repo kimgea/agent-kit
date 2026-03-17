@@ -5,60 +5,89 @@ description: "Expert blueprint for genre-specific project boilerplates (2D platf
 
 # Project Templates
 
-Genre-specific scaffolding, AutoLoad patterns, and modular architecture define rapid prototyping.
+Use this skill when the task needs a starting architecture for a new Godot project or a major restructuring.
+
+Focus:
+- genre-oriented project scaffolds
+- AutoLoad ownership
+- scene and system boundaries
+- adapting templates instead of copying them blindly
 
 ## Available Scripts
 
 ### [base_game_manager.gd](scripts/base_game_manager.gd)
-Expert AutoLoad template for game state management (pause, scene transitions, scoring).
+AutoLoad template for game state, pausing, and scene flow.
 
-## NEVER Do in Project Templates
+## Load This Skill When
 
-- **NEVER hardcode scene paths** — `get_tree().change_scene_to_file("res://levels/level_1.tscn")` in 20 places? Nightmare refactoring. Use AutoLoad + constants OR scene registry.
-- **NEVER forget AutoLoad registration** — Template includes `game_manager.gd` but not in Project Settings? Script won't load. MUST add to Project → AutoLoad.
-- **NEVER use `get_tree().paused` without groups** — Pausing entire tree = pause menu also freezes. Use process mode groups (`PROCESS_MODE_PAUSABLE` vs `PROCESS_MODE_ALWAYS`).
-- **NEVER skip Input.MOUSE_MODE_CAPTURED in FPS** — FPS template without mouse capture = cursor visible during gameplay. Set in player `_ready()`.
-- **NEVER copy-paste templates as-is** — Using platformer template for RPG? Leads to architectural debt. UNDERSTAND the structure, then adapt.
+- bootstrapping a new project
+- picking a structure for a platformer, RPG, or FPS
+- migrating from an ad hoc layout to a clearer architecture
 
----
+## Never Do
 
-### Directory Structure
+- Never hardcode scene paths in many unrelated places.
+- Never forget to register required AutoLoads.
+- Never pause the full tree without planning which UI should still process.
+- Never reuse a template without adapting it to the actual game loop.
 
-```
+## Platformer Template
+
+```text
 my_platformer/
-├── project.godot
-├── autoloads/
-│   ├── game_manager.gd
-│   ├── audio_manager.gd
-│   └── scene_transitioner.gd
-├── scenes/
-│   ├── main_menu.tscn
-│   ├── game.tscn
-│   └── pause_menu.tscn
-├── entities/
-│   ├── player/
-│   │   ├── player.tscn
-│   │   ├── player.gd
-│   │   └── player_states/
-│   └── enemies/
-│       ├── base_enemy.gd
-│       └── goblin/
-├── levels/
-│   ├── level_1.tscn
-│   └── tilesets/
-├── ui/
-│   ├── hud.tscn
-│   └── themes/
-├── audio/
-│   ├── music/
-│   └── sfx/
-└── resources/
-    └── data/
+|-- project.godot
+|-- autoloads/
+|   |-- game_manager.gd
+|   |-- audio_manager.gd
+|   `-- scene_transitioner.gd
+|-- scenes/
+|   |-- main_menu.tscn
+|   |-- game.tscn
+|   `-- pause_menu.tscn
+|-- entities/
+|   |-- player/
+|   |   |-- player.tscn
+|   |   |-- player.gd
+|   |   `-- player_states/
+|   `-- enemies/
+|       |-- base_enemy.gd
+|       `-- goblin/
+|-- levels/
+|-- ui/
+|-- audio/
+`-- resources/
 ```
 
-### Core Scripts
+## RPG Template
 
-**game_manager.gd:**
+```text
+my_rpg/
+|-- autoloads/
+|   |-- game_data.gd
+|   |-- dialogue_manager.gd
+|   `-- inventory_manager.gd
+|-- entities/
+|   |-- player/
+|   |-- npcs/
+|   `-- interactables/
+|-- maps/
+|-- systems/
+|   |-- combat/
+|   |-- dialogue/
+|   |-- quests/
+|   `-- inventory/
+|-- ui/
+`-- resources/
+```
+
+## Template Guidance
+
+- Put cross-scene orchestration in AutoLoads only when it truly spans the whole game.
+- Keep genre systems grouped by responsibility.
+- Reuse shared systems through `common/` or `systems/`, not through random cross-folder coupling.
+
+## Example AutoLoad
+
 ```gdscript
 extends Node
 
@@ -80,176 +109,10 @@ func pause_game(paused: bool) -> void:
     is_paused = paused
     get_tree().paused = paused
     game_paused.emit(paused)
-
-func complete_level() -> void:
-    current_level += 1
-    level_completed.emit()
 ```
 
----
+## Related
 
-## Top-Down RPG Template
-
-### Directory Structure
-
-```
-my_rpg/
-├── autoloads/
-│   ├── game_data.gd
-│   ├── dialogue_manager.gd
-│   └── inventory_manager.gd
-├── entities/
-│   ├── player/
-│   ├── npcs/
-│   └── interactables/
-├── maps/
-│   ├── overworld/
-│   ├── dungeons/
-│   └── interiors/
-├── systems/
-│   ├── combat/
-│   ├── dialogue/
-│   ├── quests/
-│   └── inventory/
-├── ui/
-│   ├── inventory_ui.tscn
-│   ├── dialogue_box.tscn
-│   └── quest_log.tscn
-└── resources/
-    ├── items/
-    ├── quests/
-    └── dialogues/
-```
-
-### Core Systems
-
-**inventory_manager.gd:**
-```gdscript
-extends Node
-
-signal item_added(item: Resource)
-signal item_removed(item: Resource)
-
-var inventory: Array[Resource] = []
-
-func add_item(item: Resource) -> void:
-    inventory.append(item)
-    item_added.emit(item)
-
-func remove_item(item: Resource) -> bool:
-    if item in inventory:
-        inventory.erase(item)
-        item_removed.emit(item)
-        return true
-    return false
-
-func has_item(item_id: String) -> bool:
-    for item in inventory:
-        if item.id == item_id:
-            return true
-    return false
-```
-
----
-
-## 3D FPS Template
-
-### Directory Structure
-
-```
-my_fps/
-├── autoloads/
-│   ├── game_manager.gd
-│   └── weapon_manager.gd
-├── player/
-│   ├── player.tscn
-│   ├── player.gd
-│   ├── camera_controller.gd
-│   └── weapons/
-│       ├── weapon_base.gd
-│       ├── pistol/
-│       └── rifle/
-├── enemies/
-│   ├── ai_controller.gd
-│   └── soldier/
-├── levels/
-│   ├── level_1/
-│   └── level_2/
-├── ui/
-│   ├── hud.tscn
-│   └── crosshair.tscn
-└── resources/
-    ├── weapons/
-    └── pickups/
-```
-
-### Player Controller
-
-**player.gd:**
-```gdscript
-extends CharacterBody3D
-
-@export var speed := 5.0
-@export var jump_velocity := 4.5
-
-var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
-
-@onready var camera: Camera3D = $Camera3D
-@onready var weapon_holder: Node3D = $Camera3D/WeaponHolder
-
-func _ready() -> void:
-    Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-
-func _physics_process(delta: float) -> void:
-    if not is_on_floor():
-        velocity.y -= gravity * delta
-    
-    if Input.is_action_just_pressed("jump") and is_on_floor():
-        velocity.y = jump_velocity
-    
-    var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
-    var direction := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
-    
-    if direction:
-        velocity.x = direction.x * speed
-        velocity.z = direction.z * speed
-    else:
-        velocity.x = move_toward(velocity.x, 0, speed)
-        velocity.z = move_toward(velocity.z, 0, speed)
-    
-    move_and_slide()
-```
-
----
-
-## Input Map Template
-
-```ini
-# All templates should include these actions:
-
-[input]
-move_left=Keys: A, Left, Gamepad Left
-move_right=Keys: D, Right, Gamepad Right
-move_up=Keys: W, Up, Gamepad Up
-move_down=Keys: S, Down, Gamepad Down
-jump=Keys: Space, Gamepad A
-interact=Keys: E, Gamepad X
-pause=Keys: Escape, Gamepad Start
-ui_accept=Keys: Enter, Gamepad A
-ui_cancel=Keys: Escape, Gamepad B
-```
-
-## Usage
-
-1. Copy template structure
-2. Rename project in `project.godot`
-3. Register AutoLoads
-4. Configure Input Map
-5. Begin development
-
-## Reference
-- [GDSkills godot-project-foundations](../godot-project-foundations/SKILL.md)
-
-
-### Related
-- Master Skill: [godot-master](../godot-master/SKILL.md)
+- [godot-project-foundations](../godot-project-foundations/SKILL.md)
+- [godot-task](../godot-task/SKILL.md)
+- [godot-master](../godot-master/SKILL.md)

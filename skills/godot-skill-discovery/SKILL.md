@@ -151,4 +151,4 @@ func extract_keywords(description: String) -> Array[String]:
 - Related: `godot-project-foundations`, `godot-gdscript-mastery`
 
 ### Related
-- Master Skill: [godot-master](../godot-master/SKILL.md)
+- [godot-master](../godot-master/SKILL.md)

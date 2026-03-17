@@ -5,24 +5,35 @@ description: "Expert blueprint for procedural content generation (dungeons, terr
 
 # Procedural Generation
 
-Seeded algorithms, noise functions, and constraint propagation define replayable content generation.
+Use this skill when the task needs repeatable generated content rather than authored layouts.
+
+Focus:
+- seeded randomness
+- generation algorithms and validation
+- caching expensive generated data
+- deterministic behavior where required
 
 ## Available Scripts
 
 ### [wfc_level_generator.gd](scripts/wfc_level_generator.gd)
-Expert Wave Function Collapse implementation with tile adjacency rules.
+Wave Function Collapse implementation with adjacency rules.
 
-## NEVER Do in Procedural Generation
+## Load This Skill When
 
-- **NEVER forget to seed RNG** — `randi()` without seed = same dungeon every time. Use `seed(hash(Time.get_ticks_msec()))` OR expose seed for speedrunning.
-- **NEVER use `randf()` in `_ready()` for multiplayer** — Each client calls `_ready()` at different times = desynced RNG = different dungeons. Use shared seed from server.
-- **NEVER skip validation** — Drunkard's walk dungeon with no exit? Playability fail. ALWAYS validate (e.g., A* from start to end) OR regenerate.
-- **NEVER use noise.get_noise_2d() every frame** — Calling noise 10,000x/frame = lag. Pre-generate heightmap in `_ready()`, cache in Array.
-- **NEVER use BSP without minimum room size** — Infinite splits = 1x1 rooms = crash. Set `min_size` (e.g., 6x6) to prevent over-subdivision.
-- **NEVER ignore WFC contradictions** — Wave Function Collapse fails when no valid tiles remain. MUST detect contradiction, backtrack OR restart generation.
-- **NEVER block main thread for large generations** —  Generating 1000x1000 terrain in `_ready()` = freeze. Use worker thread OR split across frames with `await`.
+- generating dungeons, terrain, maps, or loot
+- choosing between noise, BSP, random walk, or WFC approaches
+- making generation deterministic for saves, replays, or multiplayer
 
----
+## Never Do
+
+- Never leave RNG seeding implicit when determinism matters.
+- Never let each multiplayer client generate from its own local timing.
+- Never ship a generator without a validity check.
+- Never call expensive noise or generation code every frame unless the task truly requires it.
+- Never ignore WFC contradiction handling.
+- Never block the main thread with large generation jobs if the result can be staged or deferred.
+
+## Random Walk Dungeon
 
 ```gdscript
 func generate_dungeon(width: int, height: int, fill_percent: float = 0.4) -> Array:
@@ -30,32 +41,29 @@ func generate_dungeon(width: int, height: int, fill_percent: float = 0.4) -> Arr
     for y in height:
         var row := []
         for x in width:
-            row.append(1)  # 1 = wall
+            row.append(1)
         grid.append(row)
-    
-    # Start in center
+
     var x := width / 2
     var y := height / 2
     var floor_tiles := 0
     var target_floor := int(width * height * fill_percent)
-    
+
     while floor_tiles < target_floor:
         if grid[y][x] == 1:
-            grid[y][x] = 0  # Create floor
+            grid[y][x] = 0
             floor_tiles += 1
-        
-        # Random walk
-        var dir := randi() % 4
-        match dir:
+
+        match randi() % 4:
             0: x = clampi(x + 1, 0, width - 1)
             1: x = clampi(x - 1, 0, width - 1)
             2: y = clampi(y + 1, 0, height - 1)
             3: y = clampi(y - 1, 0, height - 1)
-    
+
     return grid
 ```
 
-## Perlin Noise Terrain
+## FastNoiseLite Terrain
 
 ```gdscript
 var noise := FastNoiseLite.new()
@@ -63,25 +71,22 @@ var noise := FastNoiseLite.new()
 func generate_terrain(width: int, height: int) -> Array:
     noise.seed = randi()
     noise.frequency = 0.05
-    
+
     var terrain := []
     for y in height:
         var row := []
         for x in width:
             var value := noise.get_noise_2d(x, y)
-            
-            # Map noise to tile types
             var tile: int
             if value < -0.2:
-                tile = 0  # Water
+                tile = 0
             elif value < 0.2:
-                tile = 1  # Grass
+                tile = 1
             else:
-                tile = 2  # Mountain
-            
+                tile = 2
             row.append(tile)
         terrain.append(row)
-    
+
     return terrain
 ```
 
@@ -99,134 +104,32 @@ var right: BSPRoom = null
 
 func split(min_size: int = 6) -> bool:
     if left or right:
-        return false  # Already split
-    
-    # Choose split direction
+        return false
+
     var split_horizontal := randf() > 0.5
-    
     if width > height and float(width) / float(height) >= 1.25:
         split_horizontal = false
     elif height > width and float(height) / float(width) >= 1.25:
         split_horizontal = true
-    
+
     var max := (height if split_horizontal else width) - min_size
     if max <= min_size:
-        return false  # Too small
-    
+        return false
+
     var split_pos := randi_range(min_size, max)
-    
-    if split_horizontal:
-        left = BSPRoom.new()
-        left.x = x
-        left.y = y
-        left.width = width
-        left.height = split_pos
-        
-        right = BSPRoom.new()
-        right.x = x
-        right.y = y + split_pos
-        right.width = width
-        right.height = height - split_pos
-    else:
-        left = BSPRoom.new()
-        left.x = x
-        left.y = y
-        left.width = split_pos
-        left.height = height
-        
-        right = BSPRoom.new()
-        right.x = x + split_pos
-        right.y = y
-        right.width = width - split_pos
-        right.height = height
-    
     return true
-
-func generate_bsp_dungeon(width: int, height: int, iterations: int = 4) -> Array[BSPRoom]:
-    var root := BSPRoom.new()
-    root.x = 0
-    root.y = 0
-    root.width = width
-    root.height = height
-    
-    var rooms: Array[BSPRoom] = [root]
-    
-    for i in iterations:
-        var new_rooms: Array[BSPRoom] = []
-        for room in rooms:
-            if room.split():
-                new_rooms.append(room.left)
-                new_rooms.append(room.right)
-            else:
-                new_rooms.append(room)
-        rooms = new_rooms
-    
-    return rooms
 ```
 
-## Random Loot
+## Validation Rules
 
-```gdscript
-func generate_loot(loot_level: int) -> Array[Item]:
-    var items: Array[Item] = []
-    var roll_count := randi_range(1, 3)
-    
-    for i in roll_count:
-        var rarity := roll_rarity()
-        var item := get_random_item(rarity, loot_level)
-        items.append(item)
-    
-    return items
+- prove the map is traversable
+- keep generation inputs serializable
+- separate template data from generated output
+- record the seed when the run must be reproducible
 
-func roll_rarity() -> String:
-    var roll := randf()
-    if roll < 0.6:
-        return "common"
-    elif roll < 0.85:
-        return "uncommon"
-    elif roll < 0.95:
-        return "rare"
-    else:
-        return "legendary"
-```
+## Related
 
-## Wave Function Collapse
-
-```gdscript
-# Simplified WFC for tile patterns
-# Load compatible tile adjacency rules
-var tile_rules := {
-    "grass": ["grass", "path", "water_edge"],
-    "water": ["water", "water_edge"],
-    "path": ["grass", "path"]
-}
-
-func wfc_generate(width: int, height: int) -> Array:
-    var grid := []
-    for y in height:
-        var row := []
-        for x in width:
-            row.append(null)  # Uncollapsed
-        grid.append(row)
-    
-    # Collapse cells until complete
-    while has_uncollapsed(grid):
-        var pos := find_lowest_entropy(grid)
-        collapse_cell(grid, pos)
-        propagate_constraints(grid, pos)
-    
-    return grid
-```
-
-## Best Practices
-
-1. **Seeding** - Use seeds for reproducibility
-2. **Validation** - Ensure playable levels
-3. **Performance** - Generate async if needed
-
-## Reference
-- Related: `godot-tilemap-mastery`, `godot-resource-data-patterns`
-
-
-### Related
-- Master Skill: [godot-master](../godot-master/SKILL.md)
+- [godot-scene-management](../godot-scene-management/SKILL.md)
+- [godot-tilemap-mastery](../godot-tilemap-mastery/SKILL.md)
+- [godot-task](../godot-task/SKILL.md)
+- [godot-master](../godot-master/SKILL.md)

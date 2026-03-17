@@ -374,4 +374,4 @@ func _on_screen_entered() -> void:
 
 
 ## Reference
-- Master Skill: [godot-master](../godot-master/SKILL.md)
+- [godot-master](../godot-master/SKILL.md)

@@ -300,4 +300,4 @@ func highlight_tile(tile_pos: Vector2i) -> void:
 
 
 ### Related
-- Master Skill: [godot-master](../godot-master/SKILL.md)
+- [godot-master](../godot-master/SKILL.md)

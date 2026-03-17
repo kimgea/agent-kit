@@ -114,4 +114,4 @@ func _on_joy_connection_changed(device: int, connected: bool) -> void:
 
 
 ### Related
-- Master Skill: [godot-master](../godot-master/SKILL.md)
+- [godot-master](../godot-master/SKILL.md)

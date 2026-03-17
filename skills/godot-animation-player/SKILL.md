@@ -376,4 +376,4 @@ anim.track_set_call_mode(method_track_idx, Animation.CALL_MODE_DISCRETE)
 
 
 ## Reference
-- Master Skill: [godot-master](../godot-master/SKILL.md)
+- [godot-master](../godot-master/SKILL.md)

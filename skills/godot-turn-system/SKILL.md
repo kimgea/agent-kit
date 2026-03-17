@@ -5,29 +5,41 @@ description: "Expert blueprint for turn-based combat with turn order, action poi
 
 # Turn System
 
-Turn order calculation, action points, phase management, and timeline systems define turn-based combat.
+Use this skill when the task needs initiative order, phases, action points, or timeline-based combat flow.
+
+Focus:
+- deterministic turn order
+- action-point validation
+- round and phase management
+- interrupts and timeline variations
 
 ## Available Scripts
 
 ### [active_time_battle.gd](scripts/active_time_battle.gd)
-Framework for Active Time Battle (ATB) systems with async action support.
+Active Time Battle framework with async action support.
 
 ### [timeline_turn_manager.gd](scripts/timeline_turn_manager.gd)
-Expert timeline-based turn manager with interrupts and simultaneous actions.
+Timeline turn manager with interrupts and simultaneous actions.
 
-## NEVER Do in Turn Systems
+## Load This Skill When
 
-- **NEVER recalculate turn order every action** — Sort 50 combatants after every move? O(n log n) × actions = lag. Calculate once per round, update on stat changes only.
-- **NEVER use speed ties without determinism** — Two units same speed, random order? Non-reproducible replays. Break ties with secondary stat (ID, position, etc.).
-- **NEVER forget to validate action costs** — Allow action without checking points? Negative AP = exploits. ALWAYS `if can_perform_action(cost)` before deducting.
-- **NEVER hardcode phase transitions** — `if phase == 0: phase = 1` for 10 phases? Unmaintainable. Use enum + match OR array of phase handlers.
-- **NEVER skip turn timeout for networked games** — Wait forever for player input? Griefing exploit. ALWAYS implement turn timer with default action.
-- **NEVER emit turn_ended before cleanup** — Signal listeners start next turn, previous hasn't cleaned up? State corruption. Cleanup FIRST, then emit.
+- building turn-based or tactical combat
+- deciding between round order and timeline systems
+- adding action points or per-turn resource limits
+- handling online or delayed-input turn constraints
 
----
+## Never Do
+
+- Never recalculate initiative more often than the design requires.
+- Never leave tie-breaking nondeterministic.
+- Never spend action points without validating the cost first.
+- Never encode many phases as ad hoc integer switches.
+- Never allow endless waiting for player input in a networked or shared-turn game.
+- Never emit end-of-turn events before cleanup is complete.
+
+## Basic Turn Manager
 
 ```gdscript
-# turn_manager.gd (AutoLoad)
 extends Node
 
 signal turn_started(combatant: Node)
@@ -51,24 +63,15 @@ func start_next_turn() -> void:
     if current_turn_index >= turn_order.size():
         current_turn_index = 0
         round_ended.emit()
-        calculate_turn_order()  # Recalculate each round
-    
+        calculate_turn_order()
+
     var current := turn_order[current_turn_index]
     turn_started.emit(current)
-
-func end_turn() -> void:
-    var current := turn_order[current_turn_index]
-    turn_ended.emit(current)
-    current_turn_index += 1
-    start_next_turn()
 ```
 
-## Action Point System
+## Action Points
 
 ```gdscript
-# combatant.gd
-extends Node
-
 @export var max_action_points: int = 3
 var current_action_points: int = 3
 
@@ -81,7 +84,6 @@ func can_perform_action(cost: int) -> bool:
 func perform_action(cost: int) -> bool:
     if not can_perform_action(cost):
         return false
-    
     current_action_points -= cost
     return true
 ```
@@ -104,15 +106,16 @@ func advance_phase() -> void:
             current_phase = Phase.DRAW
 ```
 
-## Best Practices
+## Design Guidance
 
-1. **Speed-Based** - Initiative determines order
-2. **Action Points** - Limit actions per turn
-3. **Timeout** - Add turn timer for online play
+- break speed ties with a deterministic secondary key
+- keep the turn owner responsible only for its own action window
+- let the manager own order, cleanup, and phase transitions
+- use explicit timeout policy for networked or asynchronous multiplayer
 
-## Reference
-- Related: `godot-combat-system`, `godot-rpg-stats`
+## Related
 
-
-### Related
-- Master Skill: [godot-master](../godot-master/SKILL.md)
+- [godot-combat-system](../godot-combat-system/SKILL.md)
+- [godot-rpg-stats](../godot-rpg-stats/SKILL.md)
+- [godot-task](../godot-task/SKILL.md)
+- [godot-master](../godot-master/SKILL.md)

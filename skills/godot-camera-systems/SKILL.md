@@ -325,4 +325,4 @@ Use `top_level = true` when the camera should remain a child in the scene tree b
 
 
 ### Related
-- Master Skill: [godot-master](../godot-master/SKILL.md)
+- [godot-master](../godot-master/SKILL.md)

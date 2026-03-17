@@ -173,4 +173,4 @@ Nodes are lightweight. Do not fear adding 10-20 nodes per entity. The organizati
 
 
 ## Reference
-- Master Skill: [godot-master](../godot-master/SKILL.md)
+- [godot-master](../godot-master/SKILL.md)

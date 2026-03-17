@@ -485,4 +485,4 @@ func _on_animation_player_animation_finished(anim_name: String) -> void:
 
 
 ## Reference
-- Master Skill: [godot-master](../godot-master/SKILL.md)
+- [godot-master](../godot-master/SKILL.md)

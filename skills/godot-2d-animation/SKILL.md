@@ -278,4 +278,4 @@ anim_sprite.offset = Vector2.ZERO
 
 
 ## Reference
-- Master Skill: [godot-master](../godot-master/SKILL.md)
+- [godot-master](../godot-master/SKILL.md)

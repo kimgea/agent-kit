@@ -60,4 +60,4 @@ The agent must verify that the scene opens in the editor without errors.
 
 
 ## Reference
-- Master Skill: [godot-master](../godot-master/SKILL.md)
+- [godot-master](../godot-master/SKILL.md)

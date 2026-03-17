@@ -456,4 +456,4 @@ if $AudioStreamPlayer.volume_db < -60:
 
 
 ## Reference
-- Master Skill: [godot-master](../godot-master/SKILL.md)
+- [godot-master](../godot-master/SKILL.md)
