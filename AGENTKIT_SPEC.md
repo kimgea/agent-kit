@@ -92,6 +92,32 @@ constraints: {}
 
 Only add fields that are actually used.
 
+## Bundle Contract
+
+Bundles are composition assets.
+
+They are used to select a working set of other assets, usually skills.
+
+Bundle rules:
+- a bundle is not itself a skill
+- do not treat `bundles/<bundle-id>/` as installable skill content
+- apply a bundle by reading `bundle.yaml`
+- resolve the referenced assets
+- then load or install those assets individually
+
+If a user asks to install a bundle from this repo:
+1. read the bundle's `bundle.yaml`
+2. collect the included skill ids
+3. resolve them to `skills/<skill-id>/`
+4. install those skills individually
+
+If the bundle is referenced by GitHub URL:
+1. resolve the bundle in the remote repo
+2. resolve included skills relative to the same repo
+3. install those skill paths individually
+
+Assume Codex-style installation targets the Codex skills directory unless the caller explicitly requests a repo-local convention.
+
 ## Writing Style
 
 Use this style for agent-facing text:
