@@ -1,0 +1,4 @@
+interface:
+  display_name: "Obsidian Project Vault"
+  short_description: "Create and operate project vaults"
+  default_prompt: "Use $obsidian-project-vault to set up or continue working inside a shared Obsidian project vault with intake, durable notes, and agent handoffs."

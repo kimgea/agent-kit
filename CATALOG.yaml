@@ -379,6 +379,14 @@ assets:
         - obsidian
         - markdown
         - notes
+    - id: obsidian-project-vault
+      path: skills/obsidian-project-vault
+      tags:
+        - software-development
+        - personal
+        - obsidian
+        - notes
+        - project-vault
   prompts: []
   tools: []
   workflows: []

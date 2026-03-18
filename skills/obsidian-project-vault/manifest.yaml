@@ -1,0 +1,22 @@
+id: obsidian-project-vault
+type: skill
+name: Obsidian Project Vault
+version: 0.1.0
+purpose: Create, initialize, audit, and operate an Obsidian vault as a shared human+agent project workspace.
+tags:
+  - software-development
+  - personal
+  - obsidian
+  - notes
+  - project-vault
+entrypoints:
+  skill: ./SKILL.md
+  openai_agent: ./agents/openai.yaml
+references:
+  - ./references/intake-workflow.md
+  - ./references/note-rules.md
+  - ./references/vault-model.md
+compatibility:
+  providers:
+    - codex
+    - openai

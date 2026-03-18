@@ -2,7 +2,7 @@ id: obsidian-core
 type: bundle
 name: Obsidian Core
 version: 0.1.0
-purpose: Default bundle for working with Obsidian vault content, markdown, and bases.
+purpose: Default bundle for working with Obsidian vault content, markdown, bases, and shared project vault structures.
 tags:
   - software-development
   - personal
@@ -13,6 +13,6 @@ dependencies:
     - obsidian-cli
     - obsidian-markdown
     - obsidian-bases
+    - obsidian-project-vault
 entrypoints:
   bundle: ./bundle.yaml
-

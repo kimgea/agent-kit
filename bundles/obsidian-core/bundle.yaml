@@ -3,6 +3,7 @@ includes:
     - obsidian-cli
     - obsidian-markdown
     - obsidian-bases
+    - obsidian-project-vault
 
 entrypoint:
   default_skill: obsidian-cli
@@ -13,4 +14,4 @@ rules:
   - Use this bundle for normal Obsidian vault work.
   - Use obsidian-cli as the operational entrypoint when terminal access to the vault is needed.
   - Use obsidian-markdown for note syntax and obsidian-bases for .base files and views.
-
+  - Use obsidian-project-vault when setting up or maintaining a shared project vault with intake, durable notes, and handoffs.
