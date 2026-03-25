@@ -1,0 +1,19 @@
+id: kiro-spec-authoring
+type: skill
+name: Kiro Spec Authoring
+version: 0.1.0
+purpose: Create and revise gated Kiro-style requirements, design, and task specs in a target repository without assuming repo-local scaffolding that may not exist.
+tags:
+  - software-development
+  - planning
+  - specifications
+  - kiro
+entrypoints:
+  skill: ./SKILL.md
+  openai_agent: ./agents/openai.yaml
+references:
+  - ./references/spec-checklist.md
+compatibility:
+  providers:
+    - codex
+    - openai

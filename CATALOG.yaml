@@ -355,6 +355,20 @@ assets:
         - obsidian
         - canvas
         - diagrams
+    - id: kiro-spec-authoring
+      path: skills/kiro-spec-authoring
+      tags:
+        - software-development
+        - planning
+        - specifications
+        - kiro
+    - id: kiro-spec-implementation
+      path: skills/kiro-spec-implementation
+      tags:
+        - software-development
+        - implementation
+        - specifications
+        - kiro
     - id: obsidian-bases
       path: skills/obsidian-bases
       tags:
@@ -410,3 +424,10 @@ assets:
         - personal
         - obsidian
         - core
+    - id: spec-driven-development
+      path: bundles/spec-driven-development
+      tags:
+        - software-development
+        - specifications
+        - planning
+        - implementation

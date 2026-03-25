@@ -1,0 +1,19 @@
+id: kiro-spec-implementation
+type: skill
+name: Kiro Spec Implementation
+version: 0.1.0
+purpose: Implement existing Kiro-style specs in a target repository by reading the full spec set, executing tasks in order, validating each task group, and keeping task completion state honest.
+tags:
+  - software-development
+  - implementation
+  - specifications
+  - kiro
+entrypoints:
+  skill: ./SKILL.md
+  openai_agent: ./agents/openai.yaml
+references:
+  - ./references/implementation-checklist.md
+compatibility:
+  providers:
+    - codex
+    - openai

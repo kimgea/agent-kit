@@ -1,0 +1,16 @@
+includes:
+  skills:
+    - kiro-spec-authoring
+    - kiro-spec-implementation
+
+entrypoint:
+  default_skill: kiro-spec-authoring
+
+on_demand_skills:
+  - grill-me
+
+rules:
+  - Use this bundle when the work should follow a specification-first workflow instead of ad hoc implementation.
+  - Start with kiro-spec-authoring when the requirements, design, or task plan still need to be created or revised.
+  - Use kiro-spec-implementation when the spec set already exists and the task is to execute it honestly.
+  - Add grill-me only when the user wants a spec, design, or implementation plan pressure-tested.

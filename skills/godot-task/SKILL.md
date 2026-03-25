@@ -1,6 +1,6 @@
 ---
 name: godot-task
-description: Execute a single Godot development task: generate scenes and/or scripts, validate in Godot, capture evidence, and verify visually.
+description: "Execute a single Godot development task: generate scenes and/or scripts, validate in Godot, capture evidence, and verify visually."
 ---
 
 # Godot Task Executor

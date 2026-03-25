@@ -1,0 +1,17 @@
+id: spec-driven-development
+type: bundle
+name: Spec-Driven Development
+version: 0.1.0
+purpose: Default bundle for specification-first software work covering spec authoring, implementation, and optional pressure testing.
+tags:
+  - software-development
+  - specifications
+  - planning
+  - implementation
+dependencies:
+  skills:
+    - kiro-spec-authoring
+    - kiro-spec-implementation
+    - grill-me
+entrypoints:
+  bundle: ./bundle.yaml

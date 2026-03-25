@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kiro Spec Implementation"
+  short_description: "Implement Kiro spec tasks safely"
+  default_prompt: "Use $kiro-spec-implementation to implement one existing Kiro-style spec in the target repository by resolving the spec root, reading requirements, design, tasks, and any optional queue, then executing tasks in order and saving checkbox progress to tasks.md immediately after each verified item."

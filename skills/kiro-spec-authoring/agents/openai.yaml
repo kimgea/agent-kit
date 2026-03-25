@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kiro Spec Authoring"
+  short_description: "Author gated Kiro-style spec phases"
+  default_prompt: "Use $kiro-spec-authoring to create or revise one Kiro-style spec phase at a time in the target repository, following the requirements -> design -> tasks workflow."
