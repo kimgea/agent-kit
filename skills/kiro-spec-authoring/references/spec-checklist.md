@@ -7,36 +7,44 @@
 - Read the implementation queue only when the workspace has one.
 - Read 1-3 nearby specs that are structurally similar when they exist.
 - Confirm which phase the user asked for.
-- Write only that phase.
+- If a phase is being skipped, note assumptions the skipped phase would have pinned down.
+- Write only that phase. Do not modify existing spec files the user did not ask you to touch.
 
 ### Requirements Checklist
 
-- Define the scope clearly.
-- State what is in scope now.
-- State what is explicitly deferred.
-- Keep the content implementation-agnostic.
-- Capture the user decisions already made.
-- Create `.config.kiro` only when the target workspace already uses it or the user asks for it.
+- [ ] **Summary**: 2-4 sentence overview of feature purpose
+- [ ] **Glossary / Key Terms**: Domain terms defined to prevent ambiguity
+- [ ] **Requirements list**: Each requirement has a stable ID, description, and acceptance criteria
+- [ ] **Acceptance criteria**: Every requirement has testable conditions (Given/When/Then or verifiable statements)
+- [ ] **In scope**: Clear statement of what this spec covers
+- [ ] **Deferrals**: Explicitly deferred items with rationale
+- [ ] **Boundaries and clarifications**: Assumptions, constraints, edge cases
+- [ ] **Non-functional requirements**: Performance, security, auditability, data integrity
+- [ ] **Implementation-agnostic**: No tech stack, no schemas, no code
+- [ ] **Self-reviewed**: 2-3 scenarios (including edge cases) walked through; gaps found and patched
 
 ### Design Checklist
 
-- Include architecture or flow diagrams when useful.
-- Include module or file structure when the work should be a separate system.
-- Show ownership boundaries with adjacent systems.
-- Include concrete examples in the formats the target repo actually uses.
-- Prefer depth over summary.
-- Avoid format-specific examples unless they match the target system.
-- Battle-test the design against real examples when the domain has them.
+- [ ] **Architecture overview**: High-level structure with diagram (ASCII/Mermaid) when multi-component
+- [ ] **Components and file paths**: Modules/files listed with repo-relative paths
+- [ ] **Design decisions with rationale**: Choices, alternatives considered, trade-offs
+- [ ] **Data models**: Schemas, interfaces, or structures in the target system's notation
+- [ ] **Integration points**: How feature connects to existing code, with file path references
+- [ ] **Code references**: Existing files the design builds on or modifies
+- [ ] **Battle-test scenarios**: 2-3 realistic end-to-end scenarios traced through the design
+- [ ] **Risks and mitigations**: Failure modes, bottlenecks, security concerns with countermeasures
+- [ ] **Self-reviewed**: Scenarios verified against the design, including failure paths; gaps patched
 
 ### Tasks Checklist
 
-- Follow the pattern of the stronger existing task files when examples exist.
-- Use numbered phases.
-- Add subtasks where needed.
-- Include checkpoints.
-- Trace task groups back to requirements when the spec uses requirement IDs.
-- Include validation and testing tasks for the critical boundaries.
-- Check that the plan would actually produce the designed system.
+- [ ] **Checkbox format**: Every task and subtask uses `- [ ]` for progress tracking
+- [ ] **Task descriptions**: Each task has a clear description of what to do
+- [ ] **Requirement traceability**: Each task references which requirement ID(s) it satisfies
+- [ ] **Validation criteria**: Each task has both automated and manual verification steps
+- [ ] **Numbered phases**: Tasks organized into logical, incrementally-verifiable phases
+- [ ] **Checkpoints**: Verification gates after each phase
+- [ ] **Definition of Done**: Final section listing completion conditions for the entire spec
+- [ ] **Self-reviewed**: Plan walked through to verify it would produce the designed system
 
 ### Stop Gates
 
