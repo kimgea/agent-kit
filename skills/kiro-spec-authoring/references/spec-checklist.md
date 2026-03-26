@@ -1,6 +1,6 @@
-# Spec Checklist
+## Spec Checklist
 
-## Before Writing
+### Before Writing
 
 - Resolve the target spec root.
 - Read the target spec folder if it already exists.
@@ -9,7 +9,7 @@
 - Confirm which phase the user asked for.
 - Write only that phase.
 
-## Requirements Checklist
+### Requirements Checklist
 
 - Define the scope clearly.
 - State what is in scope now.
@@ -18,7 +18,7 @@
 - Capture the user decisions already made.
 - Create `.config.kiro` only when the target workspace already uses it or the user asks for it.
 
-## Design Checklist
+### Design Checklist
 
 - Include architecture or flow diagrams when useful.
 - Include module or file structure when the work should be a separate system.
@@ -28,7 +28,7 @@
 - Avoid format-specific examples unless they match the target system.
 - Battle-test the design against real examples when the domain has them.
 
-## Tasks Checklist
+### Tasks Checklist
 
 - Follow the pattern of the stronger existing task files when examples exist.
 - Use numbered phases.
@@ -38,7 +38,7 @@
 - Include validation and testing tasks for the critical boundaries.
 - Check that the plan would actually produce the designed system.
 
-## Stop Gates
+### Stop Gates
 
 - After `requirements.md`, stop and wait for the user.
 - After `design.md`, stop and wait for the user.
