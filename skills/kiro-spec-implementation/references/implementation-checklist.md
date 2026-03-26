@@ -5,7 +5,9 @@
 - Resolve the spec root from the user's path or the repo's existing convention.
 - Read `IMPLEMENTATION_QUEUE.md` only when the spec root has one and it helps identify the target spec.
 - Read the target spec's `requirements.md`, `design.md`, and `tasks.md`.
+- **Run the dependency scan**: look for explicit cross-spec references ("defined in spec X", "see spec Y"). Try to resolve each one. If a referenced spec or type does not exist in the repo, stop and ask the user.
 - Read the relevant existing code and nearby specs.
+- **Write the pre-implementation summary** to `tasks.md` (HTML comment block listing spec name, resolved dependencies, boundaries, files inspected).
 - Confirm the spec is implementable without a major ambiguity.
 
 ## During Implementation
@@ -21,11 +23,11 @@
 
 ## Stop And Ask When
 
+- a cross-spec dependency cannot be resolved (the referenced spec or type does not exist)
 - the required spec files are incomplete or missing
 - a core behavior is still materially ambiguous
 - the task plan and design disagree in a way that changes implementation shape
 - the repo contradicts the spec and the correct direction is unclear
-- a required dependency is missing enough that safe progress is blocked
 
 ## Before Finishing
 
@@ -34,3 +36,4 @@
 - Verify the implemented code matches the completed task items.
 - Run the most relevant tests again.
 - Leave blocked or incomplete items unchecked.
+- Annotate the definition-of-done line in `tasks.md` with actual pass/fail state.
