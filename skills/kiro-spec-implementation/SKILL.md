@@ -7,8 +7,6 @@ description: Implement existing Kiro-style feature specs in a target repository 
 
 Implement one existing Kiro-style spec in the target workspace.
 
-This repo packages the skill. Do not assume `agent-kit` itself contains `.kiro/specs` examples.
-
 ## Inputs
 
 - Target workspace path
@@ -17,11 +15,12 @@ This repo packages the skill. Do not assume `agent-kit` itself contains `.kiro/s
 - Requested target from the queue, if the repo uses one
 
 ## Resolve The Spec Root
-
+ 
 1. Use the path the user gives when they give one.
-2. Otherwise, use `.kiro/specs` only when that path already exists in the target workspace.
-3. If the workspace uses another Kiro-style spec location, use the observed repo-local convention.
-4. Treat queue files such as `IMPLEMENTATION_QUEUE.md` and bootstrap files such as `.config.kiro` as optional project conventions, not universal requirements.
+2. Otherwise, check whether `.kiro/specs` already exists in the target workspace:
+   - **If `.kiro/specs` exists** → use it as the spec root. Name each spec folder with a flat hyphenated pattern: `{fitting-domain-name}-{fitting-task-spec}` (e.g. `.kiro/specs/auth-session-refresh`).
+   - **If `.kiro/specs` does not exist** → use `specs/` as the spec root with a nested two-level structure: `specs/{fitting-domain-name}/{fitting-task-spec}` (e.g. `specs/auth/session-refresh`). Create the directories as needed.
+3. In both cases, choose a short, descriptive domain name that groups related features (e.g. `auth`, `billing`, `onboarding`) and a task spec name that captures the specific feature or change.
 
 ## Load Order
 
