@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tool Audit"
+  short_description: "Audit installed tools and agent tool usage"
+  default_prompt: "Use $tool-audit to audit installed CLI tools, session usage, and safe permission candidates."

@@ -1,0 +1,13 @@
+* @kimgea
+
+# Automatic permission and delivery boundaries require an explicit owner merge decision.
+/skills/*/scripts/setup_permissions.py @kimgea
+/skills/tool-audit/references/command-classes.tsv @kimgea
+/skills/tool-audit/scripts/audit.py @kimgea
+/skills/todo-capture/scripts/todo_safe.py @kimgea
+/scripts/agent_kit.py @kimgea
+/policies/ @kimgea
+/hooks/ @kimgea
+/tools/ @kimgea
+/.github/workflows/ @kimgea
+/.github/dependabot.yml @kimgea

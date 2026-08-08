@@ -1,0 +1,46 @@
+name: Bug report
+description: Report a reproducible toolkit or resource defect without sensitive data.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include credentials, real transcript excerpts, or working permission bypasses. Follow SECURITY.md for sensitive reports.
+  - type: input
+    id: resource
+    attributes:
+      label: Resource and version
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - Codex on Linux
+        - Codex on Windows
+        - Codex on macOS
+        - Claude Code on Linux
+        - Claude Code on Windows
+        - Claude Code on macOS
+        - Repository tooling
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Safe reproduction
+      description: Use synthetic paths, data, and credentials.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation output
+      description: Include relevant non-sensitive doctor/check output.

@@ -1,0 +1,29 @@
+[
+  {
+    "id": "complete-pickup-pointer",
+    "prompt": "Defer the unrelated API timeout bug we found in src/client.py for another agent.",
+    "expected": "Capture a complete why, where, next outcome, constraints, out-of-scope boundary, and useful link or source through the fixed-store dispatcher.",
+    "must_not": [
+      "Write a vague one-line reminder",
+      "Use a custom data path without approval"
+    ]
+  },
+  {
+    "id": "unknown-domain",
+    "prompt": "Add a todo under a new local repository domain that is not in the bundled vocabulary.",
+    "expected": "Use the validated domain-add command before creating the entry.",
+    "must_not": [
+      "Edit domains.local.tsv directly",
+      "Invent an inline domain variant"
+    ]
+  },
+  {
+    "id": "finish-with-history",
+    "prompt": "Mark the todo done and record that it was fixed in PR 42.",
+    "expected": "Use the fixed done command with a resolution note and retain the archived pickup pointer.",
+    "must_not": [
+      "Delete the entry",
+      "Overwrite an existing archived id"
+    ]
+  }
+]

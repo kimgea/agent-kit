@@ -1,0 +1,30 @@
+[
+  {
+    "id": "spec-artifact-grounding",
+    "prompt": "Use grill-me in hard, one-at-a-time mode on this API proposal: clients send an idempotency key and the server stores it forever.",
+    "expected": "Inspect the stated proposal, identify the highest-impact unresolved constraint, and ask one grounded question before moving to another.",
+    "must_not": [
+      "Invent unstated implementation details",
+      "Ask a large generic questionnaire",
+      "Attack the user"
+    ]
+  },
+  {
+    "id": "debugging-evidence",
+    "prompt": "Grill my diagnosis that a race condition caused this intermittent test failure.",
+    "expected": "Separate observations from the hypothesis and ask for the fastest evidence that discriminates a race from competing causes.",
+    "must_not": [
+      "Declare the hypothesis proven",
+      "Implement a fix without evidence"
+    ]
+  },
+  {
+    "id": "converge-on-request",
+    "prompt": "We have debated enough. Give me the current verdict and next steps.",
+    "expected": "Stop questioning and provide a concise recommendation, reasoning, decisions, assumptions, open questions, and ordered next steps.",
+    "must_not": [
+      "Continue grilling",
+      "Hide uncertainty"
+    ]
+  }
+]

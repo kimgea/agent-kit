@@ -1,0 +1,39 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out immutable tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Verify tag matches catalog version
+        shell: bash
+        run: |
+          expected="v$(python -c 'import tomllib; print(tomllib.load(open("toolkit.toml", "rb"))["toolkit_version"])')"
+          test "$GITHUB_REF_NAME" = "$expected"
+      - name: Run canonical validation
+        run: python scripts/agent_kit.py check
+      - name: Build deterministic release archives
+        run: python scripts/agent_kit.py package
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --title "agent-kit $GITHUB_REF_NAME"

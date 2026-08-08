@@ -1,0 +1,40 @@
+# Compatibility
+
+## Repository tooling
+
+| Environment | Support | Verification |
+|---|---|---|
+| Linux, Python 3.11/3.13 | Supported | GitHub Actions plus local lifecycle tests |
+| Windows, Python 3.11/3.13 | Supported | GitHub Actions, path, rule, locking, and lifecycle tests |
+| macOS, Python 3.11+ | Supported | Standard-library/path design; no native macOS CI runner yet |
+
+Repository tooling requires Python 3.11 or newer because it uses the standard
+library `tomllib`. Git and GitHub CLI are optional for local discovery; publishing
+and GitHub reads require them.
+
+## Harnesses
+
+| Resource | Codex | Claude Code | Notes |
+|---|---|---|---|
+| `grill-me` | Supported | Supported | Plain Markdown; no runtime code |
+| `todo-capture` | Supported | Supported | Native Windows and POSIX storage/permission fixtures |
+| `tool-audit` | Supported | Supported | Codex and Claude transcript parsers; wrapped Codex calls are conservative |
+| `gh-api-get` | Supported | Supported | Python module plus POSIX and Windows launchers |
+| GitHub API guard | Policy/wrapper preferred | Supported hook shape | Defense in depth only |
+
+Codex on Linux has been exercised with real local transcripts and policy files.
+Claude Code compatibility is covered by synthetic transcript/configuration
+fixtures; a live Claude CLI was not available on the maintainer machine during
+the 1.0.0 hardening. Windows CI validates native path and configuration behavior,
+not an interactive Codex or Claude desktop session.
+
+## Installation paths
+
+| Harness/platform | Default skill root |
+|---|---|
+| Codex | `${CODEX_HOME:-~/.codex}/skills` |
+| Claude Code | `${CLAUDE_CONFIG_DIR:-~/.claude}/skills` |
+
+Environment overrides are resolved at execution time. Rerun a skill's permission
+setup after relocating it because generated rules pin resolved interpreter and
+script paths.

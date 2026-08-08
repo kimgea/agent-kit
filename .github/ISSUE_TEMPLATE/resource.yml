@@ -1,0 +1,38 @@
+name: Resource proposal
+description: Propose a reusable skill, tool, policy, hook, template, or instruction.
+title: "resource: "
+labels: [enhancement]
+body:
+  - type: input
+    id: outcome
+    attributes:
+      label: Reusable outcome
+      description: What repeated agent task becomes safer or easier?
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Resource kind
+      options: [skill, tool, policy, hook, template, instruction]
+    validations:
+      required: true
+  - type: textarea
+    id: examples
+    attributes:
+      label: Concrete triggering examples
+      description: Give at least two realistic requests or workflows.
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Permissions, data, and external effects
+      description: Identify reads, writes, network calls, credentials, and approval requirements.
+    validations:
+      required: true
+  - type: textarea
+    id: provenance
+    attributes:
+      label: Dependencies and provenance
+      description: Include exact upstream URLs, commits, and licenses if adapting existing material.

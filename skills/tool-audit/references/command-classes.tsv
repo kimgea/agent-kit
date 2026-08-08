@@ -1,0 +1,220 @@
+# tool<TAB>subcommand-or-*<TAB>class
+# Classes: read, write, destructive, network, exec, mixed.
+awk	*	mixed
+base64	*	read
+cat	*	read
+command	*	exec
+curl	*	network
+cut	*	read
+diff	*	read
+difft	*	read
+env	*	exec
+fd	*	mixed
+find	*	mixed
+gitleaks	*	mixed
+grep	*	read
+head	*	read
+jq	*	read
+less	*	read
+ls	*	read
+lychee	*	network
+pwd	*	read
+readlink	*	read
+readtags	*	read
+rg	*	mixed
+sed	*	mixed
+sg	*	mixed
+sg	run	read
+sg	scan	read
+sort	*	mixed
+stat	*	read
+tail	*	read
+tokei	*	read
+tree	*	read
+uniq	*	read
+wc	*	read
+which	*	read
+yq	*	mixed
+ast-grep	*	mixed
+ctags	*	write
+lazygit	*	mixed
+rail	*	mixed
+gh	*	mixed
+gh	api	mixed
+gh	auth	mixed
+gh	auth status	read
+gh	auth login	write
+gh	auth logout	write
+gh	auth refresh	write
+gh	browse	network
+gh	issue	mixed
+gh	issue list	read
+gh	issue status	read
+gh	issue view	read
+gh	issue create	write
+gh	issue edit	write
+gh	issue comment	write
+gh	issue close	write
+gh	issue reopen	write
+gh	issue delete	destructive
+gh	label	mixed
+gh	label list	read
+gh	label create	write
+gh	label edit	write
+gh	label clone	write
+gh	label delete	destructive
+gh	pr	mixed
+gh	pr checks	read
+gh	pr diff	read
+gh	pr list	read
+gh	pr status	read
+gh	pr view	read
+gh	pr create	write
+gh	pr edit	write
+gh	pr comment	write
+gh	pr review	write
+gh	pr ready	write
+gh	pr close	write
+gh	pr reopen	write
+gh	pr merge	write
+gh	release	mixed
+gh	release list	read
+gh	release view	read
+gh	release create	write
+gh	release edit	write
+gh	release delete	destructive
+gh	release download	write
+gh	release upload	write
+gh	repo	mixed
+gh	repo list	read
+gh	repo view	read
+gh	repo clone	write
+gh	repo create	write
+gh	repo edit	write
+gh	repo fork	write
+gh	repo sync	write
+gh	repo archive	write
+gh	repo rename	write
+gh	repo delete	destructive
+gh	run	mixed
+gh	run list	read
+gh	run view	read
+gh	run watch	read
+gh	run cancel	write
+gh	run rerun	write
+gh	run delete	destructive
+gh	search	read
+gh	search code	read
+gh	search commits	read
+gh	search issues	read
+gh	search prs	read
+gh	search repos	read
+gh	workflow	mixed
+gh	workflow list	read
+gh	workflow view	read
+gh	workflow run	write
+gh	workflow enable	write
+gh	workflow disable	write
+git	*	mixed
+git	add	write
+git	apply	write
+git	bisect	mixed
+git	blame	read
+git	branch	mixed
+git	checkout	write
+git	clean	destructive
+git	clone	write
+git	commit	write
+git	config	mixed
+git	diff	mixed
+git	fetch	write
+git	grep	read
+git	log	read
+git	ls-files	read
+git	merge	write
+git	pull	write
+git	push	write
+git	rebase	write
+git	reflog	read
+git	remote	mixed
+git	reset	destructive
+git	restore	destructive
+git	rev-list	read
+git	rev-parse	read
+git	show	read
+git	status	read
+git	tag	mixed
+git	worktree	mixed
+chmod	*	write
+chown	*	write
+cp	*	write
+install	*	write
+ln	*	write
+mkdir	*	write
+mv	*	write
+perl	*	mixed
+printf	*	mixed
+rm	*	destructive
+rmdir	*	destructive
+shred	*	destructive
+tee	*	write
+touch	*	write
+truncate	*	destructive
+bash	*	exec
+dotnet	*	exec
+go	*	exec
+make	*	exec
+node	*	exec
+python	*	exec
+python3	*	exec
+py	*	exec
+pwsh	*	exec
+sh	*	exec
+cargo	*	exec
+cargo	fmt	write
+cargo	metadata	mixed
+cargo	search	network
+cargo	tree	mixed
+docker	*	mixed
+docker	inspect	read
+docker	logs	read
+docker	ps	read
+docker	version	read
+docker-compose	*	mixed
+kubectl	*	mixed
+kubectl	api-resources	read
+kubectl	describe	read
+kubectl	diff	mixed
+kubectl	get	read
+kubectl	logs	read
+terraform	*	mixed
+terraform	plan	mixed
+terraform	show	read
+terraform	validate	read
+aws	*	mixed
+az	*	mixed
+npm	*	mixed
+npm	list	read
+npm	view	network
+npx	*	exec
+pip	*	mixed
+pipx	*	mixed
+pnpm	*	mixed
+rustc	*	exec
+uv	*	mixed
+yarn	*	mixed
+codex	*	exec
+claude	*	exec
+gemini	*	exec
+aider	*	exec
+code	*	exec
+cursor	*	exec
+kiro	*	exec
+neovim	*	exec
+btop	*	read
+cmake	*	exec
+fzf	*	mixed
+tar	*	mixed
+unzip	*	write
+wget	*	network
+zip	*	write

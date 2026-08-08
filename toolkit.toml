@@ -1,0 +1,144 @@
+schema_version = 1
+toolkit_version = "1.1.0"
+minimum_python = "3.11"
+
+[[resources]]
+id = "grill-me"
+kind = "skill"
+path = "skills/grill-me"
+version = "1.0.0"
+summary = "Pressure-test decisions and artifacts through focused questioning."
+agents = ["codex", "claude"]
+platforms = ["linux", "windows", "macos"]
+maturity = "stable"
+installable = true
+setup_requires_approval = false
+data_sensitivity = "user-provided conversation context"
+docs = "docs/grill-me.md"
+tests = ["tests/test_agent_kit.py"]
+evals = "evals/grill-me/cases.json"
+
+[[resources]]
+id = "todo-capture"
+kind = "skill"
+path = "skills/todo-capture"
+version = "1.0.1"
+summary = "Capture and archive shared deferred-work pickup pointers."
+agents = ["codex", "claude"]
+platforms = ["linux", "windows", "macos"]
+maturity = "stable"
+installable = true
+setup_requires_approval = true
+data_sensitivity = "local deferred-work context"
+docs = "docs/todo-capture.md"
+tests = ["tests/test_todo_capture.py", "tests/test_agent_kit.py"]
+evals = "evals/todo-capture/cases.json"
+
+[[resources]]
+id = "tool-audit"
+kind = "skill"
+path = "skills/tool-audit"
+version = "1.0.1"
+summary = "Audit installed CLI tools, agent usage, friction, and permission candidates."
+agents = ["codex", "claude"]
+platforms = ["linux", "windows", "macos"]
+maturity = "stable"
+installable = true
+setup_requires_approval = true
+data_sensitivity = "private local agent transcripts and configuration"
+docs = "docs/tool-audit.md"
+tests = ["tests/test_tool_audit.py", "tests/test_agent_kit.py"]
+evals = "evals/tool-audit/cases.json"
+
+[[resources]]
+id = "global-agent-safety"
+kind = "instruction"
+path = "instructions/global-agent-safety.md"
+version = "1.0.0"
+summary = "Reusable global safety and tool-use guidance for coding agents."
+agents = ["codex", "claude"]
+platforms = ["linux", "windows", "macos"]
+maturity = "stable"
+installable = false
+setup_requires_approval = true
+data_sensitivity = "none"
+
+[[resources]]
+id = "project-agent-contract"
+kind = "template"
+path = "templates/project/AGENTS.md"
+version = "1.0.0"
+summary = "Starter project-level operating contract for coding agents."
+agents = ["codex", "claude"]
+platforms = ["linux", "windows", "macos"]
+maturity = "stable"
+installable = false
+setup_requires_approval = false
+data_sensitivity = "none"
+
+[[resources]]
+id = "permission-boundary"
+kind = "policy"
+path = "policies/permission-boundary.md"
+version = "1.0.0"
+summary = "Review checklist for safe automatic command permissions."
+agents = ["codex", "claude"]
+platforms = ["linux", "windows", "macos"]
+maturity = "stable"
+installable = false
+setup_requires_approval = false
+data_sensitivity = "none"
+
+[[resources]]
+id = "gh-api-get"
+kind = "tool"
+path = "tools/gh-api-get"
+version = "1.0.0"
+summary = "Portable GET-only wrapper for GitHub REST API reads."
+agents = ["codex", "claude"]
+platforms = ["linux", "windows", "macos"]
+maturity = "stable"
+installable = false
+setup_requires_approval = true
+data_sensitivity = "GitHub API response data"
+tests = ["tests/test_agent_kit.py"]
+
+[[resources]]
+id = "github-api-guard"
+kind = "hook"
+path = "hooks/github-api-guard.py"
+version = "1.0.0"
+summary = "Defense-in-depth hook that blocks visible direct gh api shell calls."
+agents = ["claude"]
+platforms = ["linux", "windows", "macos"]
+maturity = "stable"
+installable = false
+setup_requires_approval = true
+data_sensitivity = "shell command text"
+tests = ["tests/test_agent_kit.py"]
+
+[[resources]]
+id = "codex-skill-adapter"
+kind = "adapter"
+path = "adapters/codex/install.md"
+version = "1.0.0"
+summary = "Codex-specific skill installation and permission-separation guidance."
+agents = ["codex"]
+platforms = ["linux", "windows", "macos"]
+maturity = "stable"
+installable = false
+setup_requires_approval = false
+data_sensitivity = "none"
+
+[[resources]]
+id = "claude-skill-adapter"
+kind = "adapter"
+path = "adapters/claude/install.md"
+version = "1.0.0"
+summary = "Claude-specific skill installation and permission-separation guidance."
+agents = ["claude"]
+platforms = ["linux", "windows", "macos"]
+maturity = "stable"
+installable = false
+setup_requires_approval = false
+data_sensitivity = "none"
