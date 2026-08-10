@@ -4,6 +4,22 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
+## 1.1.1 - 2026-08-10
+
+### Fixed
+
+- Import the shared repository contract through Claude Code's native
+  `@AGENTS.md` form and validate that the import remains present.
+- Make the fixed-store `todo_safe.py --help` output describe the safe dispatcher
+  instead of incorrectly claiming support for custom `--dir` paths.
+- Replace stale conditional wording with the Windows CI evidence already
+  available for `tool-audit`.
+
+### Documentation
+
+- Add a copy-paste tagged-checkout path for installing selected skills and point
+  users to the per-skill release archives and checksums.
+
 ## 1.1.0 - 2026-08-08
 
 ### Security

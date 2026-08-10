@@ -1,5 +1,5 @@
 schema_version = 1
-toolkit_version = "1.1.0"
+toolkit_version = "1.1.1"
 minimum_python = "3.11"
 
 [[resources]]
@@ -22,7 +22,7 @@ evals = "evals/grill-me/cases.json"
 id = "todo-capture"
 kind = "skill"
 path = "skills/todo-capture"
-version = "1.0.1"
+version = "1.0.2"
 summary = "Capture and archive shared deferred-work pickup pointers."
 agents = ["codex", "claude"]
 platforms = ["linux", "windows", "macos"]

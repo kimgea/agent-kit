@@ -32,7 +32,19 @@ individual documents under `docs/` for each safety model.
 ## Install a skill
 
 Use a tagged checkout or release rather than an unpinned `main` when installing
-for repeatable use. From a source checkout, preview the destination first:
+for repeatable use. For an ownership-aware installation, clone the tagged toolkit
+release, then install only the selected skill:
+
+```bash
+git clone --branch v1.1.1 --depth 1 https://github.com/kimgea/agent-kit.git
+cd agent-kit
+python scripts/agent_kit.py list
+```
+
+Individual skill archives and `SHA256SUMS` are also attached to each
+[GitHub release](https://github.com/kimgea/agent-kit/releases) for use with a
+normal agent skill installer. From the tagged source checkout, preview the
+destination first:
 
 ```bash
 python scripts/agent_kit.py install tool-audit --agent codex

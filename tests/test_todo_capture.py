@@ -154,6 +154,16 @@ class TodoCliTests(unittest.TestCase):
             (custom / "_general" / "tooling-custom-store.md").is_file()
         )
 
+    def test_safe_help_describes_the_fixed_store_boundary(self):
+        safe_help = self.run_cli("--help")
+        self.assertEqual(safe_help.returncode, 0, safe_help.stderr)
+        self.assertIn("no custom path option", safe_help.stdout)
+        self.assertNotIn("supports ``--dir``", safe_help.stdout)
+
+        direct_help = self.run_cli("--help", direct=True)
+        self.assertEqual(direct_help.returncode, 0, direct_help.stderr)
+        self.assertIn("supports ``--dir``", direct_help.stdout)
+
     def test_path_and_frontmatter_injection_are_rejected(self):
         bad_repo = self.run_cli(*self.new_args("bad", repo="../escape"))
         self.assertEqual(bad_repo.returncode, 2)
