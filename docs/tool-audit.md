@@ -88,8 +88,8 @@ relocation because generated commands contain absolute paths.
 |---|---|
 | Codex on Linux | Real local transcripts and command-policy checks |
 | Claude on Linux | Synthetic transcripts and temporary settings fixtures |
-| Codex on Windows | Windows CI and platform-specific unit tests once CI runs |
-| Claude on Windows | Windows CI and configuration fixtures once CI runs |
+| Codex on Windows | Windows CI and platform-specific unit tests |
+| Claude on Windows | Windows CI and configuration fixtures |
 
 Python 3 is required. Direct Codex tool calls and Claude `tool_use` records are
 counted exactly. JavaScript-wrapped Codex `exec` calls are extracted statically;

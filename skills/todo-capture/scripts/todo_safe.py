@@ -15,4 +15,4 @@ from todo import main  # noqa: E402
 
 
 if __name__ == "__main__":
-    sys.exit(main(allow_custom_dir=False))
+    sys.exit(main(allow_custom_dir=False, description=__doc__))

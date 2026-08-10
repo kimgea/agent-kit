@@ -70,6 +70,10 @@ class CatalogAndValidationTests(unittest.TestCase):
                 path = ROOT / resource["evals"]
                 self.assertEqual([], agent_kit.validate_evals(path), resource["id"])
 
+    def test_claude_uses_native_shared_contract_import(self):
+        lines = (ROOT / "CLAUDE.md").read_text(encoding="utf-8").splitlines()
+        self.assertIn("@AGENTS.md", (line.strip() for line in lines))
+
     def test_project_tracking_rejects_invalid_status_and_progress(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = Path(temporary)

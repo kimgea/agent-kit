@@ -562,7 +562,7 @@ def cmd_check(args):
     return 0
 
 
-def build_parser(allow_custom_dir=True):
+def build_parser(allow_custom_dir=True, description=None):
     common = argparse.ArgumentParser(add_help=False)
     if allow_custom_dir:
         common.add_argument(
@@ -571,7 +571,8 @@ def build_parser(allow_custom_dir=True):
             help="custom full data-store path; direct helper only and approval-gated",
         )
     parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+        description=description if description is not None else __doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="cmd", required=True)
 
@@ -627,8 +628,11 @@ def build_parser(allow_custom_dir=True):
     return parser
 
 
-def main(argv=None, allow_custom_dir=True):
-    parser = build_parser(allow_custom_dir=allow_custom_dir)
+def main(argv=None, allow_custom_dir=True, description=None):
+    parser = build_parser(
+        allow_custom_dir=allow_custom_dir,
+        description=description,
+    )
     args = parser.parse_args(argv)
     try:
         return args.fn(args)

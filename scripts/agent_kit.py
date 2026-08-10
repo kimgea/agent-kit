@@ -536,8 +536,11 @@ def validate_repository(root: Path | None = None) -> list[str]:
     if not (root / "AGENTS.md").is_file():
         errors.append("missing AGENTS.md")
     claude = root / "CLAUDE.md"
-    if not claude.is_file() or "AGENTS.md" not in claude.read_text(encoding="utf-8"):
-        errors.append("CLAUDE.md must direct Claude Code to AGENTS.md")
+    claude_lines = (
+        claude.read_text(encoding="utf-8").splitlines() if claude.is_file() else []
+    )
+    if "@AGENTS.md" not in (line.strip() for line in claude_lines):
+        errors.append("CLAUDE.md must import AGENTS.md with @AGENTS.md")
     return errors
 
 
