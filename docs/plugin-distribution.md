@@ -26,14 +26,23 @@ python scripts/agent_kit.py package --format all
 
 Each plugin has `.codex-plugin/plugin.json`, its canonical skill directories,
 and the repository notices. The marketplace archive has a root
-`agent-kit-marketplace/marketplace.json` plus local plugin directories. Entries
-use relative `./plugins/<id>` sources, so the extracted marketplace is portable
-as one directory tree.
+`agent-kit-marketplace/.agents/plugins/marketplace.json` plus local plugin
+directories under `agent-kit-marketplace/plugins/`. Entries use relative
+`./plugins/<id>` sources, resolved from the marketplace root, so the extracted
+marketplace is portable as one directory tree.
 
 Validate an extracted plugin with the current Codex plugin validator before
 release. Then register the extracted marketplace root—the directory containing
-`marketplace.json`—as a local marketplace and install only the desired plugin.
-The exact interactive command may change with Codex releases; follow the current
+`.agents/plugins/marketplace.json`—and install only the desired plugins:
+
+```bash
+codex plugin marketplace add ./agent-kit-marketplace
+codex plugin list --marketplace agent-kit --available
+codex plugin add agent-context@agent-kit
+```
+
+Repeat the final command for each plugin you want. The exact interactive command
+may change with Codex releases; follow the current
 [Codex plugin documentation](https://developers.openai.com/plugins/build/plugins)
 for the installed client.
 

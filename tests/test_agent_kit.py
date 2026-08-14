@@ -292,7 +292,9 @@ class LifecycleTests(unittest.TestCase):
             )
             with zipfile.ZipFile(marketplace_zip) as archive:
                 marketplace = json.loads(
-                    archive.read("agent-kit-marketplace/marketplace.json")
+                    archive.read(
+                        "agent-kit-marketplace/.agents/plugins/marketplace.json"
+                    )
                 )
                 marketplace_names = set(archive.namelist())
             self.assertEqual(["grill-me"], [item["name"] for item in marketplace["plugins"]])
@@ -303,6 +305,9 @@ class LifecycleTests(unittest.TestCase):
             self.assertIn(
                 "agent-kit-marketplace/plugins/grill-me/.codex-plugin/plugin.json",
                 marketplace_names,
+            )
+            self.assertNotIn(
+                "agent-kit-marketplace/marketplace.json", marketplace_names
             )
             sums = (fixture / "plugins-first" / "SHA256SUMS").read_text(
                 encoding="utf-8"

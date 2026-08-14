@@ -1394,7 +1394,9 @@ def build_marketplace_tree(
         },
         "plugins": entries,
     }
-    (destination / "marketplace.json").write_text(
+    marketplace_path = destination / ".agents" / "plugins" / "marketplace.json"
+    marketplace_path.parent.mkdir(parents=True)
+    marketplace_path.write_text(
         json.dumps(marketplace, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
         newline="\n",

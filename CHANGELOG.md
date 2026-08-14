@@ -27,6 +27,9 @@ in `toolkit.toml`.
 
 - Extend the catalog to schema 2 with explicit plugin membership and marketplace
   metadata, and make the release workflow package every supported format.
+- Place the generated marketplace catalog at the Codex repo-marketplace path
+  `.agents/plugins/marketplace.json` so an extracted archive can be registered
+  directly with the Codex CLI.
 
 ## 1.1.1 - 2026-08-10
 
