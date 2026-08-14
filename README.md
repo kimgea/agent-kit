@@ -83,10 +83,11 @@ the bundled local plugin directories. This supports installing one selected
 skill without turning the toolkit into an all-or-nothing plugin.
 
 After extracting the marketplace archive, register its root (the directory that
-contains `marketplace.json`) with Codex and select the plugins you want. See the
-[plugin distribution guide](docs/plugin-distribution.md) for artifact layout,
-local development, and compatibility boundaries. Standalone skill archives
-remain the portable Claude Code and generic skill-installation format.
+contains `.agents/plugins/marketplace.json`) with Codex and select the plugins
+you want. See the [plugin distribution guide](docs/plugin-distribution.md) for
+artifact layout, local development, and compatibility boundaries. Standalone
+skill archives remain the portable Claude Code and generic skill-installation
+format.
 
 ## Review skill permissions separately
 
