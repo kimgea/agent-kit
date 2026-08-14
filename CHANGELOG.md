@@ -4,6 +4,30 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
+## 1.2.0 - 2026-08-14
+
+### Added
+
+- Add deterministic per-skill Codex plugin bundles and a generated Agent Kit
+  marketplace while preserving standalone skill archives.
+- Add the `agent-context` skill, a read-only resolver, schemas, private context
+  repository templates, and exact project path or Git remote mappings.
+- Add layered public, user, profile, domain, repository, and explicit session
+  context with per-value provenance and deterministic precedence.
+
+### Security
+
+- Require context sources to be explicitly registered, reject symlinked sources
+  and literal values in `secret_refs`, and keep repository instructions and
+  skill safety invariants outside the context override boundary.
+- Keep private context outside this public repository and avoid automatic global
+  configuration, permission grants, discovery, caching, or mutation.
+
+### Changed
+
+- Extend the catalog to schema 2 with explicit plugin membership and marketplace
+  metadata, and make the release workflow package every supported format.
+
 ## 1.1.1 - 2026-08-10
 
 ### Fixed

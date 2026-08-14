@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Context"
+  short_description: "Resolve layered private agent context safely"
+  default_prompt: "Use $agent-context to resolve the context registered for this project."

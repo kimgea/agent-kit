@@ -16,11 +16,19 @@ and GitHub reads require them.
 
 | Resource | Codex | Claude Code | Notes |
 |---|---|---|---|
+| `agent-context` | Supported | Supported | Plain Markdown plus standard-library resolver; private registry paths are OS-native |
 | `grill-me` | Supported | Supported | Plain Markdown; no runtime code |
 | `todo-capture` | Supported | Supported | Native Windows and POSIX storage/permission fixtures |
 | `tool-audit` | Supported | Supported | Codex and Claude transcript parsers; wrapped Codex calls are conservative |
 | `gh-api-get` | Supported | Supported | Python module plus POSIX and Windows launchers |
 | GitHub API guard | Policy/wrapper preferred | Supported hook shape | Defense in depth only |
+
+Standalone skill archives are the cross-harness distribution. Codex plugin and
+marketplace archives target Codex plugin surfaces; they package the same
+canonical skill directories and do not make the skills depend on Codex at
+runtime. Plugin manifest and marketplace structure are validated locally, but an
+interactive Codex marketplace install is still a release smoke-test rather than
+part of network-free CI.
 
 Codex on Linux has been exercised with real local transcripts and policy files.
 Claude Code compatibility is covered by synthetic transcript/configuration
@@ -38,3 +46,9 @@ not an interactive Codex or Claude desktop session.
 Environment overrides are resolved at execution time. Rerun a skill's permission
 setup after relocating it because generated rules pin resolved interpreter and
 script paths.
+
+The context registry defaults to the platform's OS-native user configuration
+directory and may be overridden only with an absolute
+`AGENT_KIT_CONTEXT_CONFIG` path. Private source directories can live in separate
+Git repositories, ordinary directories, or encrypted storage that is already
+mounted; the resolver does not clone, decrypt, synchronize, or discover them.

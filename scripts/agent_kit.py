@@ -57,6 +57,31 @@ REQUIRED_RESOURCE_KEYS = {
 GENERATED_DIRS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "dist"}
 GENERATED_SUFFIXES = {".pyc", ".pyo", ".bak", ".tmp"}
 STATE_SCHEMA = 1
+PLUGIN_INSTALLATION = {"NOT_AVAILABLE", "AVAILABLE", "INSTALLED_BY_DEFAULT"}
+PLUGIN_AUTHENTICATION = {"ON_INSTALL", "ON_USE"}
+MARKETPLACE_KEYS = {
+    "name",
+    "display_name",
+    "author_name",
+    "author_url",
+    "homepage",
+    "repository",
+    "license",
+}
+PLUGIN_REQUIRED_KEYS = {
+    "id",
+    "skills",
+    "category",
+    "installation",
+    "authentication",
+}
+PLUGIN_OPTIONAL_KEYS = {
+    "version",
+    "description",
+    "display_name",
+    "short_description",
+    "default_prompts",
+}
 
 
 class AgentKitError(RuntimeError):
@@ -125,6 +150,23 @@ def resource_map(catalog: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return mapped
 
 
+def plugin_map(catalog: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    plugins = catalog.get("plugins")
+    if not isinstance(plugins, list):
+        raise AgentKitError("toolkit.toml must contain [[plugins]] entries")
+    mapped: dict[str, dict[str, Any]] = {}
+    for index, plugin in enumerate(plugins, 1):
+        if not isinstance(plugin, dict):
+            raise AgentKitError(f"plugin {index} must be a table")
+        plugin_id = plugin.get("id")
+        if not isinstance(plugin_id, str) or not RESOURCE_ID.fullmatch(plugin_id):
+            raise AgentKitError(f"plugin {index} has invalid id: {plugin_id!r}")
+        if plugin_id in mapped:
+            raise AgentKitError(f"duplicate plugin id: {plugin_id}")
+        mapped[plugin_id] = plugin
+    return mapped
+
+
 def parse_frontmatter(path: Path) -> dict[str, str]:
     try:
         text = path.read_text(encoding="utf-8")
@@ -165,6 +207,185 @@ def validate_openai_yaml(path: Path, resource_id: str) -> list[str]:
         elif field == "default_prompt" and f"${resource_id}" not in match.group(1):
             errors.append(f"{path}: default_prompt must mention ${resource_id}")
     return errors
+
+
+def read_openai_interface(path: Path) -> dict[str, str]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise AgentKitError(f"cannot read {path}: {exc}") from exc
+    result: dict[str, str] = {}
+    for field in ("display_name", "short_description", "default_prompt"):
+        match = re.search(rf'(?m)^  {field}:\s+"([^"]+)"\s*$', text)
+        if not match:
+            raise AgentKitError(f"{path}: missing quoted interface field {field}")
+        result[field] = match.group(1)
+    return result
+
+
+def validate_plugin_catalog(
+    root: Path,
+    catalog: dict[str, Any],
+    resources: dict[str, dict[str, Any]],
+) -> list[str]:
+    errors: list[str] = []
+    marketplace = catalog.get("plugin_marketplace")
+    if not isinstance(marketplace, dict):
+        errors.append("toolkit.toml must contain [plugin_marketplace]")
+    else:
+        missing = MARKETPLACE_KEYS - marketplace.keys()
+        unknown = marketplace.keys() - MARKETPLACE_KEYS
+        if missing:
+            errors.append(f"plugin_marketplace missing keys {sorted(missing)}")
+        if unknown:
+            errors.append(f"plugin_marketplace has unsupported keys {sorted(unknown)}")
+        for key in MARKETPLACE_KEYS:
+            value = marketplace.get(key)
+            if not isinstance(value, str) or not value.strip():
+                errors.append(f"plugin_marketplace.{key} must be a non-empty string")
+        name = marketplace.get("name")
+        if isinstance(name, str) and not RESOURCE_ID.fullmatch(name):
+            errors.append("plugin_marketplace.name must be lower-case hyphen-case")
+
+    try:
+        plugins = plugin_map(catalog)
+    except AgentKitError as exc:
+        return [*errors, str(exc)]
+
+    memberships: dict[str, list[str]] = {}
+    for plugin_id, plugin in plugins.items():
+        missing = PLUGIN_REQUIRED_KEYS - plugin.keys()
+        unknown = plugin.keys() - PLUGIN_REQUIRED_KEYS - PLUGIN_OPTIONAL_KEYS
+        if missing:
+            errors.append(f"{plugin_id}: plugin missing keys {sorted(missing)}")
+            continue
+        if unknown:
+            errors.append(f"{plugin_id}: plugin has unsupported keys {sorted(unknown)}")
+        skills = plugin.get("skills")
+        if (
+            not isinstance(skills, list)
+            or not skills
+            or not all(isinstance(item, str) for item in skills)
+            or len(skills) != len(set(skills))
+        ):
+            errors.append(f"{plugin_id}: skills must be a non-empty unique string array")
+            continue
+        for skill_id in skills:
+            resource = resources.get(skill_id)
+            if (
+                resource is None
+                or resource.get("kind") != "skill"
+                or not resource.get("installable")
+            ):
+                errors.append(
+                    f"{plugin_id}: plugin skill is not an installable resource: {skill_id}"
+                )
+            memberships.setdefault(skill_id, []).append(plugin_id)
+        if not isinstance(plugin.get("category"), str) or not plugin["category"].strip():
+            errors.append(f"{plugin_id}: category must be a non-empty string")
+        if plugin.get("installation") not in PLUGIN_INSTALLATION:
+            errors.append(f"{plugin_id}: invalid plugin installation policy")
+        if plugin.get("authentication") not in PLUGIN_AUTHENTICATION:
+            errors.append(f"{plugin_id}: invalid plugin authentication policy")
+
+        if len(skills) > 1:
+            required_overrides = {
+                "version",
+                "description",
+                "display_name",
+                "short_description",
+                "default_prompts",
+            }
+            missing_overrides = required_overrides - plugin.keys()
+            if missing_overrides:
+                errors.append(
+                    f"{plugin_id}: grouped plugin missing metadata "
+                    f"{sorted(missing_overrides)}"
+                )
+        if "version" in plugin and (
+            not isinstance(plugin["version"], str)
+            or not VERSION.fullmatch(plugin["version"])
+        ):
+            errors.append(f"{plugin_id}: plugin version must be semantic x.y.z")
+        for field in ("description", "display_name", "short_description"):
+            if field in plugin and (
+                not isinstance(plugin[field], str) or not plugin[field].strip()
+            ):
+                errors.append(f"{plugin_id}: {field} must be a non-empty string")
+        if "default_prompts" in plugin:
+            prompts = plugin["default_prompts"]
+            if (
+                not isinstance(prompts, list)
+                or not 1 <= len(prompts) <= 3
+                or not all(
+                    isinstance(prompt, str) and 1 <= len(prompt) <= 128
+                    for prompt in prompts
+                )
+            ):
+                errors.append(
+                    f"{plugin_id}: default_prompts must contain 1-3 strings "
+                    "of at most 128 characters"
+                )
+
+    installable = {
+        resource_id
+        for resource_id, resource in resources.items()
+        if resource.get("kind") == "skill" and resource.get("installable")
+    }
+    for skill_id in sorted(installable):
+        owners = memberships.get(skill_id, [])
+        if len(owners) != 1:
+            errors.append(
+                f"{skill_id}: installable skill must belong to exactly one plugin, "
+                f"found {owners}"
+            )
+    extra = memberships.keys() - installable
+    if extra:
+        errors.append(f"plugins reference non-installable skills: {sorted(extra)}")
+    return errors
+
+
+def resolved_plugin_metadata(
+    root: Path,
+    catalog: dict[str, Any],
+    plugin: dict[str, Any],
+    resources: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    marketplace = catalog["plugin_marketplace"]
+    skill_ids = plugin["skills"]
+    if len(skill_ids) == 1:
+        resource = resources[skill_ids[0]]
+        interface = read_openai_interface(
+            resolve_relative(root, resource["path"], f"{resource['id']}.path")
+            / "agents"
+            / "openai.yaml"
+        )
+        version = resource["version"]
+        description = resource["summary"]
+        display_name = interface["display_name"]
+        short_description = interface["short_description"]
+        default_prompts = [interface["default_prompt"]]
+    else:
+        version = plugin["version"]
+        description = plugin["description"]
+        display_name = plugin["display_name"]
+        short_description = plugin["short_description"]
+        default_prompts = plugin["default_prompts"]
+    return {
+        "id": plugin["id"],
+        "version": version,
+        "description": description,
+        "display_name": display_name,
+        "short_description": short_description,
+        "default_prompts": default_prompts,
+        "category": plugin["category"],
+        "author_name": marketplace["author_name"],
+        "author_url": marketplace["author_url"],
+        "homepage": marketplace["homepage"],
+        "repository": marketplace["repository"],
+        "license": marketplace["license"],
+        "skills": list(skill_ids),
+    }
 
 
 def validate_evals(path: Path) -> list[str]:
@@ -300,7 +521,7 @@ def validate_repository_controls(root: Path, catalog: dict[str, Any]) -> list[st
         text = release.read_text(encoding="utf-8")
         for required_text in (
             "python scripts/agent_kit.py check",
-            "python scripts/agent_kit.py package",
+            "python scripts/agent_kit.py package --format all",
             "gh release create",
             "--verify-tag",
         ):
@@ -395,8 +616,8 @@ def validate_project_tracking(root: Path) -> list[str]:
 
 def validate_catalog(root: Path, catalog: dict[str, Any]) -> list[str]:
     errors: list[str] = []
-    if catalog.get("schema_version") != 1:
-        errors.append("toolkit.toml schema_version must be 1")
+    if catalog.get("schema_version") != 2:
+        errors.append("toolkit.toml schema_version must be 2")
     if not isinstance(catalog.get("toolkit_version"), str) or not VERSION.fullmatch(
         catalog.get("toolkit_version", "")
     ):
@@ -407,6 +628,7 @@ def validate_catalog(root: Path, catalog: dict[str, Any]) -> list[str]:
         resources = resource_map(catalog)
     except AgentKitError as exc:
         return [str(exc)]
+    errors.extend(validate_plugin_catalog(root, catalog, resources))
 
     catalog_skills: set[str] = set()
     for resource_id, resource in resources.items():
@@ -987,32 +1209,57 @@ def rollback_skill(
     print(f"rolled back {resource_id} -> {destination}")
 
 
+
 def deterministic_zip(
-    source: Path, destination: Path, root_name: str, repository_root: Path = ROOT
+    source: Path,
+    destination: Path,
+    root_name: str,
+    repository_root: Path = ROOT,
+    include_notices: bool = True,
 ) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{destination.name}.", dir=destination.parent)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{destination.name}.", dir=destination.parent
+    )
     os.close(descriptor)
     try:
-        with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+        with zipfile.ZipFile(
+            temporary, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
+        ) as archive:
             for path in sorted(source.rglob("*"), key=lambda value: value.as_posix()):
                 if path.is_symlink():
                     raise AgentKitError(f"refusing symlinked package content: {path}")
-                if not path.is_file() or any(part in GENERATED_DIRS for part in path.relative_to(source).parts):
+                if not path.is_file() or any(
+                    part in GENERATED_DIRS
+                    for part in path.relative_to(source).parts
+                ):
                     continue
                 name = f"{root_name}/{path.relative_to(source).as_posix()}"
                 info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
                 info.compress_type = zipfile.ZIP_DEFLATED
                 info.create_system = 3
                 info.external_attr = 0o100644 << 16
-                archive.writestr(info, path.read_bytes(), compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
-            for notice in ("LICENSE", "THIRD_PARTY_NOTICES.md"):
-                path = repository_root / notice
-                info = zipfile.ZipInfo(notice, date_time=(1980, 1, 1, 0, 0, 0))
-                info.compress_type = zipfile.ZIP_DEFLATED
-                info.create_system = 3
-                info.external_attr = 0o100644 << 16
-                archive.writestr(info, path.read_bytes(), compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
+                archive.writestr(
+                    info,
+                    path.read_bytes(),
+                    compress_type=zipfile.ZIP_DEFLATED,
+                    compresslevel=9,
+                )
+            if include_notices:
+                for notice in ("LICENSE", "THIRD_PARTY_NOTICES.md"):
+                    path = repository_root / notice
+                    info = zipfile.ZipInfo(
+                        notice, date_time=(1980, 1, 1, 0, 0, 0)
+                    )
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    info.create_system = 3
+                    info.external_attr = 0o100644 << 16
+                    archive.writestr(
+                        info,
+                        path.read_bytes(),
+                        compress_type=zipfile.ZIP_DEFLATED,
+                        compresslevel=9,
+                    )
         os.replace(temporary, destination)
     finally:
         try:
@@ -1021,37 +1268,226 @@ def deterministic_zip(
             pass
 
 
-def package_skills(
-    output: Path, selected: list[str] | None = None, root: Path | None = None
-) -> list[Path]:
-    root = ROOT if root is None else root
-    catalog = load_catalog(root)
+def selected_skill_ids(
+    catalog: dict[str, Any], selected: list[str] | None
+) -> list[str]:
     resources = resource_map(catalog)
-    ids = selected or sorted(
+    ids = selected or [
         resource_id
         for resource_id, resource in resources.items()
         if resource.get("kind") == "skill" and resource.get("installable")
+    ]
+    if len(ids) != len(set(ids)):
+        raise AgentKitError("package resource selection contains duplicates")
+    for resource_id in ids:
+        require_resource(catalog, resource_id, installable=True)
+    return sorted(ids)
+
+
+def plugins_for_skills(
+    catalog: dict[str, Any], selected: list[str]
+) -> list[dict[str, Any]]:
+    chosen = set(selected)
+    result: list[dict[str, Any]] = []
+    for plugin in plugin_map(catalog).values():
+        plugin_skills = set(plugin["skills"])
+        overlap = plugin_skills & chosen
+        if overlap and overlap != plugin_skills:
+            raise AgentKitError(
+                f"selection splits grouped plugin {plugin['id']}: "
+                f"select all of {sorted(plugin_skills)}"
+            )
+        if overlap:
+            result.append(plugin)
+    covered = {skill for plugin in result for skill in plugin["skills"]}
+    missing = chosen - covered
+    if missing:
+        raise AgentKitError(f"selected skills have no plugin mapping: {sorted(missing)}")
+    return result
+
+
+def _copy_notices(destination: Path, root: Path) -> None:
+    for notice in ("LICENSE", "THIRD_PARTY_NOTICES.md"):
+        shutil.copy2(root / notice, destination / notice)
+
+
+def build_plugin_tree(
+    destination: Path,
+    catalog: dict[str, Any],
+    plugin: dict[str, Any],
+    root: Path,
+) -> dict[str, Any]:
+    resources = resource_map(catalog)
+    metadata = resolved_plugin_metadata(root, catalog, plugin, resources)
+    destination.mkdir(parents=True, exist_ok=False)
+    skills_root = destination / "skills"
+    skills_root.mkdir()
+    for skill_id in metadata["skills"]:
+        source = resolve_relative(root, resources[skill_id]["path"], f"{skill_id}.path")
+        digest_tree(source)
+        shutil.copytree(source, skills_root / skill_id)
+
+    manifest = {
+        "name": metadata["id"],
+        "version": metadata["version"],
+        "description": metadata["description"],
+        "author": {
+            "name": metadata["author_name"],
+            "url": metadata["author_url"],
+        },
+        "homepage": metadata["homepage"],
+        "repository": metadata["repository"],
+        "license": metadata["license"],
+        "skills": "./skills/",
+        "interface": {
+            "displayName": metadata["display_name"],
+            "shortDescription": metadata["short_description"],
+            "longDescription": metadata["description"],
+            "developerName": metadata["author_name"],
+            "category": metadata["category"],
+            "capabilities": [],
+            "websiteURL": metadata["homepage"],
+            "defaultPrompt": metadata["default_prompts"],
+        },
+    }
+    manifest_path = destination / ".codex-plugin" / "plugin.json"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
     )
+    _copy_notices(destination, root)
+    return metadata
+
+
+def build_marketplace_tree(
+    destination: Path,
+    catalog: dict[str, Any],
+    plugins: list[dict[str, Any]],
+    root: Path,
+) -> None:
+    destination.mkdir(parents=True, exist_ok=False)
+    entries: list[dict[str, Any]] = []
+    plugins_root = destination / "plugins"
+    plugins_root.mkdir()
+    for plugin in plugins:
+        build_plugin_tree(plugins_root / plugin["id"], catalog, plugin, root)
+        entries.append(
+            {
+                "name": plugin["id"],
+                "source": {
+                    "source": "local",
+                    "path": f"./plugins/{plugin['id']}",
+                },
+                "policy": {
+                    "installation": plugin["installation"],
+                    "authentication": plugin["authentication"],
+                },
+                "category": plugin["category"],
+            }
+        )
+    marketplace = {
+        "name": catalog["plugin_marketplace"]["name"],
+        "interface": {
+            "displayName": catalog["plugin_marketplace"]["display_name"],
+        },
+        "plugins": entries,
+    }
+    (destination / "marketplace.json").write_text(
+        json.dumps(marketplace, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    _copy_notices(destination, root)
+
+
+def _write_checksums(output: Path, artifacts: list[Path]) -> Path:
+    lines = [
+        f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}"
+        for path in artifacts
+    ]
+    sums = output / "SHA256SUMS"
+    sums.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    return sums
+
+
+def package_artifacts(
+    output: Path,
+    selected: list[str] | None = None,
+    package_format: str = "skill",
+    root: Path | None = None,
+) -> list[Path]:
+    root = ROOT if root is None else root
+    if package_format not in {"skill", "plugin", "all"}:
+        raise AgentKitError(f"unsupported package format: {package_format}")
+    catalog = load_catalog(root)
+    resources = resource_map(catalog)
+    plugin_errors = validate_plugin_catalog(root, catalog, resources)
+    if plugin_errors:
+        raise AgentKitError(plugin_errors[0])
+    ids = selected_skill_ids(catalog, selected)
+    plugins = plugins_for_skills(catalog, ids)
     output = output if output.is_absolute() else root / output
     if not contained(root, output):
         raise AgentKitError("package output must stay inside the repository")
     output.mkdir(parents=True, exist_ok=True)
+
     artifacts: list[Path] = []
-    checksums: list[str] = []
-    for resource_id in ids:
-        resource = require_resource(catalog, resource_id, installable=True)
-        source = resolve_relative(root, resource["path"], f"{resource_id}.path")
-        name = f"{resource_id}-{resource['version']}.zip"
-        destination = output / name
-        deterministic_zip(source, destination, resource_id, root)
-        checksum = hashlib.sha256(destination.read_bytes()).hexdigest()
-        artifacts.append(destination)
-        checksums.append(f"{checksum}  {name}")
-    sums = output / "SHA256SUMS"
-    sums.write_text("\n".join(checksums) + "\n", encoding="utf-8", newline="\n")
-    artifacts.append(sums)
+    if package_format in {"skill", "all"}:
+        for resource_id in ids:
+            resource = resources[resource_id]
+            source = resolve_relative(root, resource["path"], f"{resource_id}.path")
+            name = f"{resource_id}-{resource['version']}.zip"
+            destination = output / name
+            deterministic_zip(source, destination, resource_id, root)
+            artifacts.append(destination)
+
+    if package_format in {"plugin", "all"}:
+        with tempfile.TemporaryDirectory(
+            prefix=".agent-kit-package-", dir=output
+        ) as temporary:
+            staging = Path(temporary)
+            for plugin in plugins:
+                plugin_root = staging / f"plugin-{plugin['id']}"
+                metadata = build_plugin_tree(plugin_root, catalog, plugin, root)
+                destination = (
+                    output
+                    / f"{plugin['id']}-plugin-{metadata['version']}.zip"
+                )
+                deterministic_zip(
+                    plugin_root,
+                    destination,
+                    plugin["id"],
+                    root,
+                    include_notices=False,
+                )
+                artifacts.append(destination)
+
+            marketplace_root = staging / "marketplace"
+            build_marketplace_tree(marketplace_root, catalog, plugins, root)
+            marketplace_archive = (
+                output
+                / f"agent-kit-marketplace-{catalog['toolkit_version']}.zip"
+            )
+            deterministic_zip(
+                marketplace_root,
+                marketplace_archive,
+                "agent-kit-marketplace",
+                root,
+                include_notices=False,
+            )
+            artifacts.append(marketplace_archive)
+
+    artifacts.sort(key=lambda path: path.name)
+    artifacts.append(_write_checksums(output, artifacts))
     return artifacts
 
+
+def package_skills(
+    output: Path, selected: list[str] | None = None, root: Path | None = None
+) -> list[Path]:
+    return package_artifacts(output, selected, "skill", root)
 
 def command_list(args: argparse.Namespace) -> int:
     catalog = load_catalog()
@@ -1065,6 +1501,8 @@ def command_list(args: argparse.Namespace) -> int:
                 {
                     "schema_version": catalog["schema_version"],
                     "toolkit_version": catalog["toolkit_version"],
+                    "plugin_marketplace": catalog["plugin_marketplace"],
+                    "plugins": list(plugin_map(catalog).values()),
                     "resources": resources,
                 },
                 indent=2,
@@ -1157,7 +1595,9 @@ def command_check(args: argparse.Namespace) -> int:
 
 
 def command_package(args: argparse.Namespace) -> int:
-    artifacts = package_skills(Path("dist"), args.resources or None)
+    artifacts = package_artifacts(
+        Path("dist"), args.resources or None, args.package_format
+    )
     for artifact in artifacts:
         print(artifact.relative_to(ROOT))
     return 0
@@ -1194,6 +1634,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     command = subparsers.add_parser("package", help="build deterministic release archives")
     command.add_argument("resources", nargs="*")
+    command.add_argument(
+        "--format",
+        choices=("skill", "plugin", "all"),
+        default="skill",
+        dest="package_format",
+    )
     command.set_defaults(handler=command_package)
     return parser
 

@@ -1,7 +1,8 @@
 # agent-kit
 
-Portable, reusable resources for Codex and Claude Code. The toolkit currently
-ships skills, agent instruction fragments, safety policies, templates, a hook,
+Portable, reusable resources for Codex and Claude Code. The toolkit ships
+independently installable skills, Codex plugin bundles, an Agent Kit plugin
+marketplace, agent instruction fragments, safety policies, templates, a hook,
 and a GET-only GitHub REST wrapper.
 
 The repository is the source of truth. Installed copies are deployments and must
@@ -22,12 +23,14 @@ Current skills:
 
 | Skill | Purpose | Runtime data |
 |---|---|---|
+| `agent-context` | Resolve explicitly registered private context for the current project | Reads registered context repositories; writes nothing |
 | `grill-me` | Pressure-test decisions, plans, artifacts, and diagnoses | None |
 | `todo-capture` | Preserve deferred work as shared pickup pointers | Private OS-native state directory |
 | `tool-audit` | Audit local tools, agent usage, friction, and permissions | Private OS-native state plus read-only transcript access |
 
-See [compatibility](docs/compatibility.md) for the tested support matrix and the
-individual documents under `docs/` for each safety model.
+See [compatibility](docs/compatibility.md) for the tested support matrix. The
+[agent-context guide](docs/agent-context.md) explains how to layer private work,
+home, or domain knowledge over the public defaults without committing it here.
 
 ## Install a skill
 
@@ -36,7 +39,7 @@ for repeatable use. For an ownership-aware installation, clone the tagged toolki
 release, then install only the selected skill:
 
 ```bash
-git clone --branch v1.1.1 --depth 1 https://github.com/kimgea/agent-kit.git
+git clone --branch v1.2.0 --depth 1 https://github.com/kimgea/agent-kit.git
 cd agent-kit
 python scripts/agent_kit.py list
 ```
@@ -72,6 +75,19 @@ When they do, repository ownership, update, and rollback tracking are not
 available unless that deployment is first removed and installed through
 `agent_kit.py`.
 
+## Install Codex plugins
+
+Every installable skill is also released as its own Codex plugin. The release
+includes an `agent-kit-marketplace-<version>.zip` catalog whose entries point to
+the bundled local plugin directories. This supports installing one selected
+skill without turning the toolkit into an all-or-nothing plugin.
+
+After extracting the marketplace archive, register its root (the directory that
+contains `marketplace.json`) with Codex and select the plugins you want. See the
+[plugin distribution guide](docs/plugin-distribution.md) for artifact layout,
+local development, and compatibility boundaries. Standalone skill archives
+remain the portable Claude Code and generic skill-installation format.
+
 ## Review skill permissions separately
 
 `todo-capture` and `tool-audit` include permission bootstrap scripts. From the
@@ -103,6 +119,8 @@ setup script can preview and remove them separately.
 - `instructions/` — reviewed global instruction fragments that require human
   adoption.
 - `templates/` — project instruction starters.
+- `templates/context-repo/` — starter files for a separate private context
+  repository or directory.
 - `policies/` — permission and command-safety review contracts.
 - `hooks/` — optional defense-in-depth hooks; never a substitute for policy.
 - `adapters/` — harness-specific installation notes.
@@ -125,10 +143,10 @@ The gate validates catalog parity, skill frontmatter and UI metadata, local link
 evaluation schemas, generated-file hygiene, Python compilation, all unit tests,
 and that validation itself does not alter the working tree.
 
-Build deterministic release archives locally with:
+Build every deterministic release format locally with:
 
 ```bash
-python scripts/agent_kit.py package
+python scripts/agent_kit.py package --format all
 ```
 
 See [release guidance](docs/releasing.md). Security-sensitive findings belong in

@@ -31,6 +31,12 @@ Every skill requires frontmatter containing only `name` and `description` plus a
 matching `agents/openai.yaml`. Preserve plain Markdown and standard-library Python
 compatibility for Claude Code.
 
+For an installable skill, also add or update its `[[plugins]]` mapping. A plugin
+may contain one skill or an explicitly reviewed related group, but each
+installable skill must belong to exactly one plugin. Plugin manifests and the
+marketplace are generated from `toolkit.toml` plus skill metadata; do not commit
+generated plugin trees or edit packaged copies.
+
 ### Skill content boundary
 
 - Put universal runtime decisions, commands, and safety invariants in `SKILL.md`.
@@ -48,6 +54,19 @@ compatibility for Claude Code.
 Avoid duplicating the same rule across `SKILL.md`, references, and maintainer
 docs. Installed skills must remain self-contained, so do not move information out
 of the skill when an agent needs it to perform or safely interpret runtime work.
+
+### Shared and private context
+
+Keep correctness-critical runtime knowledge inside the skill that needs it. Use
+the public `agent-context` defaults only for broadly shared preferences or facts
+that are useful across skills, and do not create a hidden dependency on private
+context. Private domain, work, home, and repository context belongs in separate
+untracked repositories or directories registered by the user.
+
+Context changes knowledge and preferences, not repository authority: it cannot
+override `AGENTS.md`, safety rules, or a skill's runtime invariants. Use symbolic
+secret references rather than secret values, and add resolver tests whenever
+precedence, matching, validation, or disclosure behavior changes.
 
 ## Command classifications
 

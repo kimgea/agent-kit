@@ -7,7 +7,7 @@
 3. Update `CHANGELOG.md`, compatibility claims, and third-party notices.
 4. Run `python scripts/agent_kit.py check`.
 5. Optionally inspect local deterministic artifacts with
-   `python scripts/agent_kit.py package` and remove `dist/` afterward.
+   `python scripts/agent_kit.py package --format all` and remove `dist/` afterward.
 6. Merge through a pull request after required CI and an explicit owner merge
    decision.
 
@@ -21,11 +21,16 @@ The release workflow:
 - checks out the exact tag with immutable pinned Actions;
 - verifies `v<toolkit_version>` equals the tag;
 - runs the canonical repository gate;
-- packages every installable skill deterministically;
+- packages every installable skill and plugin plus the marketplace
+  deterministically;
 - creates the GitHub release and uploads each archive plus `SHA256SUMS`.
 
 Verify the release checksums and inspect archive contents before recommending the
 release for installation.
+Extract the marketplace archive and run the plugin validator against each
+contained plugin. A human should also smoke-test adding the extracted local
+marketplace to a compatible Codex installation before announcing plugin
+availability.
 
 ## Repository settings
 
