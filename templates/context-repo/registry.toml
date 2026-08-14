@@ -1,0 +1,11 @@
+schema_version = 1
+always = []
+
+[[sources]]
+id = "replace-with-source-id"
+path = "/absolute/path/to/separate-private-context-repository"
+
+[[projects]]
+path = "/absolute/path/to/project"
+remotes = []
+use = ["replace-with-source-id"]

@@ -6,6 +6,12 @@
 repository lifecycle interface. Installable resources remain self-contained under
 `skills/`; repository tooling never becomes a runtime import for a deployed skill.
 
+Each installable skill belongs to exactly one cataloged plugin. Release packaging
+derives plugin manifests, plugin trees, and the marketplace from the catalog and
+skill UI metadata. These are distributions of canonical skill sources, not a
+second development layer. A plugin may group related skills later, but a single
+skill is the default ownership and versioning boundary.
+
 Non-skill resources stay organized by asset type:
 
 - instructions, templates, and policies are reviewed text assets;
@@ -13,6 +19,20 @@ Non-skill resources stay organized by asset type:
 - adapters describe harness-specific integration;
 - tools are reusable executables or wrappers;
 - evaluations are behavioral fixtures outside installed skills.
+
+## Context layering
+
+`agent-context` provides an optional read-only bridge between public defaults and
+separate private context repositories. It loads only sources registered in the
+user's OS-native registry and selects project context by an exact resolved path
+or exact Git remote. There is no directory crawling, fuzzy matching, network
+lookup, or automatic project enrollment.
+
+Layers merge from public to user, profile, domain, repository, and explicit
+session context. Later values override earlier values within mergeable knowledge
+categories, while provenance remains visible. Public invariants are locked;
+private context cannot replace repository instructions, permission boundaries,
+or skill safety rules. Skills remain complete without any private source.
 
 ## Installation ownership
 
@@ -38,8 +58,9 @@ compilation, and unit tests. It snapshots Git status before and after execution 
 detect validation side effects.
 
 Release packaging uses fixed timestamps, sorted paths, stable permissions, and a
-single Linux release job. Each archive includes one complete skill directory plus
-the repository license and third-party notices. `SHA256SUMS` covers every archive.
+single Linux release job. It emits standalone skill archives, per-skill plugin
+archives, and one marketplace archive. Bundles include the repository license and
+third-party notices, and one `SHA256SUMS` covers every archive.
 
 ## Trust boundaries
 

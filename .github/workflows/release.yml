@@ -32,7 +32,7 @@ jobs:
       - name: Run canonical validation
         run: python scripts/agent_kit.py check
       - name: Build deterministic release archives
-        run: python scripts/agent_kit.py package
+        run: python scripts/agent_kit.py package --format all
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

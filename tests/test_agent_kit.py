@@ -57,9 +57,9 @@ class CatalogAndValidationTests(unittest.TestCase):
         with contextlib.redirect_stdout(output):
             self.assertEqual(0, agent_kit.command_list(args))
         value = json.loads(output.getvalue())
-        self.assertEqual(1, value["schema_version"])
+        self.assertEqual(2, value["schema_version"])
         self.assertEqual(
-            ["grill-me", "todo-capture", "tool-audit"],
+            ["agent-context", "grill-me", "todo-capture", "tool-audit"],
             sorted(resource["id"] for resource in value["resources"]),
         )
 
@@ -242,6 +242,127 @@ class LifecycleTests(unittest.TestCase):
             self.assertIn("THIRD_PARTY_NOTICES.md", names)
             sums = (fixture / "first" / "SHA256SUMS").read_text(encoding="utf-8")
             self.assertIn(first_zip.name, sums)
+
+
+    def test_plugin_and_marketplace_packages_are_deterministic_and_selected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary) / "repository with spaces"
+            shutil.copytree(
+                ROOT,
+                fixture,
+                ignore=shutil.ignore_patterns(".git", "__pycache__", "dist"),
+            )
+            first = agent_kit.package_artifacts(
+                Path("plugins-first"), ["grill-me"], "plugin", fixture
+            )
+            second = agent_kit.package_artifacts(
+                Path("plugins-second"), ["grill-me"], "plugin", fixture
+            )
+            first_plugin = next(
+                path for path in first if path.name.startswith("grill-me-plugin-")
+            )
+            second_plugin = next(
+                path for path in second if path.name.startswith("grill-me-plugin-")
+            )
+            self.assertEqual(first_plugin.read_bytes(), second_plugin.read_bytes())
+
+            with zipfile.ZipFile(first_plugin) as archive:
+                names = set(archive.namelist())
+                manifest = json.loads(
+                    archive.read("grill-me/.codex-plugin/plugin.json")
+                )
+                packaged_skill = archive.read("grill-me/skills/grill-me/SKILL.md")
+            self.assertEqual("grill-me", manifest["name"])
+            self.assertEqual("./skills/", manifest["skills"])
+            self.assertNotIn("apps", manifest)
+            self.assertNotIn("mcpServers", manifest)
+            self.assertNotIn("hooks", manifest)
+            self.assertIsInstance(manifest["interface"]["defaultPrompt"], list)
+            self.assertEqual([], manifest["interface"]["capabilities"])
+            self.assertIn("grill-me/LICENSE", names)
+            self.assertEqual(
+                (fixture / "skills" / "grill-me" / "SKILL.md").read_bytes(),
+                packaged_skill,
+            )
+
+            marketplace_zip = next(
+                path
+                for path in first
+                if path.name.startswith("agent-kit-marketplace-")
+            )
+            with zipfile.ZipFile(marketplace_zip) as archive:
+                marketplace = json.loads(
+                    archive.read("agent-kit-marketplace/marketplace.json")
+                )
+                marketplace_names = set(archive.namelist())
+            self.assertEqual(["grill-me"], [item["name"] for item in marketplace["plugins"]])
+            self.assertEqual(
+                "./plugins/grill-me",
+                marketplace["plugins"][0]["source"]["path"],
+            )
+            self.assertIn(
+                "agent-kit-marketplace/plugins/grill-me/.codex-plugin/plugin.json",
+                marketplace_names,
+            )
+            sums = (fixture / "plugins-first" / "SHA256SUMS").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn(first_plugin.name, sums)
+            self.assertIn(marketplace_zip.name, sums)
+
+    def test_all_format_includes_every_standalone_plugin_and_marketplace(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary) / "source"
+            shutil.copytree(
+                ROOT,
+                fixture,
+                ignore=shutil.ignore_patterns(".git", "__pycache__", "dist"),
+            )
+            artifacts = agent_kit.package_artifacts(
+                Path("release"), None, "all", fixture
+            )
+            archives = [path for path in artifacts if path.suffix == ".zip"]
+            self.assertEqual(9, len(archives))
+            self.assertEqual(4, len([path for path in archives if "-plugin-" in path.name]))
+            self.assertEqual(
+                1,
+                len(
+                    [
+                        path
+                        for path in archives
+                        if path.name.startswith("agent-kit-marketplace-")
+                    ]
+                ),
+            )
+
+    def test_invalid_plugin_membership_and_unknown_package_selection_are_refused(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary) / "source"
+            shutil.copytree(
+                ROOT,
+                fixture,
+                ignore=shutil.ignore_patterns(".git", "__pycache__", "dist"),
+            )
+            catalog_path = fixture / "toolkit.toml"
+            catalog_path.write_text(
+                catalog_path.read_text(encoding="utf-8").replace(
+                    'id = "agent-context"\nskills = ["agent-context"]',
+                    'id = "agent-context"\nskills = ["grill-me"]',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            errors = agent_kit.validate_catalog(
+                fixture, agent_kit.load_catalog(fixture)
+            )
+            self.assertTrue(
+                any("exactly one plugin" in error for error in errors), errors
+            )
+
+            with self.assertRaisesRegex(agent_kit.AgentKitError, "unknown resource"):
+                agent_kit.package_artifacts(
+                    Path("release"), ["does-not-exist"], "plugin", ROOT
+                )
 
 
 class GitHubReadBoundaryTests(unittest.TestCase):

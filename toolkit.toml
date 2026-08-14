@@ -1,6 +1,59 @@
-schema_version = 1
-toolkit_version = "1.1.1"
+schema_version = 2
+toolkit_version = "1.2.0"
 minimum_python = "3.11"
+
+[plugin_marketplace]
+name = "agent-kit"
+display_name = "Agent Kit"
+author_name = "kimgea"
+author_url = "https://github.com/kimgea"
+homepage = "https://github.com/kimgea/agent-kit"
+repository = "https://github.com/kimgea/agent-kit"
+license = "MIT"
+
+[[plugins]]
+id = "agent-context"
+skills = ["agent-context"]
+category = "Productivity"
+installation = "AVAILABLE"
+authentication = "ON_INSTALL"
+
+[[plugins]]
+id = "grill-me"
+skills = ["grill-me"]
+category = "Productivity"
+installation = "AVAILABLE"
+authentication = "ON_INSTALL"
+
+[[plugins]]
+id = "todo-capture"
+skills = ["todo-capture"]
+category = "Productivity"
+installation = "AVAILABLE"
+authentication = "ON_INSTALL"
+
+[[plugins]]
+id = "tool-audit"
+skills = ["tool-audit"]
+category = "Productivity"
+installation = "AVAILABLE"
+authentication = "ON_INSTALL"
+
+[[resources]]
+id = "agent-context"
+kind = "skill"
+path = "skills/agent-context"
+version = "1.0.0"
+summary = "Resolve public defaults and explicitly registered private context layers."
+agents = ["codex", "claude"]
+platforms = ["linux", "windows", "macos"]
+maturity = "stable"
+installable = true
+setup_requires_approval = false
+data_sensitivity = "private local context selected by the user"
+docs = "docs/agent-context.md"
+tests = ["tests/test_agent_context.py", "tests/test_agent_kit.py"]
+evals = "evals/agent-context/cases.json"
 
 [[resources]]
 id = "grill-me"
@@ -64,6 +117,19 @@ setup_requires_approval = true
 data_sensitivity = "none"
 
 [[resources]]
+id = "context-resolution-instruction"
+kind = "instruction"
+path = "instructions/context-resolution.md"
+version = "1.0.0"
+summary = "Opt-in instruction for resolving registered context before context-sensitive work."
+agents = ["codex", "claude"]
+platforms = ["linux", "windows", "macos"]
+maturity = "stable"
+installable = false
+setup_requires_approval = true
+data_sensitivity = "private local context selected by the user"
+
+[[resources]]
 id = "project-agent-contract"
 kind = "template"
 path = "templates/project/AGENTS.md"
@@ -75,6 +141,19 @@ maturity = "stable"
 installable = false
 setup_requires_approval = false
 data_sensitivity = "none"
+
+[[resources]]
+id = "context-repository-template"
+kind = "template"
+path = "templates/context-repo"
+version = "1.0.0"
+summary = "Starter schema for a separately stored private context source and registry."
+agents = ["codex", "claude"]
+platforms = ["linux", "windows", "macos"]
+maturity = "stable"
+installable = false
+setup_requires_approval = false
+data_sensitivity = "example data only"
 
 [[resources]]
 id = "permission-boundary"
