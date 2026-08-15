@@ -23,12 +23,8 @@ python <skill-dir>/scripts/artifact_host.py publish <path> --title "<title>" --t
 Use `--entry <relative-file>` for a non-default entry page and `--spa` only when
 unknown paths should fall back to that entry. Return `browser_url`. Also include
 the provider-specific URL field when useful and explain its reachability.
-
-If the user is working in Termux, also provide a directly runnable command:
-
-```bash
-termux-open-url '<browser_url>'
-```
+When terminal and browser run on different machines, follow the terminal-handoff
+guidance in [remote-access.md](references/remote-access.md).
 
 The host copies validated source files into private runtime state. Editing or
 deleting the source after publication does not mutate the published copy.

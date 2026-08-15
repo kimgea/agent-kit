@@ -115,6 +115,12 @@ enable Serve and a local administrator to assign the invoking account as Tailsca
 operator. HTTPS can expose the MagicDNS certificate name in certificate-transparency
 logs, so those changes remain explicit rather than part of core host installation.
 
+Terminal-to-browser handoff also belongs to the client environment. A command run
+inside SSH or server-side tmux cannot invoke an Android browser on the Termux client.
+For that topology, return a visible bare URL and use Termux's phone-local
+`terminal-onclick-url-open=true` transcript setting. Keep OSC 52 clipboard control
+an opt-in fallback because remote terminal output may then write the client clipboard.
+
 ## Typical operations
 
 From an installed `serve-artifacts` skill:

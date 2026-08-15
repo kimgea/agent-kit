@@ -65,11 +65,30 @@ Treat its access policy and TLS lifecycle as the proxy owner's responsibility.
 
 ## Phone terminals
 
-When the user is running the agent from Termux, return both the URL and:
+First identify where commands execute. `termux-open-url` works only in a local
+shell on the Android phone. Never recommend running it inside an SSH session or
+server-side tmux; it cannot invoke the phone's Android browser from there.
 
-```bash
-termux-open-url '<browser_url>'
+When Termux is the SSH client and the agent runs remotely:
+
+1. Return the full bare `browser_url` on its own line without hiding it behind
+   Markdown link text or splitting it across code fragments.
+2. Recommend Termux's tap-to-open transcript setting. The user must add this line
+   to `~/.termux/termux.properties` in a separate phone-local Termux session:
+
+```text
+terminal-onclick-url-open=true
 ```
 
-Do not shorten capability IDs merely to improve copying; that would weaken URL
-entropy. A QR code is useful only when the browser is on a different device.
+3. Ask the user to run `termux-reload-settings` in that phone-local session, then
+   tap the visible URL. Opening a second Termux session leaves the SSH connection
+   and remote tmux session running.
+
+If the agent itself runs in a phone-local Termux shell, `termux-open-url
+'<browser_url>'` is appropriate. Do not shorten capability IDs merely to improve
+copying; that would weaken URL entropy.
+
+Treat OSC 52 clipboard transfer through SSH and tmux as an opt-in fallback. It is
+less portable and can allow applications producing terminal output to set the
+phone clipboard, depending on tmux and terminal configuration. Explain that trust
+boundary before suggesting it.
