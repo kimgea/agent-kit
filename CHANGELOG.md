@@ -4,6 +4,30 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
+## 1.3.0 - Unreleased
+
+### Added
+
+- Add the `serve-artifacts` skill: a dependency-free loopback host for expiring,
+  revocable static web bundles and explicitly selected local HTTP applications.
+- Add the `build-interactive-diagram` skill with a responsive, accessible,
+  framework-free starter and behavioral quality contract.
+- Add optional preview-first Tailscale Serve integration for named tailnet-only
+  HTTPS access and reserve-before-build support for framework base paths.
+
+### Security
+
+- Confine the host to loopback, validate and privately copy artifact bundles,
+  reject symlinks and executable inputs, bound files, responses, and TTLs, and
+  expose no unauthenticated HTTP management surface.
+- Restrict proxy targets to explicit loopback HTTP services and preserve unrelated
+  Tailscale routes through exact, owned, preview-first setup and removal.
+
+### Changed
+
+- Add the first reviewed grouped plugin, `artifacts`, while keeping both contained
+  skills available as independent standalone archives.
+
 ## 1.2.0 - 2026-08-14
 
 ### Added

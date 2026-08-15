@@ -10,7 +10,9 @@ Each installable skill belongs to exactly one cataloged plugin. Release packagin
 derives plugin manifests, plugin trees, and the marketplace from the catalog and
 skill UI metadata. These are distributions of canonical skill sources, not a
 second development layer. A plugin may group related skills later, but a single
-skill is the default ownership and versioning boundary.
+skill is the default ownership and versioning boundary. The `artifacts` plugin is
+an explicit coherent group: its producer and host remain independently installable,
+but together form the normal create-and-deliver workflow.
 
 Non-skill resources stay organized by asset type:
 
@@ -33,6 +35,23 @@ session context. Later values override earlier values within mergeable knowledge
 categories, while provenance remains visible. Public invariants are locked;
 private context cannot replace repository instructions, permission boundaries,
 or skill safety rules. Skills remain complete without any private source.
+
+## Transient artifact delivery
+
+`build-interactive-diagram` is a producer and `serve-artifacts` is the shared
+delivery layer. They communicate through a directory plus the host's JSON CLI,
+never cross-skill Python imports. This keeps future producers independent from
+server implementation details and leaves a stable seam for a later MCP adapter.
+
+The host is a loopback-only, standard-library background service backed by private
+OS-native state. Static bundles are validated and copied atomically under random
+TTL-bound IDs. An optional proxy accepts only already-running loopback HTTP targets;
+the host never runs builds or application processes.
+
+Tailscale Serve is an optional network adapter, not part of the core server. Its
+preview-first setup owns one path, preserves unrelated handlers, and never enables
+public Funnel access. Durable documentation and cloud publication remain separate
+workflows in the repository that owns the documentation.
 
 ## Installation ownership
 

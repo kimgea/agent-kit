@@ -1,0 +1,4 @@
+interface:
+  display_name: "Serve Artifacts"
+  short_description: "Host transient interactive web artifacts"
+  default_prompt: "Use $serve-artifacts to publish this web artifact and return a browser URL."

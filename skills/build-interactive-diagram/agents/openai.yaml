@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build Interactive Diagram"
+  short_description: "Create polished interactive HTML diagrams"
+  default_prompt: "Use $build-interactive-diagram to turn this explanation into a polished interactive visual."

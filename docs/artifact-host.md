@@ -1,0 +1,131 @@
+# Transient interactive artifacts
+
+The artifacts plugin adds two independently useful skills:
+
+- `build-interactive-diagram` turns an explanation into a self-contained,
+  responsive HTML visual;
+- `serve-artifacts` validates, copies, serves, expires, and revokes temporary web
+  bundles through one local lifecycle.
+
+They are grouped in one Codex plugin because creation and delivery form one user
+workflow. Standalone archives still let Codex, Claude Code, or another compatible
+skill installer deploy either skill separately. The producer has a path-only
+fallback and does not require the host.
+
+## Why the core is a CLI
+
+The deterministic Python CLI is both the user control plane and the stable adapter
+boundary. A skill can invoke it directly, a future MCP server can wrap the same
+operations, and humans can diagnose it over SSH. An MCP server would add protocol
+and process configuration without improving the current local workflow; a Docker
+image would complicate loopback, filesystem, and Tailscale integration. Neither is
+required for the initial capability.
+
+The host uses only Python's standard library. It does not install Node, run builds,
+start framework applications, or execute caller-provided commands.
+
+## Runtime model
+
+Runtime state is shared across agent harnesses and stored outside repositories:
+
+| Platform | Default state root |
+|---|---|
+| Linux | `${XDG_STATE_HOME:-~/.local/state}/agent-kit/artifacts` |
+| macOS | `~/Library/Application Support/AgentKit/artifacts` |
+| Windows | `%LOCALAPPDATA%\AgentKit\artifacts` |
+
+`ARTIFACT_HOST_STATE_DIR` may select an absolute root for isolated testing. It is
+not a permission-safe dispatcher argument and should remain approval-gated in any
+automatic command policy.
+
+The store contains a private registry, copied static bundles, an authenticated
+runtime record, and optional ownership metadata for one Tailscale Serve path.
+Artifacts receive 192-bit random IDs and a required TTL from one second through
+30 days. The default is 24 hours.
+
+The service binds only `127.0.0.1:4177`. Publishing starts it in the background;
+`serve` provides a foreground mode for supervisors and diagnostics. No HTTP route
+lists, publishes, revokes, or otherwise manages artifacts. The local stop endpoint
+requires the private per-process token and is used only by the CLI.
+
+## Supported artifact forms
+
+| Form | Support | Notes |
+|---|---|---|
+| One HTML file | Full | Published as `index.html` |
+| Multipage static directory | Full | Relative navigation; no directory listings |
+| Client-side SPA | Full | Use `--spa` for entry-page fallback |
+| Vite/React static build | Full | Prefer Vite `base: "./"` |
+| Next.js static export | Full with configuration | Reserve an ID and build with its `content_base_path` as `basePath` |
+| Existing loopback HTTP app | Limited proxy | GET/HEAD, no WebSockets or process supervision; base-path-aware apps can preserve the prefix |
+| Dynamic Next.js deployment | Producer-owned | The host can proxy an already-running, correctly configured instance but does not make it durable or production-ready |
+
+Static publishers can reserve an ID before a framework build. This keeps build
+execution outside the host while giving frameworks a final absolute base path.
+
+## Browser and filesystem boundary
+
+Publication rejects:
+
+- symlinked sources, directories, files, or state files;
+- hidden bundle paths, special files, executable/server-side suffixes, traversal,
+  missing entry pages, and duplicate or invalid reserved IDs;
+- more than 1,000 files, more than 100 MiB total, or a file over 25 MiB.
+
+Static files are copied with private permissions. Revoke and expiry delete only
+the owned copy, never the producer's source. Registry replacement is atomic and
+mutations use a cross-platform process lock.
+
+Artifacts render inside a constrained viewer iframe. Response policy disables
+plugins, external connections, framing by other origins, referrers, device APIs,
+and MIME sniffing while allowing same-origin scripts, styles, images, workers, and
+connections needed by interactive static applications. The viewer is defense in
+depth, not a malware sandbox: publish only content the user or agent has reviewed.
+A random artifact URL is a capability link, not an additional identity layer.
+
+Proxy targets must be explicit `http://127.0.0.1:<port>` or
+`http://localhost:<port>` URLs. The proxy does not follow redirects server-side,
+forwards only a narrow header set, strips cookies and authentication, injects the
+artifact policy, and caps responses at 10 MiB.
+
+## Remote access over Tailscale
+
+Tailscale does not require an application SDK or MCP integration. `tailscale serve`
+maps HTTPS at the machine's MagicDNS name and `/agent-artifacts` to the unchanged
+loopback service. Tailnet ACLs or grants remain the remote authorization boundary.
+Funnel is deliberately unsupported.
+
+Setup and removal are dry-run by default and require `--apply --yes`. Setup refuses
+an unowned existing handler. Removal repeats the exact HTTPS port, path, and target
+from private ownership state; it never calls `tailscale serve reset`, so unrelated
+routes survive. If setup succeeds but ownership-state persistence fails, the helper
+attempts to remove the exact route immediately.
+
+Tailscale Serve requires HTTPS for the tailnet. Enabling it can cause the machine's
+MagicDNS certificate name to appear in public certificate-transparency logs. That
+consequence and the tailnet reachability change require explicit user approval.
+
+## Typical operations
+
+From an installed `serve-artifacts` skill:
+
+```bash
+python scripts/artifact_host.py doctor --json
+python scripts/artifact_host.py publish /path/to/site --title "Flow" --ttl 4h --json
+python scripts/artifact_host.py list --json
+python scripts/artifact_host.py revoke <artifact-id> --json
+python scripts/artifact_host.py tailscale-setup --json
+```
+
+The last command only previews. After the user accepts the exact route and
+certificate notice, `tailscale-setup --apply --yes --json` applies it. Use
+`tailscale-remove` with the same preview/apply sequence to stop tailnet sharing.
+
+## Deliberate extension points
+
+Specialized producer skills should exchange only the artifact directory and CLI
+JSON contract with the host; they must not import its Python internals. A future MCP
+adapter should expose the same bounded operations and never add arbitrary command
+execution. A future container image is appropriate only for a server deployment
+with explicit volume, loopback, lifecycle, and Tailscale ownership semantics, not
+as the default agent installation format.
