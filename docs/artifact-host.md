@@ -43,9 +43,11 @@ runtime record, and optional ownership metadata for one Tailscale Serve path.
 Artifacts receive 192-bit random IDs and a required TTL from one second through
 30 days. The default is 24 hours.
 
-The service binds only `127.0.0.1:4177`. Publishing starts it in the background;
-`serve` provides a foreground mode for supervisors and diagnostics. No HTTP route
-lists, publishes, revokes, or otherwise manages artifacts. The local stop endpoint
+The service defaults to `127.0.0.1:4177`. Publishing starts it in the background;
+`serve` provides a foreground mode for supervisors and diagnostics. Remote use can
+bind to one exact IPv4 interface only with `--allow-remote`; wildcard listeners are
+rejected. An optional advertised URL affects returned links, not routing. No HTTP
+route lists, publishes, revokes, or otherwise manages artifacts. The stop endpoint
 requires the private per-process token and is used only by the CLI.
 
 ## Supported artifact forms
@@ -88,22 +90,30 @@ Proxy targets must be explicit `http://127.0.0.1:<port>` or
 forwards only a narrow header set, strips cookies and authentication, injects the
 artifact policy, and caps responses at 10 MiB.
 
-## Remote access over Tailscale
+## Provider-neutral remote access
 
-Tailscale does not require an application SDK or MCP integration. `tailscale serve`
-maps HTTPS at the machine's MagicDNS name and `/agent-artifacts` to the unchanged
-loopback service. Tailnet ACLs or grants remain the remote authorization boundary.
-Funnel is deliberately unsupported.
+The artifact lifecycle does not depend on Tailscale. Four exposure modes share the
+same static/proxy records and capability URLs:
 
-Setup and removal are dry-run by default and require `--apply --yes`. Setup refuses
-an unowned existing handler. Removal repeats the exact HTTPS port, path, and target
-from private ownership state; it never calls `tailscale serve reset`, so unrelated
-routes survive. If setup succeeds but ownership-state persistence fails, the helper
-attempts to remove the exact route immediately.
+| Mode | Server binding | External dependency | Lifecycle owner |
+|---|---|---|---|
+| Same-machine browser | Loopback | None | Artifact host |
+| SSH port forwarding | Loopback | Existing SSH client | SSH session |
+| Direct private LAN or VPN | One exact IPv4 interface | Reachable private network | Artifact host process |
+| Existing reverse proxy | Loopback | User-owned proxy and access policy | Proxy owner |
 
-Tailscale Serve requires HTTPS for the tailnet. Enabling it can cause the machine's
-MagicDNS certificate name to appear in public certificate-transparency logs. That
-consequence and the tailnet reachability change require explicit user approval.
+Direct binding requires an explicit interface, `--allow-remote`, and review of who
+can reach that interface and port. `--advertise-url` accepts a plain origin or an
+`/agent-artifacts` base and makes the returned `browser_url` useful with private DNS.
+It configures no DNS, firewall, TLS, authentication, or reverse proxy.
+
+Tailscale Serve remains one optional reverse-proxy adapter. It maps HTTPS at the
+machine's MagicDNS name and `/agent-artifacts` to the loopback service. Setup and
+removal are preview-first, own only their exact path, preserve unrelated handlers,
+and never enable Funnel. First-time use may require a tailnet administrator to
+enable Serve and a local administrator to assign the invoking account as Tailscale
+operator. HTTPS can expose the MagicDNS certificate name in certificate-transparency
+logs, so those changes remain explicit rather than part of core host installation.
 
 ## Typical operations
 
@@ -114,18 +124,19 @@ python scripts/artifact_host.py doctor --json
 python scripts/artifact_host.py publish /path/to/site --title "Flow" --ttl 4h --json
 python scripts/artifact_host.py list --json
 python scripts/artifact_host.py revoke <artifact-id> --json
-python scripts/artifact_host.py tailscale-setup --json
 ```
 
-The last command only previews. After the user accepts the exact route and
-certificate notice, `tailscale-setup --apply --yes --json` applies it. Use
-`tailscale-remove` with the same preview/apply sequence to stop tailnet sharing.
+For direct access over an already approved private network, start first with
+`--bind-address <private-ipv4> --allow-remote --advertise-url <browser-base>`.
+For Tailscale Serve, preview `tailscale-setup --json`; apply or remove its owned
+route only after reviewing the adapter-specific consequences.
 
 ## Deliberate extension points
 
 Specialized producer skills should exchange only the artifact directory and CLI
 JSON contract with the host; they must not import its Python internals. A future MCP
 adapter should expose the same bounded operations and never add arbitrary command
-execution. A future container image is appropriate only for a server deployment
-with explicit volume, loopback, lifecycle, and Tailscale ownership semantics, not
-as the default agent installation format.
+execution. Network providers remain replaceable exposure adapters rather than host
+dependencies. A future container image is appropriate only for a server deployment
+with explicit volume, interface, and lifecycle semantics, not as the default agent
+installation format.

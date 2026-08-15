@@ -1,6 +1,6 @@
 ---
 name: serve-artifacts
-description: Publish, inspect, and revoke transient browser-based artifacts through a loopback host, with optional tailnet-only HTTPS through Tailscale Serve. Use when an agent has generated HTML, a multipage static site, a Vite or React build, a Next.js static export, or an already-running local web app that the user should open in a local or remote browser.
+description: Publish, inspect, and revoke transient browser-based artifacts through a local-first host with optional private-network or reverse-proxy access. Use when an agent has generated HTML, a multipage static site, a Vite or React build, a Next.js static export, or an already-running local web app that the user should open in a local or remote browser.
 ---
 
 # Serve Artifacts
@@ -21,8 +21,14 @@ python <skill-dir>/scripts/artifact_host.py publish <path> --title "<title>" --t
 ```
 
 Use `--entry <relative-file>` for a non-default entry page and `--spa` only when
-unknown paths should fall back to that entry. Return `tailnet_url` when present;
-otherwise return `local_url` and explain that the latter opens only on the host.
+unknown paths should fall back to that entry. Return `browser_url`. Also include
+the provider-specific URL field when useful and explain its reachability.
+
+If the user is working in Termux, also provide a directly runnable command:
+
+```bash
+termux-open-url '<browser_url>'
+```
 
 The host copies validated source files into private runtime state. Editing or
 deleting the source after publication does not mutate the published copy.
@@ -41,9 +47,10 @@ deleting the source after publication does not mutate the published copy.
   artifact prefix. The host never runs or supervises the app and supports ordinary
   HTTP navigation, not WebSockets or a full production deployment.
 
-Read [frameworks-and-tailscale.md](references/frameworks-and-tailscale.md) when a
-framework needs base-path configuration, a remote browser needs first-time
-Tailscale setup, or a Tailscale route must be removed.
+Read [frameworks.md](references/frameworks.md) when a framework needs base-path
+configuration. Read [remote-access.md](references/remote-access.md) only when the
+browser is not on the host. If the user selects Tailscale Serve, then read
+[tailscale-serve.md](references/tailscale-serve.md).
 
 ## Lifecycle operations
 
@@ -60,16 +67,18 @@ python <skill-dir>/scripts/artifact_host.py doctor --json
 
 Artifacts expire after their TTL, up to 30 days. Revoke an artifact immediately
 when the user is finished or if its content was shared accidentally. Treat each
-unguessable artifact URL as a capability link: Tailscale access rules limit the
-audience, but the host does not add per-artifact authentication.
+unguessable artifact URL as a capability link: the selected network boundary limits
+the audience, but the host does not add per-artifact authentication.
 
 ## Safety boundaries
 
-- Bind only to the fixed loopback interface. Do not modify the script to listen
-  on all interfaces; use the reviewed Tailscale adapter for remote access.
-- Never use Tailscale Funnel or another public tunnel for this workflow.
-- Preview Tailscale setup or removal first. Apply it only after the user explicitly
-  approves the persistent tailnet exposure and certificate-transparency notice.
+- Keep the default loopback binding unless the user needs remote access. Bind
+  directly only to one reviewed IPv4 interface with `--allow-remote`; wildcard
+  listeners remain forbidden.
+- Treat public tunnels or durable cloud publication as separate workflows that
+  require an explicit user choice. Do not infer them from a request for a browser URL.
+- Preview provider configuration and explain its reachability, persistence, and
+  identity consequences before applying it.
 - Proxy only a user-selected, already-running `http://127.0.0.1` or `localhost`
   target. Never pass a build, shell, package-manager, or server command to the host.
 - Do not bypass rejected symlinks, path escapes, file limits, executable types,

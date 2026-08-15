@@ -26,7 +26,7 @@ Current skills:
 | `agent-context` | Resolve explicitly registered private context for the current project | Reads registered context repositories; writes nothing |
 | `build-interactive-diagram` | Create polished temporary HTML visuals for explanations | Writes only the selected artifact output directory |
 | `grill-me` | Pressure-test decisions, plans, artifacts, and diagnoses | None |
-| `serve-artifacts` | Host and revoke transient web artifacts locally or through Tailscale | Private OS-native artifact copies, lifecycle state, and optional Serve ownership |
+| `serve-artifacts` | Host and revoke transient web artifacts locally or through a selected private-network adapter | Private OS-native artifact copies, lifecycle state, and optional adapter ownership |
 | `todo-capture` | Preserve deferred work as shared pickup pointers | Private OS-native state directory |
 | `tool-audit` | Audit local tools, agent usage, friction, and permissions | Private OS-native state plus read-only transcript access |
 
@@ -34,7 +34,7 @@ See [compatibility](docs/compatibility.md) for the tested support matrix. The
 [agent-context guide](docs/agent-context.md) explains how to layer private work,
 home, or domain knowledge over the public defaults without committing it here.
 The [artifact host guide](docs/artifact-host.md) covers temporary interactive
-visuals, framework output, lifecycle limits, and tailnet-only browser access.
+visuals, framework output, lifecycle limits, and provider-neutral browser access.
 
 ## Install a skill
 
@@ -105,9 +105,10 @@ The toolkit installer is intentionally not automatically approved: it can write
 to agent installation directories. Only each skill's reviewed fixed dispatcher
 profiles are candidates for narrow automatic permission rules.
 
-`serve-artifacts` changes no agent permissions. Its optional Tailscale adapter is
-also preview-first and requires `--apply --yes`; review the tailnet route and
-certificate-transparency notice separately from skill installation.
+`serve-artifacts` changes no agent permissions. Remote binding and provider setup
+remain explicit. Its optional Tailscale adapter is preview-first and requires
+`--apply --yes`; review operator access, the tailnet route, and the certificate-
+transparency notice separately from skill installation.
 
 ## Update, remove, or roll back
 

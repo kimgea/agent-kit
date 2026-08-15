@@ -43,15 +43,17 @@ delivery layer. They communicate through a directory plus the host's JSON CLI,
 never cross-skill Python imports. This keeps future producers independent from
 server implementation details and leaves a stable seam for a later MCP adapter.
 
-The host is a loopback-only, standard-library background service backed by private
-OS-native state. Static bundles are validated and copied atomically under random
-TTL-bound IDs. An optional proxy accepts only already-running loopback HTTP targets;
-the host never runs builds or application processes.
+The host is a local-first, standard-library background service backed by private
+OS-native state. It defaults to loopback and can bind to one explicitly reviewed
+private IPv4 interface; wildcard listeners remain forbidden. Static bundles are
+validated and copied atomically under random TTL-bound IDs. An optional proxy accepts
+only already-running loopback HTTP targets; the host never runs builds or applications.
 
-Tailscale Serve is an optional network adapter, not part of the core server. Its
-preview-first setup owns one path, preserves unrelated handlers, and never enables
-public Funnel access. Durable documentation and cloud publication remain separate
-workflows in the repository that owns the documentation.
+Remote access is a replaceable adapter boundary: SSH forwarding, direct private
+LAN or VPN binding, and an existing reverse proxy all use the same host contract.
+Tailscale Serve is one optional adapter whose preview-first setup owns one path,
+preserves unrelated handlers, and never enables public Funnel access. Durable
+documentation and cloud publication remain separate owning-repository workflows.
 
 ## Installation ownership
 

@@ -14,6 +14,7 @@ import errno
 import hmac
 import html
 import http.server
+import ipaddress
 import json
 import mimetypes
 import os
@@ -36,8 +37,11 @@ from typing import Any, Iterator
 
 
 SCHEMA_VERSION = 1
+DEFAULT_BIND_ADDRESS = "127.0.0.1"
 DEFAULT_PORT = 4177
 DEFAULT_TTL = "24h"
+COMMAND_TIMEOUT_SECONDS = 15
+NETWORK_APPLY_TIMEOUT_SECONDS = 60
 MAX_TTL_SECONDS = 30 * 24 * 60 * 60
 MAX_FILES = 1000
 MAX_TOTAL_BYTES = 100 * 1024 * 1024
@@ -90,6 +94,57 @@ CONTENT_SECURITY_POLICY = (
 
 class ArtifactError(RuntimeError):
     """A safe, user-facing artifact operation failure."""
+
+
+def normalize_bind_address(value: str, allow_remote: bool = False) -> str:
+    """Accept one explicit IPv4 interface and require confirmation for remote access."""
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError as exc:
+        raise ArtifactError("bind address must be an explicit IPv4 address") from exc
+    if not isinstance(address, ipaddress.IPv4Address):
+        raise ArtifactError("bind address must be an explicit IPv4 address")
+    if address.is_unspecified:
+        raise ArtifactError("wildcard bind addresses are not allowed; select one interface address")
+    if address.is_multicast or address.is_reserved:
+        raise ArtifactError("multicast and reserved bind addresses are not allowed")
+    if not address.is_loopback and address.is_global:
+        raise ArtifactError("public-interface binding is not supported by this transient host")
+    if not address.is_loopback and not allow_remote:
+        raise ArtifactError("non-loopback binding requires --allow-remote after reviewing reachability")
+    return address.compressed
+
+
+def normalize_advertise_url(value: str | None) -> str | None:
+    """Validate an optional browser-facing origin or reviewed artifact proxy base."""
+    if value is None:
+        return None
+    if any(character.isspace() for character in value):
+        raise ArtifactError("advertise URL cannot contain whitespace")
+    try:
+        parsed = urllib.parse.urlsplit(value)
+        port = parsed.port
+    except ValueError as exc:
+        raise ArtifactError("advertise URL is invalid") from exc
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ArtifactError("advertise URL must use http or https with a host")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ArtifactError("advertise URL cannot contain credentials, a query, or a fragment")
+    if port is not None and not 1 <= port <= 65535:
+        raise ArtifactError("advertise URL has an invalid port")
+    path = parsed.path.rstrip("/")
+    if path not in {"", PUBLIC_PREFIX}:
+        raise ArtifactError(f"advertise URL path must be empty or {PUBLIC_PREFIX}")
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+
+
+def runtime_bind_address(runtime: dict[str, Any]) -> str:
+    """Read new runtime state while remaining compatible with loopback-only v1 state."""
+    return normalize_bind_address(str(runtime.get("bind_address", DEFAULT_BIND_ADDRESS)), True)
+
+
+def bound_base_url(runtime: dict[str, Any]) -> str:
+    return f"http://{runtime_bind_address(runtime)}:{int(runtime['port'])}"
 
 
 def utc_now() -> dt.datetime:
@@ -831,14 +886,16 @@ def health(runtime: dict[str, Any], timeout: float = 0.5) -> bool:
         port = int(runtime["port"])
         token = str(runtime["token"])
         instance_id = str(runtime["instance_id"])
-    except (KeyError, TypeError, ValueError):
+        base_url = bound_base_url(runtime)
+    except (ArtifactError, KeyError, TypeError, ValueError):
         return False
     request = urllib.request.Request(
-        f"http://127.0.0.1:{port}/_health",
+        f"{base_url}/_health",
         headers={"X-Artifact-Host-Token": token},
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=timeout) as response:
             value = json.load(response)
         return value.get("instance_id") == instance_id
     except (OSError, ValueError, urllib.error.URLError):
@@ -850,37 +907,76 @@ def server_status(root: Path) -> dict[str, Any]:
     running = bool(runtime and health(runtime))
     result: dict[str, Any] = {"running": running, "state_dir": str(root)}
     if runtime:
-        for key in ("pid", "port", "started_at", "instance_id"):
+        for key in ("pid", "port", "started_at", "instance_id", "bind_address"):
             if key in runtime:
                 result[key] = runtime[key]
     if running:
-        result["local_base_url"] = f"http://127.0.0.1:{runtime['port']}"
+        bind_address = runtime_bind_address(runtime)
+        result["bind_address"] = bind_address
+        bound_url = bound_base_url(runtime)
+        if ipaddress.ip_address(bind_address).is_loopback:
+            result["local_base_url"] = bound_url
+        else:
+            result["direct_base_url"] = bound_url
+        advertised = normalize_advertise_url(runtime.get("advertise_url"))
+        if advertised:
+            result["shared_base_url"] = advertised
     tailnet = load_json_object(tailscale_path(root))
     if tailnet:
         result["tailnet_base_url"] = tailnet.get("base_url")
+    if running:
+        result["browser_base_url"] = (
+            result.get("shared_base_url")
+            or result.get("tailnet_base_url")
+            or result.get("direct_base_url")
+            or result.get("local_base_url")
+        )
     return result
 
 
-def run_server(root: Path, port: int) -> None:
+def require_owned_adapter_compatibility(root: Path, bind_address: str, port: int) -> None:
+    tailnet = load_json_object(tailscale_path(root))
+    if not tailnet:
+        return
+    expected_target = f"http://{bind_address}:{port}"
+    if tailnet.get("target") != expected_target:
+        raise ArtifactError(
+            "owned Tailscale Serve route uses different network settings; remove it before restarting"
+        )
+
+
+def run_server(
+    root: Path,
+    port: int,
+    bind_address: str = DEFAULT_BIND_ADDRESS,
+    allow_remote: bool = False,
+    advertise_url: str | None = None,
+) -> None:
     if not 1 <= port <= 65535:
         raise ArtifactError("port must be between 1 and 65535")
+    bind_address = normalize_bind_address(bind_address, allow_remote)
+    advertise_url = normalize_advertise_url(advertise_url)
+    require_owned_adapter_compatibility(root, bind_address, port)
     ensure_private_dir(root)
     cleanup_expired(root)
     token = secrets.token_urlsafe(32)
     instance_id = secrets.token_hex(16)
     try:
-        server = ArtifactServer(("127.0.0.1", port), root, token, instance_id)
+        server = ArtifactServer((bind_address, port), root, token, instance_id)
     except OSError as exc:
         if exc.errno == errno.EADDRINUSE:
-            raise ArtifactError(f"loopback port {port} is already in use") from exc
+            raise ArtifactError(f"artifact host address {bind_address}:{port} is already in use") from exc
         raise
     runtime = {
         "pid": os.getpid(),
         "port": server.server_address[1],
+        "bind_address": bind_address,
         "token": token,
         "instance_id": instance_id,
         "started_at": isoformat(utc_now()),
     }
+    if advertise_url:
+        runtime["advertise_url"] = advertise_url
     atomic_write_json(runtime_path(root), runtime)
 
     stop_event = threading.Event()
@@ -904,18 +1000,47 @@ def run_server(root: Path, port: int) -> None:
                 runtime_path(root).unlink()
 
 
-def start_server(root: Path, port: int = DEFAULT_PORT) -> dict[str, Any]:
+def start_server(
+    root: Path,
+    port: int = DEFAULT_PORT,
+    bind_address: str = DEFAULT_BIND_ADDRESS,
+    allow_remote: bool = False,
+    advertise_url: str | None = None,
+) -> dict[str, Any]:
+    bind_address = normalize_bind_address(bind_address, allow_remote)
+    advertise_url = normalize_advertise_url(advertise_url)
+    require_owned_adapter_compatibility(root, bind_address, port)
     current = read_runtime(root)
     if current and health(current):
-        if int(current["port"]) != port:
+        current_bind = runtime_bind_address(current)
+        current_advertise = normalize_advertise_url(current.get("advertise_url"))
+        if (
+            int(current["port"]) != port
+            or current_bind != bind_address
+            or current_advertise != advertise_url
+        ):
             raise ArtifactError(
-                f"artifact host already runs on port {current['port']}; stop it before changing ports"
+                "artifact host already runs with different network settings; stop it before changing them"
             )
         return server_status(root)
     with contextlib.suppress(OSError):
         runtime_path(root).unlink()
     command = [sys.executable, str(Path(__file__).resolve())]
-    command.extend(["--state-dir", str(root), "serve", "--port", str(port)])
+    command.extend(
+        [
+            "--state-dir",
+            str(root),
+            "serve",
+            "--port",
+            str(port),
+            "--bind-address",
+            bind_address,
+        ]
+    )
+    if not ipaddress.ip_address(bind_address).is_loopback:
+        command.append("--allow-remote")
+    if advertise_url:
+        command.extend(["--advertise-url", advertise_url])
     kwargs: dict[str, Any] = {
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
@@ -941,7 +1066,7 @@ def start_server(root: Path, port: int = DEFAULT_PORT) -> dict[str, Any]:
         process.terminate()
         with contextlib.suppress(subprocess.TimeoutExpired):
             process.wait(timeout=2)
-    raise ArtifactError(f"artifact host failed to start on loopback port {port}")
+    raise ArtifactError(f"artifact host failed to start on {bind_address}:{port}")
 
 
 def stop_server(root: Path) -> bool:
@@ -951,13 +1076,14 @@ def stop_server(root: Path) -> bool:
             runtime_path(root).unlink()
         return False
     request = urllib.request.Request(
-        f"http://127.0.0.1:{runtime['port']}/_control/stop",
+        f"{bound_base_url(runtime)}/_control/stop",
         data=b"",
         method="POST",
         headers={"X-Artifact-Host-Token": str(runtime["token"])},
     )
     try:
-        with urllib.request.urlopen(request, timeout=2):
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=2):
             pass
     except urllib.error.URLError as exc:
         raise ArtifactError("artifact host did not accept the stop request") from exc
@@ -972,28 +1098,61 @@ def stop_server(root: Path) -> bool:
 
 
 def ensure_server(root: Path, port: int) -> dict[str, Any]:
+    current = read_runtime(root)
+    if current and health(current):
+        if int(current["port"]) != port:
+            raise ArtifactError(
+                f"artifact host already runs on port {current['port']}; use that port or stop it first"
+            )
+        return server_status(root)
     return start_server(root, port)
 
 
 def artifact_urls(root: Path, record: dict[str, Any], port: int) -> dict[str, str]:
     artifact_id = record["id"]
-    result = {"local_url": f"http://127.0.0.1:{port}/a/{artifact_id}/"}
+    runtime = read_runtime(root)
+    if not runtime or int(runtime.get("port", 0)) != port:
+        runtime = {"port": port, "bind_address": DEFAULT_BIND_ADDRESS}
+    bind_address = runtime_bind_address(runtime)
+    bound_url = bound_base_url(runtime)
+    result: dict[str, str] = {}
+    if ipaddress.ip_address(bind_address).is_loopback:
+        result["local_url"] = f"{bound_url}/a/{artifact_id}/"
+    else:
+        result["shared_url"] = f"{bound_url}/a/{artifact_id}/"
+    advertised = normalize_advertise_url(runtime.get("advertise_url"))
+    if advertised:
+        result["shared_url"] = f"{advertised.rstrip('/')}/a/{artifact_id}/"
     tailnet = load_json_object(tailscale_path(root))
     if tailnet.get("base_url"):
         result["tailnet_url"] = f"{tailnet['base_url'].rstrip('/')}/a/{artifact_id}/"
+    result["browser_url"] = (
+        result.get("shared_url") or result.get("tailnet_url") or result.get("local_url", "")
+    )
     result["content_base_path"] = f"{PUBLIC_PREFIX}/c/{artifact_id}/"
     return result
 
 
-def run_command(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        command,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-        timeout=15,
-    )
+def run_command(
+    command: list[str], timeout: int = COMMAND_TIMEOUT_SECONDS
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        details = exc.stderr or exc.stdout or ""
+        if isinstance(details, bytes):
+            details = details.decode(errors="replace")
+        suffix = f": {details.strip()}" if details.strip() else ""
+        raise ArtifactError(
+            f"{Path(command[0]).name} command timed out after {timeout} seconds{suffix}"
+        ) from exc
 
 
 def tailscale_binary() -> str:
@@ -1061,7 +1220,10 @@ def tailscale_plan(root: Path, port: int, https_port: int, public_path: str) -> 
         raise ArtifactError(
             f"artifact host runs on port {runtime.get('port')}; use that port for Tailscale setup"
         )
-    target = f"http://127.0.0.1:{port}"
+    bind_address = runtime_bind_address(runtime)
+    if not ipaddress.ip_address(bind_address).is_loopback:
+        raise ArtifactError("Tailscale Serve requires a loopback-bound artifact host")
+    target = f"http://{bind_address}:{port}"
     serve = tailscale_serve_status(binary)
     existing = nested_path_values(serve, public_path)
     owned = load_json_object(tailscale_path(root))
@@ -1116,7 +1278,7 @@ def tailscale_setup(
         return plan
     if not yes:
         raise ArtifactError("Tailscale setup requires --apply --yes after reviewing the plan")
-    result = run_command(plan["command"])
+    result = run_command(plan["command"], timeout=NETWORK_APPLY_TIMEOUT_SECONDS)
     if result.returncode != 0:
         raise ArtifactError(f"Tailscale Serve setup failed: {result.stderr.strip() or result.stdout.strip()}")
     state = {
@@ -1139,7 +1301,7 @@ def tailscale_setup(
             plan["target"],
             "off",
         ]
-        rollback_result = run_command(rollback)
+        rollback_result = run_command(rollback, timeout=NETWORK_APPLY_TIMEOUT_SECONDS)
         if rollback_result.returncode != 0:
             raise ArtifactError(
                 "Tailscale route was configured but ownership state and automatic rollback failed; "
@@ -1174,7 +1336,7 @@ def tailscale_remove(root: Path, apply: bool, yes: bool) -> dict[str, Any]:
         return plan
     if not yes:
         raise ArtifactError("Tailscale removal requires --apply --yes after reviewing the plan")
-    result = run_command(command)
+    result = run_command(command, timeout=NETWORK_APPLY_TIMEOUT_SECONDS)
     if result.returncode != 0:
         raise ArtifactError(f"Tailscale Serve removal failed: {result.stderr.strip() or result.stdout.strip()}")
     tailscale_path(root).unlink()
@@ -1203,21 +1365,27 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--state-dir", help=argparse.SUPPRESS)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    command = subparsers.add_parser("serve", help="run the loopback server in the foreground")
+    command = subparsers.add_parser("serve", help="run the artifact server in the foreground")
     command.add_argument("--port", type=int, default=DEFAULT_PORT)
+    command.add_argument("--bind-address", default=DEFAULT_BIND_ADDRESS)
+    command.add_argument("--allow-remote", action="store_true")
+    command.add_argument("--advertise-url")
 
     for name, help_text in (
-        ("start", "start the loopback server in the background"),
+        ("start", "start the local artifact server in the background"),
         ("status", "show server and sharing state"),
         ("stop", "stop the owned background server"),
         ("list", "list active artifacts"),
         ("cleanup", "remove expired artifact copies"),
-        ("doctor", "inspect local host and optional Tailscale compatibility"),
+        ("doctor", "inspect the host and optional network adapters"),
     ):
         command = subparsers.add_parser(name, help=help_text)
         command.add_argument("--json", action="store_true")
         if name == "start":
             command.add_argument("--port", type=int, default=DEFAULT_PORT)
+            command.add_argument("--bind-address", default=DEFAULT_BIND_ADDRESS)
+            command.add_argument("--allow-remote", action="store_true")
+            command.add_argument("--advertise-url")
 
     command = subparsers.add_parser("reserve", help="reserve an ID before a framework build")
     command.add_argument("--ttl", default=DEFAULT_TTL)
@@ -1268,10 +1436,25 @@ def main(argv: list[str] | None = None) -> int:
     root = state_root(args.state_dir)
     try:
         if args.command == "serve":
-            run_server(root, args.port)
+            run_server(
+                root,
+                args.port,
+                args.bind_address,
+                args.allow_remote,
+                args.advertise_url,
+            )
             return 0
         if args.command == "start":
-            output(start_server(root, args.port), args.json)
+            output(
+                start_server(
+                    root,
+                    args.port,
+                    args.bind_address,
+                    args.allow_remote,
+                    args.advertise_url,
+                ),
+                args.json,
+            )
         elif args.command == "status":
             output(server_status(root), args.json)
         elif args.command == "stop":

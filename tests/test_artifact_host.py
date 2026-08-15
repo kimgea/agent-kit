@@ -194,6 +194,84 @@ class ArtifactStoreTests(unittest.TestCase):
                 with self.assertRaises(artifact_host.ArtifactError):
                     artifact_host.normalize_proxy_target(target)
 
+    def test_direct_binding_requires_one_explicit_interface_and_confirmation(self):
+        self.assertEqual(
+            "127.0.0.1", artifact_host.normalize_bind_address("127.0.0.1")
+        )
+        self.assertEqual(
+            "192.0.2.10",
+            artifact_host.normalize_bind_address("192.0.2.10", allow_remote=True),
+        )
+        with self.assertRaisesRegex(artifact_host.ArtifactError, "--allow-remote"):
+            artifact_host.normalize_bind_address("192.0.2.10")
+        for value in ("0.0.0.0", "::", "::1", "host.example", "224.0.0.1"):
+            with self.subTest(value=value):
+                with self.assertRaises(artifact_host.ArtifactError):
+                    artifact_host.normalize_bind_address(value, allow_remote=True)
+
+    def test_advertise_url_is_provider_neutral_and_path_bounded(self):
+        self.assertEqual(
+            "https://artifacts.work.example/agent-artifacts",
+            artifact_host.normalize_advertise_url(
+                "https://artifacts.work.example/agent-artifacts/"
+            ),
+        )
+        self.assertEqual(
+            "http://vpn-host:4177",
+            artifact_host.normalize_advertise_url("http://vpn-host:4177"),
+        )
+        for value in (
+            "ftp://vpn-host:4177",
+            "http://user:pass@vpn-host:4177",
+            "http://vpn-host:4177/other",
+            "http://vpn-host:4177?token=secret",
+            "http://vpn host:4177",
+        ):
+            with self.subTest(value=value):
+                with self.assertRaises(artifact_host.ArtifactError):
+                    artifact_host.normalize_advertise_url(value)
+
+    def test_artifact_urls_prefer_an_explicit_provider_neutral_browser_url(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "state"
+            artifact_host.ensure_private_dir(root)
+            artifact_host.atomic_write_json(
+                artifact_host.runtime_path(root),
+                {
+                    "port": 4177,
+                    "bind_address": "192.0.2.10",
+                    "advertise_url": "https://artifacts.work.example/agent-artifacts",
+                },
+            )
+            artifact_id = artifact_host.new_id()
+            urls = artifact_host.artifact_urls(root, {"id": artifact_id}, 4177)
+            expected = (
+                f"https://artifacts.work.example/agent-artifacts/a/{artifact_id}/"
+            )
+            self.assertEqual(expected, urls["shared_url"])
+            self.assertEqual(expected, urls["browser_url"])
+            self.assertNotIn("local_url", urls)
+
+    def test_owned_adapter_blocks_incompatible_server_restart(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "state"
+            artifact_host.ensure_private_dir(root)
+            artifact_host.atomic_write_json(
+                artifact_host.tailscale_path(root),
+                {"target": "http://127.0.0.1:4177"},
+            )
+            with mock.patch.object(artifact_host.subprocess, "Popen") as popen:
+                with self.assertRaisesRegex(
+                    artifact_host.ArtifactError, "remove it before restarting"
+                ):
+                    artifact_host.start_server(
+                        root,
+                        4177,
+                        "10.23.45.67",
+                        allow_remote=True,
+                    )
+            popen.assert_not_called()
+
     def test_invalid_publish_does_not_start_the_background_service(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "state"
@@ -205,6 +283,56 @@ class ArtifactStoreTests(unittest.TestCase):
             self.assertEqual(2, result)
             self.assertFalse(artifact_host.runtime_path(root).exists())
             self.assertIn("does not exist", stderr.getvalue())
+
+    def test_remote_start_arguments_are_gated_before_process_creation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "state"
+            stderr = io.StringIO()
+            with mock.patch.object(artifact_host.subprocess, "Popen") as popen:
+                with contextlib.redirect_stderr(stderr):
+                    result = artifact_host.main(
+                        [
+                            "--state-dir",
+                            str(root),
+                            "start",
+                            "--bind-address",
+                            "10.23.45.67",
+                            "--json",
+                        ]
+                    )
+            self.assertEqual(2, result)
+            popen.assert_not_called()
+            self.assertFalse(artifact_host.runtime_path(root).exists())
+            self.assertIn("--allow-remote", stderr.getvalue())
+
+            with mock.patch.object(
+                artifact_host,
+                "start_server",
+                return_value={"running": True},
+            ) as start:
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    result = artifact_host.main(
+                        [
+                            "--state-dir",
+                            str(root),
+                            "start",
+                            "--bind-address",
+                            "10.23.45.67",
+                            "--allow-remote",
+                            "--advertise-url",
+                            "http://private-host:4177",
+                            "--json",
+                        ]
+                    )
+            self.assertEqual(0, result)
+            start.assert_called_once_with(
+                root,
+                artifact_host.DEFAULT_PORT,
+                "10.23.45.67",
+                True,
+                "http://private-host:4177",
+            )
 
     def test_symlinked_state_files_and_lock_are_refused(self):
         if not hasattr(os, "symlink"):
@@ -318,8 +446,16 @@ class ArtifactServerTests(unittest.TestCase):
         second = artifact_host.start_server(self.root, self.port)
         self.assertTrue(second["running"])
         self.assertEqual(self.status["instance_id"], second["instance_id"])
+        self.assertEqual("127.0.0.1", second["bind_address"])
+        self.assertEqual(second["local_base_url"], second["browser_base_url"])
         with self.assertRaisesRegex(artifact_host.ArtifactError, "already runs"):
             artifact_host.start_server(self.root, free_port())
+        with self.assertRaisesRegex(artifact_host.ArtifactError, "network settings"):
+            artifact_host.start_server(
+                self.root,
+                self.port,
+                advertise_url="https://artifacts.work.example/agent-artifacts",
+            )
         runtime = artifact_host.read_runtime(self.root)
         self.assertNotIn("token", artifact_host.server_status(self.root))
         self.assertTrue(artifact_host.health(runtime))
@@ -382,7 +518,9 @@ class TailscaleBoundaryTests(unittest.TestCase):
             applied = artifact_host.tailscale_setup(
                 self.root, 4177, 443, "/agent-artifacts", True, True
             )
-        run.assert_called_once_with(plan["command"])
+        run.assert_called_once_with(
+            plan["command"], timeout=artifact_host.NETWORK_APPLY_TIMEOUT_SECONDS
+        )
         self.assertTrue(applied["applied"])
         state = json.loads(artifact_host.tailscale_path(self.root).read_text(encoding="utf-8"))
         self.assertEqual("https://dev.example.ts.net/agent-artifacts", state["base_url"])
@@ -429,6 +567,18 @@ class TailscaleBoundaryTests(unittest.TestCase):
                     self.root, 4177, 443, "/agent-artifacts"
                 )
 
+        artifact_host.atomic_write_json(
+            artifact_host.runtime_path(self.root),
+            {
+                "port": 4177,
+                "bind_address": "192.0.2.10",
+                "token": "token",
+                "instance_id": "instance",
+            },
+        )
+        with self.assertRaisesRegex(artifact_host.ArtifactError, "loopback-bound"):
+            artifact_host.tailscale_plan(self.root, 4177, 443, "/agent-artifacts")
+
     def test_setup_rolls_back_exact_route_when_ownership_write_fails(self):
         plan = artifact_host.tailscale_plan(self.root, 4177, 443, "/agent-artifacts")
         completed = subprocess.CompletedProcess(plan["command"], 0, "ok", "")
@@ -447,6 +597,17 @@ class TailscaleBoundaryTests(unittest.TestCase):
         self.assertEqual("off", rollback[-1])
         self.assertIn("--set-path=/agent-artifacts", rollback)
         self.assertNotIn("reset", rollback)
+
+    def test_command_timeout_is_a_concise_user_facing_error(self):
+        command = ["/usr/bin/tailscale", "serve"]
+        expired = subprocess.TimeoutExpired(
+            command, 60, output="enable Serve at https://login.example/enable"
+        )
+        with mock.patch.object(artifact_host.subprocess, "run", side_effect=expired):
+            with self.assertRaisesRegex(
+                artifact_host.ArtifactError, "timed out after 60 seconds.*enable Serve"
+            ):
+                artifact_host.run_command(command, timeout=60)
 
 
 if __name__ == "__main__":
