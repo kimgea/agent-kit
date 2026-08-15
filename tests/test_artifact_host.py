@@ -327,7 +327,7 @@ class ArtifactStoreTests(unittest.TestCase):
                     )
             self.assertEqual(0, result)
             start.assert_called_once_with(
-                root,
+                artifact_host.state_root(str(root)),
                 artifact_host.DEFAULT_PORT,
                 "10.23.45.67",
                 True,
