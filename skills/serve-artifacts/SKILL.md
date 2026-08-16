@@ -23,8 +23,9 @@ python <skill-dir>/scripts/artifact_host.py publish <path> --title "<title>" --t
 Use `--entry <relative-file>` for a non-default entry page and `--spa` only when
 unknown paths should fall back to that entry. Return `browser_url`. Also include
 the provider-specific URL field when useful and explain its reachability.
-When terminal and browser run on different machines, follow the terminal-handoff
-guidance in [remote-access.md](references/remote-access.md).
+When terminal and browser run on different machines, return the full URL visibly.
+Client-side browser launching, clipboard integration, and terminal configuration
+remain outside this skill.
 
 The host copies validated source files into private runtime state. Editing or
 deleting the source after publication does not mutate the published copy.

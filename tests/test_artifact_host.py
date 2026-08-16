@@ -252,17 +252,19 @@ class ArtifactStoreTests(unittest.TestCase):
             self.assertEqual(expected, urls["browser_url"])
             self.assertNotIn("local_url", urls)
 
-    def test_termux_guidance_distinguishes_phone_local_and_remote_commands(self):
+    def test_remote_browser_handoff_stays_client_owned(self):
         skill = (ROOT / "skills" / "serve-artifacts" / "SKILL.md").read_text(
             encoding="utf-8"
         )
         reference = (
             ROOT / "skills" / "serve-artifacts" / "references" / "remote-access.md"
         ).read_text(encoding="utf-8")
-        self.assertNotIn("termux-open-url '<browser_url>'", skill)
-        self.assertIn("terminal-onclick-url-open=true", reference)
-        self.assertIn("Never recommend running it inside an SSH session", reference)
-        self.assertIn("OSC 52", reference)
+        combined = skill + reference
+        self.assertNotIn("termux-open-url", combined)
+        self.assertNotIn("terminal-onclick-url-open", combined)
+        self.assertNotIn("OSC 52", reference)
+        self.assertIn("full bare `browser_url`", reference)
+        self.assertIn("outside this skill", reference)
 
     def test_owned_adapter_blocks_incompatible_server_restart(self):
         with tempfile.TemporaryDirectory() as temporary:

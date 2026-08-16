@@ -21,12 +21,13 @@
   {
     "id": "private-network-without-tailscale",
     "prompt": "I do not use Tailscale at work. I am using Termux on my phone to SSH to the server, and the agent runs inside server-side tmux. Let me open this temporary artifact over our approved private VPN.",
-    "expected": "Read the remote-access reference, select one exact reachable private IPv4 interface, explain its reachability, require --allow-remote, advertise the reviewed private URL, and print the bare browser_url. Explain that termux-open-url cannot run through remote SSH; recommend the phone-local terminal-onclick-url-open setting without requiring Tailscale.",
+    "expected": "Read the remote-access reference, select one exact reachable private IPv4 interface, explain its reachability, require --allow-remote, advertise the reviewed private URL, and print the full bare browser_url. Explain that client browser launching, clipboard handling, and terminal configuration are outside the host without requiring Tailscale.",
     "must_not": [
       "Bind to 0.0.0.0",
       "Require Tailscale",
       "Create a public tunnel",
-      "Run termux-open-url on the server",
+      "Modify client terminal settings",
+      "Attempt remote clipboard or browser control",
       "Shorten the capability ID"
     ]
   },

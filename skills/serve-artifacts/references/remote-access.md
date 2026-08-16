@@ -63,32 +63,11 @@ python <skill-dir>/scripts/artifact_host.py start \
 The host does not configure, authenticate, or revoke a generic reverse proxy.
 Treat its access policy and TLS lifecycle as the proxy owner's responsibility.
 
-## Phone terminals
+## Terminal-to-browser handoff
 
-First identify where commands execute. `termux-open-url` works only in a local
-shell on the Android phone. Never recommend running it inside an SSH session or
-server-side tmux; it cannot invoke the phone's Android browser from there.
-
-When Termux is the SSH client and the agent runs remotely:
-
-1. Return the full bare `browser_url` on its own line without hiding it behind
-   Markdown link text or splitting it across code fragments.
-2. Recommend Termux's tap-to-open transcript setting. The user must add this line
-   to `~/.termux/termux.properties` in a separate phone-local Termux session:
-
-```text
-terminal-onclick-url-open=true
-```
-
-3. Ask the user to run `termux-reload-settings` in that phone-local session, then
-   tap the visible URL. Opening a second Termux session leaves the SSH connection
-   and remote tmux session running.
-
-If the agent itself runs in a phone-local Termux shell, `termux-open-url
-'<browser_url>'` is appropriate. Do not shorten capability IDs merely to improve
-copying; that would weaken URL entropy.
-
-Treat OSC 52 clipboard transfer through SSH and tmux as an opt-in fallback. It is
-less portable and can allow applications producing terminal output to set the
-phone clipboard, depending on tmux and terminal configuration. Explain that trust
-boundary before suggesting it.
+Return the full bare `browser_url` on its own line when the terminal and browser
+run on different devices. Do not assume a command on the artifact-host machine
+can open or modify a browser or clipboard on the client device. Client-specific
+URL launching, clipboard forwarding, QR workflows, and terminal configuration
+are outside this skill. Do not shorten capability IDs to simplify handoff; that
+would weaken URL entropy.
