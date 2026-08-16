@@ -75,6 +75,30 @@ def upstream_server():
         thread.join(timeout=2)
 
 
+class CaptureProxyHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        return
+
+    def do_GET(self):
+        self.server.captured.append(self.path)
+        self.send_response(204)
+        self.end_headers()
+
+
+@contextlib.contextmanager
+def capture_proxy_server():
+    server = ThreadingHTTPServer(("127.0.0.1", 0), CaptureProxyHandler)
+    server.captured = []
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server.server_address[1], server.captured
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 class ArtifactStoreTests(unittest.TestCase):
     def make_site(self, base):
         site = Path(base) / "site"
@@ -491,6 +515,35 @@ class ArtifactServerTests(unittest.TestCase):
             self.assertEqual(302, caught.exception.code)
             self.assertEqual("https://example.invalid/never-follow", caught.exception.headers["Location"])
             caught.exception.close()
+
+    def test_proxy_ignores_ambient_http_proxy_for_unreachable_loopback(self):
+        unreachable_port = free_port()
+        record = artifact_host.publish_proxy(
+            self.root,
+            f"http://127.0.0.1:{unreachable_port}",
+            "1h",
+            "Unavailable local app",
+            False,
+        )
+        artifact_url = f"http://127.0.0.1:{self.port}/c/{record['id']}/probe"
+        direct_client = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with capture_proxy_server() as (proxy_port, captured):
+            proxy_url = f"http://127.0.0.1:{proxy_port}"
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "HTTP_PROXY": proxy_url,
+                    "http_proxy": proxy_url,
+                    "NO_PROXY": "",
+                    "no_proxy": "",
+                },
+                clear=False,
+            ):
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    direct_client.open(artifact_url, timeout=3)
+                self.assertEqual(502, caught.exception.code)
+                caught.exception.close()
+            self.assertEqual([], captured)
 
     def test_diagram_starter_is_self_contained_and_publishable(self):
         starter = (

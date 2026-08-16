@@ -872,7 +872,10 @@ iframe{{display:block}}
             if key.lower() in SAFE_REQUEST_HEADERS
         }
         request = urllib.request.Request(url, headers=headers, method="HEAD" if head else "GET")
-        opener = urllib.request.build_opener(NoRedirect)
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),
+            NoRedirect,
+        )
         try:
             response = opener.open(request, timeout=10)
         except urllib.error.HTTPError as exc:

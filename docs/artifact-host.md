@@ -91,8 +91,9 @@ A random artifact URL is a capability link, not an additional identity layer.
 
 Proxy targets must be explicit `http://127.0.0.1:<port>` or
 `http://localhost:<port>` URLs. The proxy does not follow redirects server-side,
-forwards only a narrow header set, strips cookies and authentication, injects the
-artifact policy, and caps responses at 10 MiB.
+does not inherit ambient HTTP proxy settings, forwards only a narrow header set,
+strips cookies and authentication, injects the artifact policy, and caps responses
+at 10 MiB.
 
 ## Provider-neutral remote access
 

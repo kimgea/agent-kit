@@ -79,6 +79,7 @@ the audience, but the host does not add per-artifact authentication.
 - Preview provider configuration and explain its reachability, persistence, and
   identity consequences before applying it.
 - Proxy only a user-selected, already-running `http://127.0.0.1` or `localhost`
-  target. Never pass a build, shell, package-manager, or server command to the host.
+  target. Never inherit ambient HTTP proxy routing or pass a build, shell,
+  package-manager, or server command to the host.
 - Do not bypass rejected symlinks, path escapes, file limits, executable types,
   expiry, or ownership checks.
