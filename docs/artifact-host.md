@@ -76,9 +76,11 @@ Publication rejects:
   missing entry pages, and duplicate or invalid reserved IDs;
 - more than 1,000 files, more than 100 MiB total, or a file over 25 MiB.
 
-Static files are copied with private permissions. Revoke and expiry delete only
-the owned copy, never the producer's source. Registry replacement is atomic and
-mutations use a cross-platform process lock.
+Static files are copied with private permissions. Revoke and expiry reject
+symlinked content roots or artifact directories, surface deletion failures, and
+remove registry ownership only after deleting the owned copy. They never touch
+the producer's source. Registry replacement is atomic and mutations use a
+cross-platform process lock.
 
 Artifacts render inside a constrained viewer iframe. Response policy disables
 plugins, external connections, framing by other origins, referrers, device APIs,
@@ -112,10 +114,12 @@ It configures no DNS, firewall, TLS, authentication, or reverse proxy.
 Tailscale Serve remains one optional reverse-proxy adapter. It maps HTTPS at the
 machine's MagicDNS name and `/agent-artifacts` to the loopback service. Setup and
 removal are preview-first, own only their exact path, preserve unrelated handlers,
-and never enable Funnel. First-time use may require a tailnet administrator to
-enable Serve and a local administrator to assign the invoking account as Tailscale
-operator. HTTPS can expose the MagicDNS certificate name in certificate-transparency
-logs, so those changes remain explicit rather than part of core host installation.
+and never enable Funnel. Removal revalidates the recorded hostname, HTTPS port,
+path, and proxy target against live Serve status before mutation. First-time use
+may require a tailnet administrator to enable Serve and a local administrator to
+assign the invoking account as Tailscale operator. HTTPS can expose the MagicDNS
+certificate name in certificate-transparency logs, so those changes remain
+explicit rather than part of core host installation.
 
 Terminal-to-browser handoff belongs to the client environment. The host returns
 full visible URLs, but does not launch remote browsers, modify client clipboards,

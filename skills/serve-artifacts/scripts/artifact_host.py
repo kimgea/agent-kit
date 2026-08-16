@@ -24,6 +24,7 @@ import shlex
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -189,8 +190,18 @@ def state_root(explicit: str | None = None) -> Path:
     return base / "agent-kit" / "artifacts"
 
 
+def path_is_link(path: Path) -> bool:
+    try:
+        information = path.lstat()
+    except FileNotFoundError:
+        return False
+    attributes = int(getattr(information, "st_file_attributes", 0))
+    reparse_flag = int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+    return stat.S_ISLNK(information.st_mode) or bool(attributes & reparse_flag)
+
+
 def ensure_private_dir(path: Path) -> None:
-    if path.is_symlink():
+    if path_is_link(path):
         raise ArtifactError(f"refusing symlinked state directory: {path}")
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
     if not path.is_dir():
@@ -272,7 +283,7 @@ def _unlock(handle: Any) -> None:
 def store_lock(root: Path, timeout: float = 10.0) -> Iterator[None]:
     ensure_private_dir(root)
     lock_path = root / ".lock"
-    if lock_path.is_symlink():
+    if path_is_link(lock_path):
         raise ArtifactError(f"refusing symlinked state lock: {lock_path}")
     descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
     if os.name != "nt":
@@ -309,7 +320,7 @@ def empty_registry() -> dict[str, Any]:
 
 
 def load_json_object(path: Path) -> dict[str, Any]:
-    if path.is_symlink():
+    if path_is_link(path):
         raise ArtifactError(f"refusing symlinked state file: {path}")
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -347,6 +358,37 @@ def validate_id(value: str) -> str:
     return value
 
 
+def content_root_path(root: Path, create: bool = False) -> Path:
+    content_root = root / "content"
+    if path_is_link(content_root):
+        raise ArtifactError(f"refusing symlinked artifact content directory: {content_root}")
+    if create:
+        ensure_private_dir(content_root)
+    elif content_root.exists() and not content_root.is_dir():
+        raise ArtifactError(f"expected artifact content directory: {content_root}")
+    return content_root
+
+
+def artifact_content_path(root: Path, artifact_id: str) -> Path:
+    validate_id(artifact_id)
+    content = content_root_path(root) / artifact_id
+    if path_is_link(content):
+        raise ArtifactError(f"refusing symlinked artifact content: {content}")
+    return content
+
+
+def remove_artifact_content(root: Path, artifact_id: str) -> None:
+    content = artifact_content_path(root, artifact_id)
+    if not content.exists():
+        return
+    if not content.is_dir():
+        raise ArtifactError(f"expected artifact content directory: {content}")
+    try:
+        shutil.rmtree(content)
+    except OSError as exc:
+        raise ArtifactError(f"cannot remove artifact content {artifact_id}: {exc}") from exc
+
+
 def safe_relative(value: str, label: str = "path") -> PurePosixPath:
     decoded = urllib.parse.unquote(value)
     if "\x00" in decoded or "\\" in decoded or decoded.startswith("/"):
@@ -368,13 +410,10 @@ def cleanup_expired(root: Path, now: dt.datetime | None = None) -> list[str]:
         for artifact_id, record in list(registry["artifacts"].items()):
             if not artifact_expired(record, now):
                 continue
-            content = root / "content" / artifact_id
-            if contained(root / "content", content):
-                shutil.rmtree(content, ignore_errors=True)
+            remove_artifact_content(root, artifact_id)
             del registry["artifacts"][artifact_id]
-            removed.append(artifact_id)
-        if removed:
             atomic_write_json(registry_path(root), registry)
+            removed.append(artifact_id)
     return removed
 
 
@@ -400,7 +439,7 @@ def reserve_artifact(root: Path, ttl: str, title: str) -> dict[str, Any]:
 def inspect_bundle(source: Path, entry: str) -> tuple[list[tuple[Path, PurePosixPath]], int]:
     existing_parts = [source]
     existing_parts.extend(parent for parent in source.parents if parent != parent.parent)
-    if any(candidate.is_symlink() for candidate in existing_parts):
+    if any(path_is_link(candidate) for candidate in existing_parts):
         raise ArtifactError(f"refusing symlinked artifact source: {source}")
     if source.is_file():
         if source.suffix.lower() not in {".html", ".htm"}:
@@ -411,17 +450,17 @@ def inspect_bundle(source: Path, entry: str) -> tuple[list[tuple[Path, PurePosix
         files = []
         for directory, directory_names, file_names in os.walk(source, followlinks=False):
             base = Path(directory)
-            if base.is_symlink():
+            if path_is_link(base):
                 raise ArtifactError(f"refusing symlinked artifact directory: {base}")
             for name in directory_names:
                 candidate = base / name
-                if candidate.is_symlink():
+                if path_is_link(candidate):
                     raise ArtifactError(f"refusing symlinked artifact directory: {candidate}")
                 if name.startswith("."):
                     raise ArtifactError(f"refusing hidden artifact directory: {candidate}")
             for name in file_names:
                 candidate = base / name
-                if candidate.is_symlink() or not candidate.is_file():
+                if path_is_link(candidate) or not candidate.is_file():
                     raise ArtifactError(f"refusing linked or special artifact file: {candidate}")
                 if name.startswith("."):
                     raise ArtifactError(f"refusing hidden artifact file: {candidate}")
@@ -458,7 +497,7 @@ def _copy_bundle(files: list[tuple[Path, PurePosixPath]], destination: Path) -> 
     for source, relative in files:
         target = destination.joinpath(*relative.parts)
         target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        if source.is_symlink():
+        if path_is_link(source):
             raise ArtifactError(f"artifact source changed into a symlink: {source}")
         shutil.copyfile(source, target)
         if os.name != "nt":
@@ -502,8 +541,7 @@ def publish_static(
     seconds = parse_ttl(ttl)
     now = utc_now()
     ensure_private_dir(root)
-    content_root = root / "content"
-    ensure_private_dir(content_root)
+    content_root = content_root_path(root, create=True)
     stage = Path(tempfile.mkdtemp(prefix=".publish-", dir=content_root))
     if os.name != "nt":
         stage.chmod(0o700)
@@ -523,7 +561,7 @@ def publish_static(
             }
             selected_id = _claim_record(registry, artifact_id, record)
             destination = content_root / selected_id
-            if destination.exists() or destination.is_symlink():
+            if destination.exists() or path_is_link(destination):
                 raise ArtifactError("artifact content destination already exists")
             os.replace(stage / "bundle", destination)
             try:
@@ -587,12 +625,10 @@ def revoke_artifact(root: Path, artifact_id: str) -> bool:
     validate_id(artifact_id)
     with store_lock(root):
         registry = load_registry(root)
-        record = registry["artifacts"].pop(artifact_id, None)
-        if record is None:
+        if artifact_id not in registry["artifacts"]:
             return False
-        content = root / "content" / artifact_id
-        if contained(root / "content", content):
-            shutil.rmtree(content, ignore_errors=True)
+        remove_artifact_content(root, artifact_id)
+        del registry["artifacts"][artifact_id]
         atomic_write_json(registry_path(root), registry)
     return True
 
@@ -766,7 +802,11 @@ iframe{{display:block}}
         except ArtifactError:
             self._error(404, "not found")
             return
-        bundle = self.artifact_server.root / "content" / artifact_id
+        try:
+            bundle = artifact_content_path(self.artifact_server.root, artifact_id)
+        except ArtifactError:
+            self._error(404, "not found")
+            return
         candidate = bundle.joinpath(*relative.parts)
         if not contained(bundle, candidate):
             self._error(404, "not found")
@@ -775,7 +815,7 @@ iframe{{display:block}}
             candidate = candidate / "index.html"
         if not candidate.is_file() and record.get("spa"):
             candidate = bundle.joinpath(*PurePosixPath(record["entry"]).parts)
-        if candidate.is_symlink() or not candidate.is_file() or not contained(bundle, candidate):
+        if path_is_link(candidate) or not candidate.is_file() or not contained(bundle, candidate):
             self._error(404, "not found")
             return
         try:
@@ -1208,6 +1248,75 @@ def validate_public_path(value: str) -> str:
     return value
 
 
+def validate_live_tailscale_ownership(
+    serve: dict[str, Any], state: dict[str, Any]
+) -> tuple[str, int, str]:
+    if state.get("schema_version") != SCHEMA_VERSION:
+        raise ArtifactError("unsupported Tailscale ownership schema")
+    public_path = validate_public_path(str(state.get("path", "")))
+    try:
+        https_port = int(state.get("https_port", 0))
+    except (TypeError, ValueError) as exc:
+        raise ArtifactError("invalid Tailscale ownership HTTPS port") from exc
+    if not 1 <= https_port <= 65535:
+        raise ArtifactError("invalid Tailscale ownership HTTPS port")
+    target = normalize_proxy_target(str(state.get("target", "")))
+
+    try:
+        base_url = urllib.parse.urlsplit(str(state.get("base_url", "")))
+        base_port = base_url.port or 443
+    except ValueError as exc:
+        raise ArtifactError("invalid Tailscale ownership base URL") from exc
+    if (
+        base_url.scheme != "https"
+        or not base_url.hostname
+        or base_url.username
+        or base_url.password
+        or base_url.query
+        or base_url.fragment
+        or (base_url.path.rstrip("/") or "/") != public_path
+        or base_port != https_port
+    ):
+        raise ArtifactError("invalid Tailscale ownership base URL")
+
+    authority = f"{base_url.hostname.lower()}:{https_port}"
+    web = serve.get("Web")
+    site = None
+    if isinstance(web, dict):
+        site = next(
+            (
+                value
+                for key, value in web.items()
+                if isinstance(key, str) and key.lower() == authority
+            ),
+            None,
+        )
+    handlers = site.get("Handlers") if isinstance(site, dict) else None
+    matches = []
+    if isinstance(handlers, dict):
+        matches = [
+            value
+            for key, value in handlers.items()
+            if isinstance(key, str)
+            and (key.rstrip("/") or "/") == public_path
+        ]
+    if len(matches) != 1 or not isinstance(matches[0], dict):
+        raise ArtifactError(
+            "live Tailscale Serve handler no longer matches recorded ownership; refusing removal"
+        )
+    try:
+        live_target = normalize_proxy_target(str(matches[0].get("Proxy", "")))
+    except ArtifactError as exc:
+        raise ArtifactError(
+            "live Tailscale Serve handler no longer matches recorded ownership; refusing removal"
+        ) from exc
+    if live_target != target:
+        raise ArtifactError(
+            "live Tailscale Serve handler no longer matches recorded ownership; refusing removal"
+        )
+    return public_path, https_port, target
+
+
 def tailscale_plan(root: Path, port: int, https_port: int, public_path: str) -> dict[str, Any]:
     binary = tailscale_binary()
     public_path = validate_public_path(public_path)
@@ -1319,9 +1428,8 @@ def tailscale_remove(root: Path, apply: bool, yes: bool) -> dict[str, Any]:
     if not state:
         return {"action": "remove", "configured": False, "applied": False}
     binary = tailscale_binary()
-    public_path = validate_public_path(str(state.get("path", "")))
-    https_port = int(state.get("https_port", 0))
-    target = normalize_proxy_target(str(state.get("target", "")))
+    serve = tailscale_serve_status(binary)
+    public_path, https_port, target = validate_live_tailscale_ownership(serve, state)
     command = [
         binary,
         "serve",

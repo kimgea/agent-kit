@@ -55,4 +55,9 @@ python <skill-dir>/scripts/artifact_host.py tailscale-remove --json
 python <skill-dir>/scripts/artifact_host.py tailscale-remove --apply --yes --json
 ```
 
+Before preview or apply, removal re-reads live Serve status and requires the
+recorded MagicDNS host, HTTPS port, path, and loopback proxy target to match. If
+the handler is missing or drifted, stop and inspect it as externally owned state;
+do not use the stale ownership record to mutate the path.
+
 Do not use `tailscale serve reset`: it can remove unrelated user routes.

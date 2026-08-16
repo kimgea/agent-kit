@@ -51,6 +51,7 @@ h1 { margin: 8px 0 14px; font-size: clamp(2rem, 5vw, 4rem); line-height: .98; le
 .node[data-kind="boundary"] { --node-color: var(--boundary); }
 
 #connections { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; overflow: visible; }
+#connections marker path { fill: var(--line); }
 #connections line { stroke: var(--line); stroke-width: 2; stroke-linecap: round; }
 #connections line.active { stroke: var(--core); stroke-width: 3; }
 
@@ -75,7 +76,6 @@ button:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 @media (max-width: 480px) {
   .nodes { grid-template-columns: 1fr; min-height: auto; }
   .canvas { min-height: auto; }
-  #connections { display: none; }
   .toolbar { align-items: flex-start; flex-direction: column; }
 }
 

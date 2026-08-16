@@ -87,6 +87,20 @@ class ArtifactStoreTests(unittest.TestCase):
         (site / "app.js").write_text("document.body.dataset.ready = 'yes';", encoding="utf-8")
         return site
 
+    def test_link_detection_includes_windows_reparse_points(self):
+        candidate = mock.Mock()
+        candidate.lstat.return_value = mock.Mock(
+            st_mode=0,
+            st_file_attributes=0x400,
+        )
+        with mock.patch.object(
+            artifact_host.stat,
+            "FILE_ATTRIBUTE_REPARSE_POINT",
+            0x400,
+            create=True,
+        ):
+            self.assertTrue(artifact_host.path_is_link(candidate))
+
     def test_state_paths_are_os_native_and_override_must_be_absolute(self):
         if os.name == "nt":
             with mock.patch.dict(os.environ, {"LOCALAPPDATA": "C:/Agent Data"}, clear=False):
@@ -136,6 +150,49 @@ class ArtifactStoreTests(unittest.TestCase):
                 root, artifact_host.utc_now() + artifact_host.dt.timedelta(seconds=2)
             )
             self.assertEqual([expiring["id"]], removed)
+
+    def test_expiry_refuses_symlinked_content_root_without_losing_ownership(self):
+        if not hasattr(os, "symlink"):
+            self.skipTest("symlinks unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "state"
+            reserved = artifact_host.reserve_artifact(root, "1s", "Expiring")
+            outside = Path(temporary) / "outside"
+            external_content = outside / reserved["id"]
+            external_content.mkdir(parents=True)
+            sentinel = external_content / "keep.txt"
+            sentinel.write_text("keep", encoding="utf-8")
+            try:
+                (root / "content").symlink_to(outside, target_is_directory=True)
+            except OSError:
+                self.skipTest("symlink creation unavailable")
+
+            with self.assertRaisesRegex(
+                artifact_host.ArtifactError, "symlinked artifact content directory"
+            ):
+                artifact_host.cleanup_expired(
+                    root, artifact_host.utc_now() + artifact_host.dt.timedelta(seconds=2)
+                )
+            self.assertTrue(sentinel.is_file())
+            self.assertIn(reserved["id"], artifact_host.load_registry(root)["artifacts"])
+
+    def test_revoke_keeps_registry_when_owned_content_deletion_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            root = base / "state"
+            published = artifact_host.publish_static(
+                root, self.make_site(base), "1h", "Published", "index.html", False
+            )
+            content = root / "content" / published["id"]
+            with mock.patch.object(
+                artifact_host.shutil, "rmtree", side_effect=PermissionError("denied")
+            ):
+                with self.assertRaisesRegex(
+                    artifact_host.ArtifactError, "cannot remove artifact content"
+                ):
+                    artifact_host.revoke_artifact(root, published["id"])
+            self.assertTrue(content.is_dir())
+            self.assertIn(published["id"], artifact_host.load_registry(root)["artifacts"])
 
     def test_bundle_validation_rejects_links_executables_limits_and_bad_entries(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -444,7 +501,11 @@ class ArtifactServerTests(unittest.TestCase):
         styles = (starter / "styles.css").read_text(encoding="utf-8")
         self.assertIn('href="styles.css"', index)
         self.assertIn('src="app.js"', index)
+        self.assertIn('id="arrowhead"', index)
         self.assertNotIn("innerHTML", script)
+        self.assertIn('line.setAttribute("marker-end", "url(#arrowhead)")', script)
+        self.assertIn("boundaryPoint", script)
+        self.assertNotIn("#connections { display: none; }", styles)
         self.assertNotRegex(index + styles, r"https?://")
 
         record = artifact_host.publish_static(
@@ -594,17 +655,70 @@ class TailscaleBoundaryTests(unittest.TestCase):
             "base_url": "https://dev.example.ts.net/agent-artifacts",
         }
         artifact_host.atomic_write_json(artifact_host.tailscale_path(self.root), state)
-        preview = artifact_host.tailscale_remove(self.root, False, False)
-        self.assertTrue(artifact_host.tailscale_path(self.root).exists())
-        self.assertEqual("off", preview["command"][-1])
-        self.assertIn("--set-path=/agent-artifacts", preview["command"])
-        self.assertNotIn("reset", preview["command"])
+        live = {
+            "Web": {
+                "dev.example.ts.net:443": {
+                    "Handlers": {
+                        "/agent-artifacts": {"Proxy": "http://127.0.0.1:4177"}
+                    }
+                }
+            }
+        }
+        with mock.patch.object(
+            artifact_host, "tailscale_serve_status", return_value=live
+        ):
+            preview = artifact_host.tailscale_remove(self.root, False, False)
+            self.assertTrue(artifact_host.tailscale_path(self.root).exists())
+            self.assertEqual("off", preview["command"][-1])
+            self.assertIn("--set-path=/agent-artifacts", preview["command"])
+            self.assertNotIn("reset", preview["command"])
 
-        completed = subprocess.CompletedProcess(preview["command"], 0, "ok", "")
-        with mock.patch.object(artifact_host, "run_command", return_value=completed):
-            result = artifact_host.tailscale_remove(self.root, True, True)
+            completed = subprocess.CompletedProcess(preview["command"], 0, "ok", "")
+            with mock.patch.object(artifact_host, "run_command", return_value=completed):
+                result = artifact_host.tailscale_remove(self.root, True, True)
         self.assertTrue(result["applied"])
         self.assertFalse(artifact_host.tailscale_path(self.root).exists())
+
+    def test_remove_refuses_missing_or_drifted_live_handler(self):
+        state = {
+            "schema_version": 1,
+            "path": "/agent-artifacts",
+            "https_port": 443,
+            "target": "http://127.0.0.1:4177",
+            "base_url": "https://dev.example.ts.net/agent-artifacts",
+        }
+        artifact_host.atomic_write_json(artifact_host.tailscale_path(self.root), state)
+        mismatches = (
+            {},
+            {
+                "Web": {
+                    "dev.example.ts.net:443": {
+                        "Handlers": {
+                            "/agent-artifacts": {"Proxy": "http://127.0.0.1:9000"}
+                        }
+                    }
+                }
+            },
+            {
+                "Web": {
+                    "dev.example.ts.net:8443": {
+                        "Handlers": {
+                            "/agent-artifacts": {"Proxy": "http://127.0.0.1:4177"}
+                        }
+                    }
+                }
+            },
+        )
+        for live in mismatches:
+            with self.subTest(live=live):
+                with mock.patch.object(
+                    artifact_host, "tailscale_serve_status", return_value=live
+                ):
+                    with self.assertRaisesRegex(
+                        artifact_host.ArtifactError, "no longer matches recorded ownership"
+                    ):
+                        artifact_host.tailscale_remove(self.root, False, False)
+                self.assertTrue(artifact_host.tailscale_path(self.root).is_file())
 
     def test_setup_refuses_unowned_conflict_and_confirmation_shortcuts(self):
         with self.assertRaisesRegex(artifact_host.ArtifactError, "--yes requires"):

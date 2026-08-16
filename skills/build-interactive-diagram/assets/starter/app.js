@@ -81,16 +81,38 @@ function selectNode(id) {
   updateNodes();
 }
 
+function center(rect) {
+  return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+}
+
+function boundaryPoint(rect, toward, canvasRect) {
+  const origin = center(rect);
+  const dx = toward.x - origin.x;
+  const dy = toward.y - origin.y;
+  const scale = 1 / Math.max(
+    Math.abs(dx) / (rect.width / 2),
+    Math.abs(dy) / (rect.height / 2),
+  );
+  return {
+    x: origin.x + dx * scale - canvasRect.left,
+    y: origin.y + dy * scale - canvasRect.top,
+  };
+}
+
 function drawConnections() {
   const canvasRect = document.querySelector("#canvas").getBoundingClientRect();
-  svg.replaceChildren(...model.edges.map(([from, to]) => {
+  svg.querySelectorAll("line").forEach((line) => line.remove());
+  svg.append(...model.edges.map(([from, to]) => {
     const source = document.querySelector(`[data-id="${from}"]`).getBoundingClientRect();
     const target = document.querySelector(`[data-id="${to}"]`).getBoundingClientRect();
+    const sourcePoint = boundaryPoint(source, center(target), canvasRect);
+    const targetPoint = boundaryPoint(target, center(source), canvasRect);
     const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    line.setAttribute("x1", source.left + source.width / 2 - canvasRect.left);
-    line.setAttribute("y1", source.top + source.height / 2 - canvasRect.top);
-    line.setAttribute("x2", target.left + target.width / 2 - canvasRect.left);
-    line.setAttribute("y2", target.top + target.height / 2 - canvasRect.top);
+    line.setAttribute("x1", sourcePoint.x);
+    line.setAttribute("y1", sourcePoint.y);
+    line.setAttribute("x2", targetPoint.x);
+    line.setAttribute("y2", targetPoint.y);
+    line.setAttribute("marker-end", "url(#arrowhead)");
     line.classList.toggle("active", from === selected || to === selected);
     return line;
   }));
