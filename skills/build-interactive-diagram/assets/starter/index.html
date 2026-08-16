@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>System map</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main>
+      <header class="hero">
+        <p class="eyebrow">Interactive system map</p>
+        <h1>One stable core, several focused consumers</h1>
+        <p class="lede">Select a component to see its responsibility and trace its direct relationships.</p>
+      </header>
+
+      <section class="toolbar" aria-label="Diagram filters">
+        <span>Emphasize</span>
+        <div id="filters" class="filters"></div>
+      </section>
+
+      <section class="workspace" aria-label="System diagram">
+        <div id="canvas" class="canvas">
+          <svg id="connections" aria-hidden="true">
+            <defs>
+              <marker id="arrowhead" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z"></path>
+              </marker>
+            </defs>
+          </svg>
+          <div id="nodes" class="nodes"></div>
+        </div>
+        <aside id="detail" class="detail" aria-live="polite">
+          <p class="detail-kicker">Selected component</p>
+          <h2 id="detail-title">Choose a node</h2>
+          <p id="detail-body">The diagram remains readable at a glance; details appear here on selection.</p>
+          <ul id="detail-facts"></ul>
+        </aside>
+      </section>
+
+      <footer>
+        <span><i class="legend core"></i>Core</span>
+        <span><i class="legend consumer"></i>Consumer</span>
+        <span><i class="legend boundary"></i>Boundary</span>
+      </footer>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>

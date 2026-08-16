@@ -59,7 +59,14 @@ class CatalogAndValidationTests(unittest.TestCase):
         value = json.loads(output.getvalue())
         self.assertEqual(2, value["schema_version"])
         self.assertEqual(
-            ["agent-context", "grill-me", "todo-capture", "tool-audit"],
+            [
+                "agent-context",
+                "build-interactive-diagram",
+                "grill-me",
+                "serve-artifacts",
+                "todo-capture",
+                "tool-audit",
+            ],
             sorted(resource["id"] for resource in value["resources"]),
         )
 
@@ -327,8 +334,8 @@ class LifecycleTests(unittest.TestCase):
                 Path("release"), None, "all", fixture
             )
             archives = [path for path in artifacts if path.suffix == ".zip"]
-            self.assertEqual(9, len(archives))
-            self.assertEqual(4, len([path for path in archives if "-plugin-" in path.name]))
+            self.assertEqual(12, len(archives))
+            self.assertEqual(5, len([path for path in archives if "-plugin-" in path.name]))
             self.assertEqual(
                 1,
                 len(
@@ -339,6 +346,34 @@ class LifecycleTests(unittest.TestCase):
                     ]
                 ),
             )
+
+    def test_grouped_artifacts_plugin_is_atomic_and_contains_both_skills(self):
+        with self.assertRaisesRegex(agent_kit.AgentKitError, "splits grouped plugin"):
+            agent_kit.plugins_for_skills(
+                agent_kit.load_catalog(ROOT), ["build-interactive-diagram"]
+            )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary) / "source"
+            shutil.copytree(
+                ROOT,
+                fixture,
+                ignore=shutil.ignore_patterns(".git", "__pycache__", "dist"),
+            )
+            artifacts = agent_kit.package_artifacts(
+                Path("grouped"),
+                ["build-interactive-diagram", "serve-artifacts"],
+                "plugin",
+                fixture,
+            )
+            plugin = next(path for path in artifacts if path.name.startswith("artifacts-plugin-"))
+            with zipfile.ZipFile(plugin) as archive:
+                names = set(archive.namelist())
+                manifest = json.loads(archive.read("artifacts/.codex-plugin/plugin.json"))
+            self.assertIn("artifacts/skills/build-interactive-diagram/SKILL.md", names)
+            self.assertIn("artifacts/skills/serve-artifacts/SKILL.md", names)
+            self.assertEqual("artifacts", manifest["name"])
+            self.assertEqual(2, len(manifest["interface"]["defaultPrompt"]))
 
     def test_invalid_plugin_membership_and_unknown_package_selection_are_refused(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -1,0 +1,38 @@
+[
+  {
+    "id": "architecture-graph",
+    "prompt": "Make an interactive visual showing how one host core is used by three artifact-producing skills and how Tailscale fits in.",
+    "expected": "Build a responsive dependency graph with selectable nodes, visible direction, concise details, and a text summary, then publish it when serve-artifacts is available.",
+    "must_not": [
+      "Use an external CDN",
+      "Make the diagram depend on color alone",
+      "Replace the visual with a long terminal table"
+    ]
+  },
+  {
+    "id": "simple-answer-no-artifact",
+    "prompt": "What port is the artifact host using?",
+    "expected": "Answer the simple fact directly without creating an interactive diagram.",
+    "must_not": [
+      "Build an unnecessary web artifact"
+    ]
+  },
+  {
+    "id": "transient-not-documentation",
+    "prompt": "Turn this exploratory state flow into something clickable for our conversation; it does not belong in the product docs.",
+    "expected": "Create a temporary self-contained visual outside the repository, use a short TTL, and summarize the flow in the conversation.",
+    "must_not": [
+      "Commit the temporary output",
+      "Publish it as durable documentation"
+    ]
+  },
+  {
+    "id": "host-optional",
+    "prompt": "Build the diagram, but this machine does not have the artifact-host skill installed.",
+    "expected": "Create and validate the standalone HTML bundle, then return its absolute path and local serving instructions.",
+    "must_not": [
+      "Claim a remote URL exists",
+      "Fail solely because the host skill is absent"
+    ]
+  }
+]

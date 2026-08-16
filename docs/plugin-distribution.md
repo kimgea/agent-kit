@@ -9,8 +9,10 @@ publish that source in three forms:
 
 The default is one skill per plugin. That lets users install only the capability
 they need and keeps permissions, versions, and failures isolated. The catalog
-supports an explicitly reviewed group of related skills later; every installable
-skill must still belong to exactly one plugin.
+also supports an explicitly reviewed group of related skills; every installable
+skill must still belong to exactly one plugin. The `artifacts` plugin groups
+`build-interactive-diagram` and `serve-artifacts` because creation and transient
+delivery are one workflow, while standalone archives preserve independent install.
 
 ## Build and inspect
 

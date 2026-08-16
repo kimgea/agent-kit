@@ -17,7 +17,9 @@ and GitHub reads require them.
 | Resource | Codex | Claude Code | Notes |
 |---|---|---|---|
 | `agent-context` | Supported | Supported | Plain Markdown plus standard-library resolver; private registry paths are OS-native |
+| `build-interactive-diagram` | Supported | Supported | Plain HTML/CSS/JS starter; host is optional |
 | `grill-me` | Supported | Supported | Plain Markdown; no runtime code |
+| `serve-artifacts` | Supported | Supported | Standard-library local-first host; network adapters are optional |
 | `todo-capture` | Supported | Supported | Native Windows and POSIX storage/permission fixtures |
 | `tool-audit` | Supported | Supported | Codex and Claude transcript parsers; wrapped Codex calls are conservative |
 | `gh-api-get` | Supported | Supported | Python module plus POSIX and Windows launchers |
@@ -37,6 +39,12 @@ Claude Code compatibility is covered by synthetic transcript/configuration
 fixtures; a live Claude CLI was not available on the maintainer machine during
 the 1.0.0 hardening. Windows CI validates native path and configuration behavior,
 not an interactive Codex or Claude desktop session.
+
+The artifact host's store, locking, lifecycle, static serving, direct-bind boundary,
+advertised URLs, and Tailscale command construction are covered on Linux and Windows
+CI. Linux additionally has live loopback HTTP integration tests. CI changes no real
+network configuration; provider ownership behavior uses synthetic CLI responses,
+and a maintainer performs any private-network smoke test explicitly.
 
 ## Installation paths
 
