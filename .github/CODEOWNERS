@@ -1,6 +1,6 @@
 * @kimgea
 
-# Automatic permission and delivery boundaries require an explicit owner merge decision.
+# Sensitive permission and delivery boundaries route to the owner for review.
 /skills/*/scripts/setup_permissions.py @kimgea
 /skills/tool-audit/references/command-classes.tsv @kimgea
 /skills/tool-audit/scripts/audit.py @kimgea

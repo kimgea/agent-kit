@@ -8,8 +8,8 @@
 4. Run `python scripts/agent_kit.py check`.
 5. Optionally inspect local deterministic artifacts with
    `python scripts/agent_kit.py package --format all` and remove `dist/` afterward.
-6. Merge through a pull request after required CI and an explicit owner merge
-   decision.
+6. Merge through a pull request after required CI and independent exact-head
+   review when the user requested implementation or delivery.
 
 ## Publish
 
@@ -46,13 +46,12 @@ python scripts/configure_github.py
 After reviewing the source and preview, an authenticated administrator may apply
 the exact settings with `--apply --yes`. The script is idempotent, but GitHub
 settings are not transactional; if a request fails, inspect the reported step and
-rerun after correcting it. It enables two separately layered default-branch
-rulesets: a no-bypass pull-request and CI protection ruleset, plus an exact-user
-update restriction. It also configures four required Linux/Windows checks,
-linear squash history, force-push and deletion protection, SHA-pinned
-GitHub-owned Actions only, a read-only workflow token, Dependabot vulnerability
-alerts and security updates, private vulnerability reporting, and immutable
-releases.
+rerun after correcting it. It enables one no-bypass default-branch protection
+ruleset and retires the obsolete owner-only update restriction when present. It
+also configures four required Linux/Windows checks, linear squash history,
+force-push and deletion protection, SHA-pinned GitHub-owned Actions only, a
+read-only workflow token, Dependabot vulnerability alerts and security updates,
+private vulnerability reporting, and immutable releases.
 
 GitHub does not allow a pull-request author to approve their own pull request.
 The repository currently has one human owner identity, so the protection ruleset
@@ -60,18 +59,17 @@ requires the PR and CI path but sets the approving-review count to zero.
 `CODEOWNERS` remains an explicit ownership and review-routing record. Increase
 the review count only after a distinct trusted reviewer is available.
 
-The second ruleset restricts updates to `main` and grants a pull-request-only
-bypass to the exact `kimgea` GitHub user ID. It deliberately contains no CI or
-pull-request requirements: those remain in the first ruleset with no bypass
-actors, so the owner exception cannot skip checks and cannot authorize a direct
-push. External contributors may open pull requests, but only `kimgea` can merge
-them. Agents authenticated as `kimgea` may perform that merge only when the user
-has requested delivery into `main`.
+GitHub requires repository write permission to merge a pull request. Keep write,
+maintain, and admin access limited to `kimgea` and identities deliberately
+controlled by the owner. External contributors retain normal public read, fork,
+and pull-request access but cannot merge. Owner-controlled agents may merge only
+after the user requested implementation or delivery, required checks passed, and
+the independent exact-head review is clean.
 
-This boundary assumes no other person or app is granted repository
-administration or the ability to edit rulesets. An administrator can change the
-repository's rules, so granting that permission is equivalent to granting
-control over this boundary.
+This boundary assumes no other person or app is granted repository write access,
+administration, or the ability to edit rulesets. Granting write access grants
+merge authority after protected-branch requirements pass; granting administration
+also grants control over those requirements.
 
 ## Upgrade and rollback
 
