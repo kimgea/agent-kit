@@ -251,6 +251,10 @@ class ArtifactStoreTests(unittest.TestCase):
             self.assertEqual(expected, urls["shared_url"])
             self.assertEqual(expected, urls["browser_url"])
             self.assertNotIn("local_url", urls)
+            self.assertEqual(
+                f"{artifact_host.PUBLIC_PREFIX}/c/{artifact_id}",
+                urls["content_base_path"],
+            )
 
     def test_remote_browser_handoff_stays_client_owned(self):
         skill = (ROOT / "skills" / "serve-artifacts" / "SKILL.md").read_text(
@@ -454,6 +458,46 @@ class ArtifactServerTests(unittest.TestCase):
         ):
             with self.subTest(relative=relative):
                 with request(f"{base}/{relative}") as response:
+                    self.assertIn(marker, response.read().decode())
+
+    def test_next_export_shape_works_under_a_reserved_prefix(self):
+        reserved = artifact_host.reserve_artifact(self.root, "1h", "Next export")
+        urls = artifact_host.artifact_urls(self.root, reserved, self.port)
+        content_base_path = urls["content_base_path"]
+        self.assertFalse(content_base_path.endswith("/"))
+
+        exported = self.base / "next-out"
+        (exported / "about").mkdir(parents=True)
+        (exported / "_next" / "static" / "chunks").mkdir(parents=True)
+        (exported / "index.html").write_text(
+            f'<a href="{content_base_path}/about/">About</a>'
+            f'<script src="{content_base_path}/_next/static/chunks/app.js"></script>',
+            encoding="utf-8",
+        )
+        (exported / "about" / "index.html").write_text(
+            "Next secondary route", encoding="utf-8"
+        )
+        (exported / "_next" / "static" / "chunks" / "app.js").write_text(
+            "window.nextFixture = true;", encoding="utf-8"
+        )
+        artifact_host.publish_static(
+            self.root,
+            exported,
+            "1h",
+            "Next export",
+            "index.html",
+            False,
+            reserved["id"],
+        )
+
+        origin = f"http://127.0.0.1:{self.port}{content_base_path}"
+        for relative, marker in (
+            ("/", "About"),
+            ("/about/", "Next secondary route"),
+            ("/_next/static/chunks/app.js", "nextFixture"),
+        ):
+            with self.subTest(relative=relative):
+                with request(origin + relative) as response:
                     self.assertIn(marker, response.read().decode())
 
     def test_background_lifecycle_is_idempotent_and_owned(self):

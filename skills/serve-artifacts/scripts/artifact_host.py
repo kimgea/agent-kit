@@ -1129,7 +1129,7 @@ def artifact_urls(root: Path, record: dict[str, Any], port: int) -> dict[str, st
     result["browser_url"] = (
         result.get("shared_url") or result.get("tailnet_url") or result.get("local_url", "")
     )
-    result["content_base_path"] = f"{PUBLIC_PREFIX}/c/{artifact_id}/"
+    result["content_base_path"] = f"{PUBLIC_PREFIX}/c/{artifact_id}"
     return result
 
 

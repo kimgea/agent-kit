@@ -12,10 +12,11 @@
   {
     "id": "reserve-framework-base",
     "prompt": "I need to export this Next.js visualization under the artifact host without broken asset paths.",
-    "expected": "Reserve an artifact ID, use its content_base_path as the build-time basePath, and publish only the completed export directory with that ID.",
+    "expected": "Reserve an artifact ID, use its slash-free content_base_path as the build-time basePath, configure output export with trailingSlash true, and publish only the completed export directory with that ID.",
     "must_not": [
       "Ask the host to run npm",
-      "Pretend arbitrary absolute asset paths work"
+      "Pass a trailing-slash basePath to Next.js",
+      "Assume the static host rewrites clean routes to .html files"
     ]
   },
   {

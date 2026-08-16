@@ -37,8 +37,10 @@ deleting the source after publication does not mutate the published copy.
 - For a build that needs its final base path, first run `reserve --json`, build
   for the returned `content_base_path`, then pass the returned ID to
   `publish --id <id>`.
-- For a Next.js static export, reserve first and use the returned path as the
-  build-time `basePath`; publish the exported directory after the producer builds it.
+- For a Next.js static export, reserve first and use the slash-free returned
+  `content_base_path` as the build-time `basePath`. Set `output: "export"` and
+  `trailingSlash: true`, then publish the exported directory after the producer
+  builds it.
 - To expose an already-running HTTP app, use `proxy http://127.0.0.1:<port>`.
   Add `--preserve-prefix` only when the app was configured for the returned
   artifact prefix. The host never runs or supervises the app and supports ordinary

@@ -58,12 +58,14 @@ requires the private per-process token and is used only by the CLI.
 | Multipage static directory | Full | Relative navigation; no directory listings |
 | Client-side SPA | Full | Use `--spa` for entry-page fallback |
 | Vite/React static build | Full | Prefer Vite `base: "./"` |
-| Next.js static export | Full with configuration | Reserve an ID and build with its `content_base_path` as `basePath` |
+| Next.js static export | Full with configuration | Reserve an ID, use its slash-free `content_base_path` as `basePath`, and set `trailingSlash: true` |
 | Existing loopback HTTP app | Limited proxy | GET/HEAD, no WebSockets or process supervision; base-path-aware apps can preserve the prefix |
 | Dynamic Next.js deployment | Producer-owned | The host can proxy an already-running, correctly configured instance but does not make it durable or production-ready |
 
 Static publishers can reserve an ID before a framework build. This keeps build
-execution outside the host while giving frameworks a final absolute base path.
+execution outside the host while giving frameworks a final, slash-free absolute
+base path. Next.js exports additionally use `trailingSlash: true` so secondary
+routes become directory index files rather than requiring host rewrite rules.
 
 ## Browser and filesystem boundary
 
