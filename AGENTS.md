@@ -57,9 +57,13 @@ repository. `CLAUDE.md` points Claude Code to the same contract.
   command into a mutation.
 - Use normal purpose-specific read commands such as `gh pr view` when they fit.
 - Perform GitHub mutations only when requested, from a non-default branch, and
-  through a pull request. Never bypass required checks. Only the configured
-  `kimgea` owner identity may merge a pull request into `main`, and an agent may
-  do so only when the user has requested delivery into `main`.
+  through a pull request. Never bypass required checks. Only `kimgea` and agent
+  identities deliberately given repository write access by the owner may merge
+  into `main`; external contributors may propose pull requests but must not be
+  granted merge access. A request to implement or deliver a change authorizes
+  the ordinary branch, pull request, exact-head review, and clean merge lifecycle
+  unless the user limits the scope. Tags, releases, repository settings, and
+  other consequential remote changes still require explicit authorization.
 - After an agent creates or materially updates a pull request, a separate
   subagent must review the exact head commit before merge. The authoring agent
   must address actionable findings and request another review of the new head.

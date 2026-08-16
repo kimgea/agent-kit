@@ -24,8 +24,8 @@ REPOSITORY = "kimgea/agent-kit"
 API_ROOT = f"https://api.github.com/repos/{REPOSITORY}"
 API_VERSION = "2026-03-10"
 PROTECTION_RULESET_NAME = "Protect main"
-OWNER_MERGE_RULESET_NAME = "Owner-only main merges"
-RULESET_NAMES = (PROTECTION_RULESET_NAME, OWNER_MERGE_RULESET_NAME)
+LEGACY_OWNER_MERGE_RULESET_NAME = "Owner-only main merges"
+RULESET_NAMES = (PROTECTION_RULESET_NAME, LEGACY_OWNER_MERGE_RULESET_NAME)
 OWNER_LOGIN = "kimgea"
 OWNER_ID = 1_296_762
 DESCRIPTION = "Shared, reusable, safety-conscious resources for Codex and Claude Code agents."
@@ -108,37 +108,6 @@ def protection_ruleset_payload() -> dict[str, Any]:
     }
 
 
-def owner_merge_ruleset_payload() -> dict[str, Any]:
-    """Restrict default-branch updates to the exact owner, through PRs only.
-
-    This rule intentionally lives in a separate ruleset. Its narrow bypass then
-    applies only to the update restriction; it cannot bypass the pull-request,
-    status-check, history, deletion, or force-push rules above.
-    """
-
-    return {
-        "name": OWNER_MERGE_RULESET_NAME,
-        "target": "branch",
-        "enforcement": "active",
-        "bypass_actors": [
-            {
-                "actor_id": OWNER_ID,
-                "actor_type": "User",
-                "bypass_mode": "pull_request",
-            }
-        ],
-        "conditions": {
-            "ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}
-        },
-        "rules": [
-            {
-                "type": "update",
-                "parameters": {"update_allows_fetch_and_merge": False},
-            }
-        ],
-    }
-
-
 def ruleset_mutation(
     *, name: str, label: str, payload: dict[str, Any], ruleset_id: int | None
 ) -> Mutation:
@@ -147,6 +116,22 @@ def ruleset_mutation(
     method = "PUT" if ruleset_id is not None else "POST"
     path = f"/rulesets/{ruleset_id}" if ruleset_id is not None else "/rulesets"
     return Mutation(label, method, path, payload)
+
+
+def legacy_ruleset_retirement(ruleset_id: int | None) -> Mutation | None:
+    if ruleset_id is None:
+        return None
+    if (
+        not isinstance(ruleset_id, int)
+        or isinstance(ruleset_id, bool)
+        or ruleset_id < 1
+    ):
+        raise ConfigurationError("legacy owner-only ruleset has an invalid id")
+    return Mutation(
+        "remove the obsolete owner-only merge gate",
+        "DELETE",
+        f"/rulesets/{ruleset_id}",
+    )
 
 
 def mutations(ruleset_ids: dict[str, int | None] | None = None) -> list[Mutation]:
@@ -188,22 +173,19 @@ def mutations(ruleset_ids: dict[str, int | None] | None = None) -> list[Mutation
         ),
         Mutation("enable immutable releases", "PUT", "/immutable-releases"),
     ]
-    operations.extend(
-        (
-            ruleset_mutation(
-                name=PROTECTION_RULESET_NAME,
-                label="create or update the default-branch protection ruleset",
-                payload=protection_ruleset_payload(),
-                ruleset_id=discovered.get(PROTECTION_RULESET_NAME),
-            ),
-            ruleset_mutation(
-                name=OWNER_MERGE_RULESET_NAME,
-                label="create or update the owner-only pull-request merge gate",
-                payload=owner_merge_ruleset_payload(),
-                ruleset_id=discovered.get(OWNER_MERGE_RULESET_NAME),
-            ),
+    operations.append(
+        ruleset_mutation(
+            name=PROTECTION_RULESET_NAME,
+            label="create or update the default-branch protection ruleset",
+            payload=protection_ruleset_payload(),
+            ruleset_id=discovered.get(PROTECTION_RULESET_NAME),
         )
     )
+    retirement = legacy_ruleset_retirement(
+        discovered.get(LEGACY_OWNER_MERGE_RULESET_NAME)
+    )
+    if retirement is not None:
+        operations.append(retirement)
     return operations
 
 

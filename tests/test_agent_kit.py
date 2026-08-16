@@ -443,8 +443,6 @@ class GitHubConfigurationBoundaryTests(unittest.TestCase):
     def test_fixed_plan_has_no_caller_controlled_remote_surface(self):
         operations = configure_github.mutations(None)
         self.assertEqual("kimgea/agent-kit", configure_github.REPOSITORY)
-        self.assertEqual("POST", operations[-2].method)
-        self.assertEqual("/rulesets", operations[-2].path)
         self.assertEqual("POST", operations[-1].method)
         self.assertEqual("/rulesets", operations[-1].path)
         self.assertTrue(all(item.method in {"POST", "PUT"} for item in operations))
@@ -457,26 +455,54 @@ class GitHubConfigurationBoundaryTests(unittest.TestCase):
         command = configure_github.metadata_command("/bin/gh")
         self.assertEqual(["/bin/gh", "repo", "edit", "kimgea/agent-kit"], command[:4])
 
-    def test_owner_merge_gate_is_exact_and_cannot_bypass_protection(self):
+    def test_write_access_controls_merge_without_a_protection_bypass(self):
         protection = configure_github.protection_ruleset_payload()
-        owner_gate = configure_github.owner_merge_ruleset_payload()
 
         self.assertEqual([], protection["bypass_actors"])
         self.assertNotIn("update", {rule["type"] for rule in protection["rules"]})
+        operations = configure_github.mutations(
+            {
+                configure_github.PROTECTION_RULESET_NAME: 42,
+                configure_github.LEGACY_OWNER_MERGE_RULESET_NAME: 84,
+            }
+        )
+        self.assertEqual(("PUT", "/rulesets/42"), operations[-2][1:3])
+        self.assertEqual(("DELETE", "/rulesets/84"), operations[-1][1:3])
+        self.assertIsNone(operations[-1].payload)
+
+        without_legacy = configure_github.mutations(
+            {
+                configure_github.PROTECTION_RULESET_NAME: 42,
+                configure_github.LEGACY_OWNER_MERGE_RULESET_NAME: None,
+            }
+        )
+        self.assertEqual(("PUT", "/rulesets/42"), without_legacy[-1][1:3])
+        self.assertNotIn("DELETE", {operation.method for operation in without_legacy})
+
+        for invalid in (True, 0, -1, "84"):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(
+                    configure_github.ConfigurationError, "invalid id"
+                ):
+                    configure_github.legacy_ruleset_retirement(invalid)  # type: ignore[arg-type]
+
+    def test_legacy_ruleset_retirement_sends_one_exact_delete(self):
+        operation = configure_github.legacy_ruleset_retirement(84)
+        self.assertIsNotNone(operation)
+        response = mock.MagicMock()
+        response.__enter__.return_value.status = 204
+        with mock.patch.object(
+            configure_github.urllib.request, "urlopen", return_value=response
+        ) as urlopen:
+            configure_github.apply_mutation(operation, "test-token")  # type: ignore[arg-type]
+
+        request = urlopen.call_args.args[0]
+        self.assertEqual("DELETE", request.get_method())
         self.assertEqual(
-            [
-                {
-                    "actor_id": 1_296_762,
-                    "actor_type": "User",
-                    "bypass_mode": "pull_request",
-                }
-            ],
-            owner_gate["bypass_actors"],
+            "https://api.github.com/repos/kimgea/agent-kit/rulesets/84",
+            request.full_url,
         )
-        self.assertEqual(["update"], [rule["type"] for rule in owner_gate["rules"]])
-        self.assertFalse(
-            owner_gate["rules"][0]["parameters"]["update_allows_fetch_and_merge"]
-        )
+        self.assertEqual(b"", request.data)
 
     def test_existing_named_ruleset_is_updated_and_ambiguous_state_is_refused(self):
         completed = mock.Mock(
@@ -494,7 +520,7 @@ class GitHubConfigurationBoundaryTests(unittest.TestCase):
         )
         operations = configure_github.mutations(discovered)
         self.assertEqual(("PUT", "/rulesets/42"), operations[-2][1:3])
-        self.assertEqual(("PUT", "/rulesets/84"), operations[-1][1:3])
+        self.assertEqual(("DELETE", "/rulesets/84"), operations[-1][1:3])
 
         completed.stdout = (
             '[{"id": 1, "name": "Owner-only main merges"},'

@@ -4,6 +4,22 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
+## 1.3.1 - Unreleased
+
+### Changed
+
+- Retire the redundant owner-only update ruleset and rely on repository write
+  access for merge authority, while preserving the no-bypass pull-request,
+  required-CI, linear-history, and review-thread protections on `main`.
+- Treat an implementation or delivery request as authorization for its ordinary
+  branch, pull-request, independent-review, and clean-merge lifecycle without
+  repeated merge confirmations.
+
+### Security
+
+- Keep repository write access limited to `kimgea` and explicitly owner-controlled
+  agent identities; external contributors may open pull requests but cannot merge.
+
 ## 1.3.0 - 2026-08-16
 
 ### Added
