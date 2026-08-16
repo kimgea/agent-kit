@@ -4,7 +4,7 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
-## 1.3.0 - Unreleased
+## 1.3.0 - 2026-08-16
 
 ### Added
 
@@ -24,11 +24,16 @@ in `toolkit.toml`.
   unauthenticated HTTP management surface.
 - Restrict proxy targets to explicit loopback HTTP services and preserve unrelated
   Tailscale routes through exact, owned, preview-first setup and removal.
+- Refuse cleanup through symlinked or reparse-point content paths, retain registry
+  state when owned copies cannot be removed, revalidate live Tailscale route
+  ownership before removal, and ignore ambient HTTP proxies for loopback targets.
 
 ### Changed
 
 - Add the first reviewed grouped plugin, `artifacts`, while keeping both contained
   skills available as independent standalone archives.
+- Require a separate agent to review materially updated pull requests before the
+  owner merge decision, with a new exact-head review after every corrective push.
 
 ## 1.2.0 - 2026-08-14
 

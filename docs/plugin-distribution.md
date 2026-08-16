@@ -39,7 +39,7 @@ release. Then register the extracted marketplace root—the directory containing
 
 ```bash
 codex plugin marketplace add ./agent-kit-marketplace
-codex plugin list --marketplace agent-kit --available
+codex plugin list --json --marketplace agent-kit --available
 codex plugin add agent-context@agent-kit
 ```
 
