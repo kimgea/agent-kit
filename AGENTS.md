@@ -60,6 +60,14 @@ repository. `CLAUDE.md` points Claude Code to the same contract.
   through a pull request. Never bypass required checks. Only the configured
   `kimgea` owner identity may merge a pull request into `main`, and an agent may
   do so only when the user has requested delivery into `main`.
+- After an agent creates or materially updates a pull request, a separate
+  subagent must review the exact head commit before merge. The authoring agent
+  must address actionable findings and request another review of the new head.
+  When the review is clean and the user requested delivery into `main`, the
+  reviewing subagent should approve the pull request when GitHub permits and
+  merge it through the repository's gated merge workflow. If the active GitHub
+  identity cannot formally approve its own pull request, record the clean review
+  without claiming approval and merge only when repository policy permits.
 
 ## Required validation
 
