@@ -43,7 +43,7 @@ for repeatable use. For an ownership-aware installation, clone the tagged toolki
 release, then install only the selected skill:
 
 ```bash
-git clone --branch v1.2.0 --depth 1 https://github.com/kimgea/agent-kit.git
+git clone --branch v1.3.0 --depth 1 https://github.com/kimgea/agent-kit.git
 cd agent-kit
 python scripts/agent_kit.py list
 ```

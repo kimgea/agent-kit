@@ -30,9 +30,9 @@ marketplace archives target Codex plugin surfaces; they package the same
 canonical skill directories and do not make the skills depend on Codex at
 runtime. Plugin manifest and marketplace structure are validated locally, but an
 interactive Codex marketplace install is still a release smoke-test rather than
-part of network-free CI. Before the 1.2.0 release, Codex CLI 0.147.0 successfully
-registered the extracted marketplace and installed all four plugins into an
-isolated Codex home.
+part of network-free CI. Before the 1.3.0 release, Codex CLI 0.147.0 successfully
+registered the extracted marketplace and installed all five plugins, including
+the grouped `artifacts` plugin, into an isolated Codex home.
 
 Codex on Linux has been exercised with real local transcripts and policy files.
 Claude Code compatibility is covered by synthetic transcript/configuration
