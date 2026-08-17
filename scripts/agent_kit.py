@@ -21,7 +21,7 @@ import tomllib
 import uuid
 import zipfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -57,6 +57,8 @@ REQUIRED_RESOURCE_KEYS = {
 GENERATED_DIRS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "dist"}
 GENERATED_SUFFIXES = {".pyc", ".pyo", ".bak", ".tmp"}
 STATE_SCHEMA = 1
+LEGACY_DIGEST_VERSION = 1
+CURRENT_DIGEST_VERSION = 2
 PLUGIN_INSTALLATION = {"NOT_AVAILABLE", "AVAILABLE", "INSTALLED_BY_DEFAULT"}
 PLUGIN_AUTHENTICATION = {"ON_INSTALL", "ON_USE"}
 MARKETPLACE_KEYS = {
@@ -86,6 +88,23 @@ PLUGIN_OPTIONAL_KEYS = {
 
 class AgentKitError(RuntimeError):
     pass
+
+
+def is_generated_relative_path(path: Path) -> bool:
+    return any(
+        part in GENERATED_DIRS or Path(part).suffix in GENERATED_SUFFIXES
+        for part in path.parts
+    )
+
+
+def is_legacy_generated_relative_path(path: Path) -> bool:
+    return any(part in GENERATED_DIRS for part in path.parts)
+
+
+def ignore_generated_copytree_entries(
+    _directory: str, names: list[str]
+) -> set[str]:
+    return {name for name in names if is_generated_relative_path(Path(name))}
 
 
 def utc_now() -> str:
@@ -461,11 +480,9 @@ def validate_generated_artifacts(root: Path) -> list[str]:
             tracked = [root / item.decode("utf-8") for item in result.stdout.split(b"\0") if item]
     paths = tracked or [path for path in root.rglob("*") if ".git" not in path.parts]
     for path in paths:
-        relative_parts = path.relative_to(root).parts
-        if any(part in GENERATED_DIRS for part in relative_parts):
+        relative = path.relative_to(root)
+        if is_generated_relative_path(relative):
             errors.append(f"generated path must not be tracked: {path}")
-        elif path.is_file() and path.suffix in GENERATED_SUFFIXES:
-            errors.append(f"generated file must not be tracked: {path}")
     return errors
 
 
@@ -816,12 +833,12 @@ def run_tests(root: Path) -> int:
     return result.returncode
 
 
-def digest_tree(path: Path) -> str:
+def _digest_tree(path: Path, ignored_path: Callable[[Path], bool]) -> str:
     if not path.is_dir() or path.is_symlink():
         raise AgentKitError(f"refusing non-directory or symlinked resource: {path}")
     digest = hashlib.sha256()
     for item in sorted(path.rglob("*"), key=lambda value: value.as_posix()):
-        if any(part in GENERATED_DIRS for part in item.relative_to(path).parts):
+        if ignored_path(item.relative_to(path)):
             continue
         if item.is_symlink():
             raise AgentKitError(f"refusing symlinked resource content: {item}")
@@ -835,6 +852,26 @@ def digest_tree(path: Path) -> str:
                 digest.update(chunk)
         digest.update(b"\0")
     return digest.hexdigest()
+
+
+def digest_tree(path: Path) -> str:
+    return _digest_tree(path, is_generated_relative_path)
+
+
+def legacy_digest_tree(path: Path) -> str:
+    """Reproduce the v1.3.0 ownership digest for existing state records."""
+    return _digest_tree(path, is_legacy_generated_relative_path)
+
+
+def ownership_digest_matches(path: Path, entry: dict[str, Any]) -> bool:
+    version = entry.get("digest_version", LEGACY_DIGEST_VERSION)
+    if version == LEGACY_DIGEST_VERSION and not isinstance(version, bool):
+        actual = legacy_digest_tree(path)
+    elif version == CURRENT_DIGEST_VERSION and not isinstance(version, bool):
+        actual = digest_tree(path)
+    else:
+        raise AgentKitError(f"unsupported ownership digest version: {version!r}")
+    return actual == entry.get("digest")
 
 
 def agent_home(agent: str) -> Path:
@@ -976,8 +1013,7 @@ def owned_installation(
         raise AgentKitError(f"ownership state path does not match destination: {destination}")
     if not destination.is_dir() or destination.is_symlink():
         raise AgentKitError(f"owned installation is missing or unsafe: {destination}")
-    actual = digest_tree(destination)
-    if actual != entry.get("digest"):
+    if not ownership_digest_matches(destination, entry):
         raise AgentKitError(
             f"installed skill has drifted; refusing overwrite or removal: {destination}"
         )
@@ -1053,7 +1089,12 @@ def install_skill(
         staged = skills_dir / f".{resource_id}.agent-kit-stage-{uuid.uuid4().hex}"
         moved: Path | None = None
         try:
-            shutil.copytree(source, staged, symlinks=False)
+            shutil.copytree(
+                source,
+                staged,
+                symlinks=False,
+                ignore=ignore_generated_copytree_entries,
+            )
             if digest_tree(staged) != source_digest:
                 raise AgentKitError("staged installation digest does not match source")
             if previous is not None:
@@ -1062,6 +1103,7 @@ def install_skill(
             state["installations"][resource_id] = {
                 "agent": agent,
                 "digest": source_digest,
+                "digest_version": CURRENT_DIGEST_VERSION,
                 "installed_at": utc_now(),
                 "path": str(destination),
                 "version": resource["version"],
@@ -1149,7 +1191,7 @@ def rollback_skill(
     source = Path(str(candidate.get("path", "")))
     if not contained(state_dir(home) / "trash", source) or not source.is_dir() or source.is_symlink():
         raise AgentKitError(f"rollback deployment is missing or unsafe: {source}")
-    if digest_tree(source) != candidate.get("digest"):
+    if not ownership_digest_matches(source, candidate):
         raise AgentKitError(f"rollback deployment has drifted: {source}")
     current = None
     if destination.exists() or destination.is_symlink():
@@ -1174,7 +1216,7 @@ def rollback_skill(
         source = Path(str(candidate.get("path", "")))
         if not contained(state_dir(home) / "trash", source) or not source.is_dir() or source.is_symlink():
             raise AgentKitError(f"rollback deployment is missing or unsafe: {source}")
-        if digest_tree(source) != candidate.get("digest"):
+        if not ownership_digest_matches(source, candidate):
             raise AgentKitError(f"rollback deployment has drifted: {source}")
         current = None
         if destination.exists() or destination.is_symlink():
@@ -1227,14 +1269,14 @@ def deterministic_zip(
             temporary, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
         ) as archive:
             for path in sorted(source.rglob("*"), key=lambda value: value.as_posix()):
+                relative = path.relative_to(source)
+                if is_generated_relative_path(relative):
+                    continue
                 if path.is_symlink():
                     raise AgentKitError(f"refusing symlinked package content: {path}")
-                if not path.is_file() or any(
-                    part in GENERATED_DIRS
-                    for part in path.relative_to(source).parts
-                ):
+                if not path.is_file():
                     continue
-                name = f"{root_name}/{path.relative_to(source).as_posix()}"
+                name = f"{root_name}/{relative.as_posix()}"
                 info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
                 info.compress_type = zipfile.ZIP_DEFLATED
                 info.create_system = 3
@@ -1325,7 +1367,11 @@ def build_plugin_tree(
     for skill_id in metadata["skills"]:
         source = resolve_relative(root, resources[skill_id]["path"], f"{skill_id}.path")
         digest_tree(source)
-        shutil.copytree(source, skills_root / skill_id)
+        shutil.copytree(
+            source,
+            skills_root / skill_id,
+            ignore=ignore_generated_copytree_entries,
+        )
 
     manifest = {
         "name": metadata["id"],
@@ -1536,7 +1582,11 @@ def installation_status(resource: dict[str, Any], agent: str) -> dict[str, Any]:
         elif destination.is_symlink():
             status = "unsafe-symlink"
         else:
-            status = "current" if digest_tree(destination) == entry.get("digest") else "drifted"
+            status = (
+                "current"
+                if ownership_digest_matches(destination, entry)
+                else "drifted"
+            )
         return {"agent": agent, "home": str(home), "path": str(destination), "status": status}
     except AgentKitError as exc:
         return {"agent": agent, "home": str(home), "path": str(destination), "status": "error", "error": str(exc)}

@@ -154,6 +154,10 @@ class LifecycleTests(unittest.TestCase):
                 state_file = codex_home / ".agent-kit" / "state.json"
                 state = json.loads(state_file.read_text(encoding="utf-8"))
                 self.assertIn("grill-me", state["installations"])
+                self.assertEqual(
+                    agent_kit.CURRENT_DIGEST_VERSION,
+                    state["installations"]["grill-me"]["digest_version"],
+                )
                 if os.name != "nt":
                     self.assertEqual(stat.S_IMODE(state_file.stat().st_mode), 0o600)
                     self.assertEqual(stat.S_IMODE(state_file.parent.stat().st_mode), 0o700)
@@ -183,6 +187,46 @@ class LifecycleTests(unittest.TestCase):
                     agent_kit.digest_tree(destination),
                 )
 
+    def test_install_excludes_generated_files_and_directories(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = root / "source"
+            shutil.copytree(
+                ROOT,
+                fixture,
+                ignore=shutil.ignore_patterns(".git", "__pycache__", "dist"),
+            )
+            source = fixture / "skills" / "grill-me"
+            for directory in agent_kit.GENERATED_DIRS:
+                generated = source / directory
+                generated.mkdir()
+                (generated / "ignored.txt").write_text("ignored", encoding="utf-8")
+            for suffix in agent_kit.GENERATED_SUFFIXES:
+                (source / f"ignored{suffix}").write_text("ignored", encoding="utf-8")
+            generated_suffix_directory = source / "ignored-directory.tmp"
+            generated_suffix_directory.mkdir()
+            (generated_suffix_directory / "ignored.txt").write_text(
+                "ignored", encoding="utf-8"
+            )
+
+            codex_home = root / "codex"
+            destination = codex_home / "skills" / "grill-me"
+            with mock.patch.dict(
+                os.environ, {"CODEX_HOME": str(codex_home)}, clear=False
+            ):
+                agent_kit.install_skill(
+                    "grill-me", "codex", apply=True, yes=True, root=fixture
+                )
+
+            self.assertTrue((destination / "SKILL.md").is_file())
+            deployed = [
+                path.relative_to(destination) for path in destination.rglob("*")
+            ]
+            self.assertFalse(
+                any(agent_kit.is_generated_relative_path(path) for path in deployed),
+                deployed,
+            )
+
     def test_owned_update_retains_and_rolls_back_previous_deployment(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -204,12 +248,20 @@ class LifecycleTests(unittest.TestCase):
                     source_skill.read_text(encoding="utf-8") + "\n<!-- updated -->\n",
                     encoding="utf-8",
                 )
+                generated = source_skill.parent / "__pycache__"
+                generated.mkdir()
+                (generated / "updated.pyc").write_bytes(b"generated")
+                (source_skill.parent / "updated.tmp").write_text(
+                    "generated", encoding="utf-8"
+                )
                 new_digest = agent_kit.digest_tree(fixture / "skills" / "grill-me")
                 self.assertNotEqual(old_digest, new_digest)
                 agent_kit.install_skill(
                     "grill-me", "codex", apply=True, yes=True, root=fixture
                 )
                 self.assertEqual(new_digest, agent_kit.digest_tree(destination))
+                self.assertFalse((destination / "__pycache__").exists())
+                self.assertFalse((destination / "updated.tmp").exists())
                 state = agent_kit.load_state(codex_home)
                 self.assertEqual(1, len(state["trash"]["grill-me"]))
 
@@ -217,6 +269,89 @@ class LifecycleTests(unittest.TestCase):
                     "grill-me", "codex", apply=True, yes=True, root=fixture
                 )
                 self.assertEqual(old_digest, agent_kit.digest_tree(destination))
+
+    def test_legacy_generated_suffix_install_and_rollback_remain_manageable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = root / "source"
+            shutil.copytree(
+                ROOT,
+                fixture,
+                ignore=shutil.ignore_patterns(".git", "__pycache__", "dist"),
+            )
+            codex_home = root / "codex"
+            destination = codex_home / "skills" / "grill-me"
+            environment = {"CODEX_HOME": str(codex_home)}
+            with mock.patch.dict(os.environ, environment, clear=False):
+                agent_kit.install_skill(
+                    "grill-me", "codex", apply=True, yes=True, root=fixture
+                )
+
+                legacy_generated = destination / "legacy.tmp"
+                legacy_generated.write_text("v1.3.0 copied this", encoding="utf-8")
+                state = agent_kit.load_state(codex_home)
+                legacy_entry = state["installations"]["grill-me"]
+                legacy_entry["digest"] = agent_kit.legacy_digest_tree(destination)
+                legacy_entry.pop("digest_version")
+                agent_kit.atomic_write_json(agent_kit.state_path(codex_home), state)
+
+                resource = agent_kit.require_resource(
+                    agent_kit.load_catalog(fixture), "grill-me"
+                )
+                self.assertEqual(
+                    "current",
+                    agent_kit.installation_status(resource, "codex")["status"],
+                )
+
+                source_skill = fixture / "skills" / "grill-me" / "SKILL.md"
+                source_skill.write_text(
+                    source_skill.read_text(encoding="utf-8") + "\n<!-- updated -->\n",
+                    encoding="utf-8",
+                )
+                agent_kit.install_skill(
+                    "grill-me", "codex", apply=True, yes=True, root=fixture
+                )
+                self.assertFalse(legacy_generated.exists())
+                state = agent_kit.load_state(codex_home)
+                self.assertEqual(
+                    agent_kit.CURRENT_DIGEST_VERSION,
+                    state["installations"]["grill-me"]["digest_version"],
+                )
+                self.assertNotIn(
+                    "digest_version", state["trash"]["grill-me"][-1]
+                )
+
+                agent_kit.rollback_skill(
+                    "grill-me", "codex", apply=True, yes=True, root=fixture
+                )
+                self.assertTrue(legacy_generated.is_file())
+                state = agent_kit.load_state(codex_home)
+                self.assertNotIn(
+                    "digest_version", state["installations"]["grill-me"]
+                )
+                agent_kit.uninstall_skill(
+                    "grill-me", "codex", apply=False, yes=False, root=fixture
+                )
+
+    def test_unknown_ownership_digest_version_is_refused(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary) / "codex"
+            environment = {"CODEX_HOME": str(codex_home)}
+            with mock.patch.dict(os.environ, environment, clear=False):
+                agent_kit.install_skill(
+                    "grill-me", "codex", apply=True, yes=True
+                )
+                state = agent_kit.load_state(codex_home)
+                state["installations"]["grill-me"]["digest_version"] = 3
+                agent_kit.atomic_write_json(agent_kit.state_path(codex_home), state)
+
+                with self.assertRaisesRegex(
+                    agent_kit.AgentKitError,
+                    "unsupported ownership digest version",
+                ):
+                    agent_kit.uninstall_skill(
+                        "grill-me", "codex", apply=False, yes=False
+                    )
 
     def test_unowned_destination_is_never_overwritten(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -237,6 +372,11 @@ class LifecycleTests(unittest.TestCase):
                 fixture,
                 ignore=shutil.ignore_patterns(".git", "__pycache__", "dist"),
             )
+            source = fixture / "skills" / "grill-me"
+            generated = source / "__pycache__"
+            generated.mkdir()
+            (generated / "ignored.pyc").write_bytes(b"generated")
+            (source / "ignored.tmp").write_text("generated", encoding="utf-8")
             first = agent_kit.package_skills(Path("first"), ["grill-me"], fixture)
             second = agent_kit.package_skills(Path("second"), ["grill-me"], fixture)
             first_zip = next(path for path in first if path.suffix == ".zip")
@@ -245,6 +385,8 @@ class LifecycleTests(unittest.TestCase):
             with zipfile.ZipFile(first_zip) as archive:
                 names = set(archive.namelist())
             self.assertIn("grill-me/SKILL.md", names)
+            self.assertFalse(any("__pycache__" in name for name in names), names)
+            self.assertFalse(any(name.endswith(".tmp") for name in names), names)
             self.assertIn("LICENSE", names)
             self.assertIn("THIRD_PARTY_NOTICES.md", names)
             sums = (fixture / "first" / "SHA256SUMS").read_text(encoding="utf-8")
