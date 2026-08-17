@@ -88,6 +88,19 @@ class AgentKitError(RuntimeError):
     pass
 
 
+def is_generated_relative_path(path: Path) -> bool:
+    return any(
+        part in GENERATED_DIRS or Path(part).suffix in GENERATED_SUFFIXES
+        for part in path.parts
+    )
+
+
+def ignore_generated_copytree_entries(
+    _directory: str, names: list[str]
+) -> set[str]:
+    return {name for name in names if is_generated_relative_path(Path(name))}
+
+
 def utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace(
         "+00:00", "Z"
@@ -461,11 +474,9 @@ def validate_generated_artifacts(root: Path) -> list[str]:
             tracked = [root / item.decode("utf-8") for item in result.stdout.split(b"\0") if item]
     paths = tracked or [path for path in root.rglob("*") if ".git" not in path.parts]
     for path in paths:
-        relative_parts = path.relative_to(root).parts
-        if any(part in GENERATED_DIRS for part in relative_parts):
+        relative = path.relative_to(root)
+        if is_generated_relative_path(relative):
             errors.append(f"generated path must not be tracked: {path}")
-        elif path.is_file() and path.suffix in GENERATED_SUFFIXES:
-            errors.append(f"generated file must not be tracked: {path}")
     return errors
 
 
@@ -821,7 +832,7 @@ def digest_tree(path: Path) -> str:
         raise AgentKitError(f"refusing non-directory or symlinked resource: {path}")
     digest = hashlib.sha256()
     for item in sorted(path.rglob("*"), key=lambda value: value.as_posix()):
-        if any(part in GENERATED_DIRS for part in item.relative_to(path).parts):
+        if is_generated_relative_path(item.relative_to(path)):
             continue
         if item.is_symlink():
             raise AgentKitError(f"refusing symlinked resource content: {item}")
@@ -1053,7 +1064,12 @@ def install_skill(
         staged = skills_dir / f".{resource_id}.agent-kit-stage-{uuid.uuid4().hex}"
         moved: Path | None = None
         try:
-            shutil.copytree(source, staged, symlinks=False)
+            shutil.copytree(
+                source,
+                staged,
+                symlinks=False,
+                ignore=ignore_generated_copytree_entries,
+            )
             if digest_tree(staged) != source_digest:
                 raise AgentKitError("staged installation digest does not match source")
             if previous is not None:
@@ -1227,14 +1243,14 @@ def deterministic_zip(
             temporary, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
         ) as archive:
             for path in sorted(source.rglob("*"), key=lambda value: value.as_posix()):
+                relative = path.relative_to(source)
+                if is_generated_relative_path(relative):
+                    continue
                 if path.is_symlink():
                     raise AgentKitError(f"refusing symlinked package content: {path}")
-                if not path.is_file() or any(
-                    part in GENERATED_DIRS
-                    for part in path.relative_to(source).parts
-                ):
+                if not path.is_file():
                     continue
-                name = f"{root_name}/{path.relative_to(source).as_posix()}"
+                name = f"{root_name}/{relative.as_posix()}"
                 info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
                 info.compress_type = zipfile.ZIP_DEFLATED
                 info.create_system = 3

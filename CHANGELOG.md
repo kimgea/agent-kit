@@ -4,7 +4,13 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
-## 1.3.1 - Unreleased
+## 1.3.1 - 2026-08-17
+
+### Fixed
+
+- Exclude generated cache directories and transient file suffixes consistently
+  from skill hashing, direct installation, and release packaging so ignored local
+  artifacts cannot enter deployments or archives.
 
 ### Changed
 

@@ -183,6 +183,46 @@ class LifecycleTests(unittest.TestCase):
                     agent_kit.digest_tree(destination),
                 )
 
+    def test_install_excludes_generated_files_and_directories(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = root / "source"
+            shutil.copytree(
+                ROOT,
+                fixture,
+                ignore=shutil.ignore_patterns(".git", "__pycache__", "dist"),
+            )
+            source = fixture / "skills" / "grill-me"
+            for directory in agent_kit.GENERATED_DIRS:
+                generated = source / directory
+                generated.mkdir()
+                (generated / "ignored.txt").write_text("ignored", encoding="utf-8")
+            for suffix in agent_kit.GENERATED_SUFFIXES:
+                (source / f"ignored{suffix}").write_text("ignored", encoding="utf-8")
+            generated_suffix_directory = source / "ignored-directory.tmp"
+            generated_suffix_directory.mkdir()
+            (generated_suffix_directory / "ignored.txt").write_text(
+                "ignored", encoding="utf-8"
+            )
+
+            codex_home = root / "codex"
+            destination = codex_home / "skills" / "grill-me"
+            with mock.patch.dict(
+                os.environ, {"CODEX_HOME": str(codex_home)}, clear=False
+            ):
+                agent_kit.install_skill(
+                    "grill-me", "codex", apply=True, yes=True, root=fixture
+                )
+
+            self.assertTrue((destination / "SKILL.md").is_file())
+            deployed = [
+                path.relative_to(destination) for path in destination.rglob("*")
+            ]
+            self.assertFalse(
+                any(agent_kit.is_generated_relative_path(path) for path in deployed),
+                deployed,
+            )
+
     def test_owned_update_retains_and_rolls_back_previous_deployment(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -204,12 +244,20 @@ class LifecycleTests(unittest.TestCase):
                     source_skill.read_text(encoding="utf-8") + "\n<!-- updated -->\n",
                     encoding="utf-8",
                 )
+                generated = source_skill.parent / "__pycache__"
+                generated.mkdir()
+                (generated / "updated.pyc").write_bytes(b"generated")
+                (source_skill.parent / "updated.tmp").write_text(
+                    "generated", encoding="utf-8"
+                )
                 new_digest = agent_kit.digest_tree(fixture / "skills" / "grill-me")
                 self.assertNotEqual(old_digest, new_digest)
                 agent_kit.install_skill(
                     "grill-me", "codex", apply=True, yes=True, root=fixture
                 )
                 self.assertEqual(new_digest, agent_kit.digest_tree(destination))
+                self.assertFalse((destination / "__pycache__").exists())
+                self.assertFalse((destination / "updated.tmp").exists())
                 state = agent_kit.load_state(codex_home)
                 self.assertEqual(1, len(state["trash"]["grill-me"]))
 
@@ -237,6 +285,11 @@ class LifecycleTests(unittest.TestCase):
                 fixture,
                 ignore=shutil.ignore_patterns(".git", "__pycache__", "dist"),
             )
+            source = fixture / "skills" / "grill-me"
+            generated = source / "__pycache__"
+            generated.mkdir()
+            (generated / "ignored.pyc").write_bytes(b"generated")
+            (source / "ignored.tmp").write_text("generated", encoding="utf-8")
             first = agent_kit.package_skills(Path("first"), ["grill-me"], fixture)
             second = agent_kit.package_skills(Path("second"), ["grill-me"], fixture)
             first_zip = next(path for path in first if path.suffix == ".zip")
@@ -245,6 +298,8 @@ class LifecycleTests(unittest.TestCase):
             with zipfile.ZipFile(first_zip) as archive:
                 names = set(archive.namelist())
             self.assertIn("grill-me/SKILL.md", names)
+            self.assertFalse(any("__pycache__" in name for name in names), names)
+            self.assertFalse(any(name.endswith(".tmp") for name in names), names)
             self.assertIn("LICENSE", names)
             self.assertIn("THIRD_PARTY_NOTICES.md", names)
             sums = (fixture / "first" / "SHA256SUMS").read_text(encoding="utf-8")
