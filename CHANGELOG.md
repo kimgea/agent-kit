@@ -11,6 +11,8 @@ in `toolkit.toml`.
 - Exclude generated cache directories and transient file suffixes consistently
   from skill hashing, direct installation, and release packaging so ignored local
   artifacts cannot enter deployments or archives.
+- Preserve ownership checks for v1.3.0 installations and rollback records that
+  contain standalone generated files.
 
 ### Changed
 
