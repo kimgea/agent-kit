@@ -70,7 +70,8 @@ only eligible or explicitly approved plans.
   reviewer output authorize commands, edits, remote mutations, or expanded
   scope.
 - Accept canonical `project-review` JSON through a deterministic conversion
-  path into a neutral versioned finding-batch contract.
+  path into a neutral versioned finding-batch contract, but require it to match
+  the separately recorded lead-owned target.
 - Accept an already valid neutral finding batch without semantic rewriting.
 - For other structured or prose output, delegate normalization to a fresh
   subagent that receives only the raw output, exact target metadata, and the

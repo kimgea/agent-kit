@@ -439,7 +439,9 @@ class FindingBatchTests(unittest.TestCase):
             finalize_test_batch(unsafe)
 
     def test_project_review_conversion_preserves_source_provenance(self):
-        batch = workflow.convert_project_review(project_review_result(), "b" * 64)
+        batch = workflow.convert_project_review(
+            project_review_result(), target(), "b" * 64
+        )
         finding = batch["findings"][0]
         self.assertEqual("project-review", batch["source"]["reviewer"])
         self.assertEqual("changes_requested", batch["source"]["outcome"])
@@ -454,7 +456,33 @@ class FindingBatchTests(unittest.TestCase):
         result = project_review_result()
         result["verdict"] = "PASS"
         with self.assertRaisesRegex(workflow.WorkflowError, "expected BLOCK"):
-            workflow.convert_project_review(result)
+            workflow.convert_project_review(result, target())
+
+    def test_project_review_conversion_binds_the_lead_owned_target(self):
+        result = project_review_result()
+        result["target"] = target("src/other.py")
+        with self.assertRaisesRegex(
+            workflow.WorkflowError, "lead-owned expected target"
+        ):
+            workflow.convert_project_review(result, target())
+
+    def test_project_review_incomplete_state_is_preserved(self):
+        result = project_review_result()
+        result["verdict"] = "INCOMPLETE"
+        result["findings"] = []
+        result["limitations"] = [
+            {
+                "code": "verification_unavailable",
+                "message": "The required verification could not run.",
+                "affected_paths": ["src/example.py"],
+                "material": True,
+            }
+        ]
+        batch = workflow.convert_project_review(result, target())
+        self.assertFalse(batch["source"]["completed"])
+        self.assertEqual("incomplete", batch["source"]["outcome"])
+        self.assertEqual("partial", batch["status"])
+        self.assertIn("source_incomplete", {item["code"] for item in batch["limitations"]})
 
 
 class FixPlanTests(unittest.TestCase):
@@ -922,11 +950,21 @@ class CommandLineTests(unittest.TestCase):
     def test_cli_from_project_review_hashes_exact_input_bytes(self):
         with tempfile.TemporaryDirectory() as temporary:
             input_path = Path(temporary) / "review.json"
+            target_path = Path(temporary) / "target.json"
             raw = json.dumps(project_review_result(), indent=2).encode("utf-8") + b"\n"
             input_path.write_bytes(raw)
+            target_path.write_text(json.dumps(target()), encoding="utf-8")
             stdout = io.StringIO()
             with contextlib.redirect_stdout(stdout):
-                code = workflow.main(["from-project-review", "--input", str(input_path)])
+                code = workflow.main(
+                    [
+                        "from-project-review",
+                        "--input",
+                        str(input_path),
+                        "--target",
+                        str(target_path),
+                    ]
+                )
             self.assertEqual(0, code)
             batch = json.loads(stdout.getvalue())
             import hashlib

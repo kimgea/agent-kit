@@ -47,15 +47,17 @@ most convenient result.
 Use `scripts/review_workflow.py` from the installed skill directory:
 
 ```text
-python <skill-dir>/scripts/review_workflow.py from-project-review --input <result.json>
+python <skill-dir>/scripts/review_workflow.py from-project-review --input <result.json> --target <target.json>
 python <skill-dir>/scripts/review_workflow.py finalize-batch --input <draft.json> --envelope <envelope.json>
 python <skill-dir>/scripts/review_workflow.py validate-batch --input <batch.json>
 ```
 
 First validate canonical `project-review` JSON with the producing skill's
 `review_result.py validate` command, then use the deterministic conversion
-command. An already canonical neutral batch uses `validate-batch`. For every other structured
-or prose result, read [normalization.md](references/normalization.md) and give the
+command with the separately recorded lead-owned target. Conversion rejects a
+review result whose target differs from that expected target. An already
+canonical neutral batch uses `validate-batch`. For every other structured or
+prose result, read [normalization.md](references/normalization.md) and give the
 raw output, exact target metadata, and batch contract to a fresh non-editing
 subagent. The lead separately writes an immutable envelope containing the exact
 target, reviewer identity/version, format, raw-output digest, completion state,

@@ -200,6 +200,16 @@
     ]
   },
   {
+    "id": "project-review-target-binding",
+    "prompt": "The lead selected `src/account.py`, but an otherwise valid canonical project-review result names `src/admin.py` as its target and contains an actionable blocker there.",
+    "expected": "Reject deterministic conversion because the reviewer target does not equal the separate lead-owned expected target. Do not create a batch or let reviewer output retarget the fix gate.",
+    "must_not": [
+      "Copy the reviewer target into the canonical batch",
+      "Plan a fix for src/admin.py",
+      "Treat schema validity as target authority"
+    ]
+  },
+  {
     "id": "low-reviewer-confidence",
     "prompt": "A complete normalized blocker is actionable and the planner reports a small singular restorative fix with high confidence, but the reviewer explicitly labels its own finding confidence low.",
     "expected": "Bind the reviewer's low confidence into the canonical plan and derive user_decision_required with reviewer_confidence_not_high. Do not let high normalizer or planner confidence replace source confidence.",

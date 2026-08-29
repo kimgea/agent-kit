@@ -25,6 +25,9 @@ Apply these rules in addition to the repository root policy when reviewing the
   reviewer identity, source digest, and derived mode in a lead-owned envelope;
   preserve field-level provenance, explicit limitations, and separate batches
   per reviewer.
+- Block deterministic reviewer conversion that lets reviewer output select or
+  change the workflow target. Safe path: require a separate lead-owned expected
+  target and reject any mismatch before producing a neutral batch.
 - Block authority JSON that accepts duplicate members, follows link-like or
   non-regular files, or emits repository paths forbidden by the published
   schemas. Safe path: reject duplicates recursively, allow only explicit stdin

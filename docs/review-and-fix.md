@@ -33,9 +33,11 @@ permissions, remote state, publication, or scope expansion.
 ## Reviewer compatibility
 
 Canonical `project-review` JSON must first pass that skill's own result
-validator. `review_workflow.py from-project-review` then preserves its source
-finding IDs, fingerprints, classifications, evidence, and target while deriving
-only the neutral actionability field.
+validator. `review_workflow.py from-project-review` also requires the separately
+recorded lead-owned target and rejects any mismatch before it preserves source
+finding IDs, fingerprints, classifications, and evidence or derives the neutral
+actionability field. An `INCOMPLETE` result remains incomplete in the neutral
+batch rather than becoming a change request.
 
 An already canonical neutral batch needs no normalizer. Every other format is
 given to a fresh subagent with only the raw result, exact target metadata, and
@@ -111,7 +113,7 @@ The installed skill contains three dependency-free interfaces:
 - `references/fix-plan.schema.json` records planner facts and proposal plus the
   canonical batch digest and mechanically derived decision.
 - `scripts/review_workflow.py` finalizes and validates both contracts, converts
-  validated project-review JSON, and assesses fresh review rounds.
+  validated target-bound project-review JSON, and assesses fresh review rounds.
 
 The batch finalizer accepts target/source only from a separate lead-owned
 envelope and rejects drafts that try to supply those fields or normalization

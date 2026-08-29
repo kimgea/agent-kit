@@ -683,7 +683,9 @@ def _canonical_digest(value: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def convert_project_review(value: Any, output_sha256: str | None = None) -> dict[str, Any]:
+def convert_project_review(
+    value: Any, expected_target_value: Any, output_sha256: str | None = None
+) -> dict[str, Any]:
     result = _object(
         value,
         "project-review result",
@@ -702,6 +704,12 @@ def convert_project_review(value: Any, output_sha256: str | None = None) -> dict
     )
     if result["schema_version"] != "1.0.0":
         raise WorkflowError("unsupported project-review schema_version")
+    expected_target = _target(expected_target_value)
+    review_target = _target(result["target"])
+    if review_target != expected_target:
+        raise WorkflowError(
+            "project-review target does not match the lead-owned expected target"
+        )
     verdict = _enum(result["verdict"], {"PASS", "BLOCK", "INCOMPLETE"}, "project-review verdict")
     findings: list[dict[str, Any]] = []
     for index, raw in enumerate(_sequence(result["findings"], "project-review findings", 1000)):
@@ -815,6 +823,15 @@ def convert_project_review(value: Any, output_sha256: str | None = None) -> dict
         raise WorkflowError(
             f"project-review verdict is inconsistent with findings and limitations; expected {expected_verdict}"
         )
+    if verdict == "INCOMPLETE":
+        limitations.append(
+            {
+                "code": "source_incomplete",
+                "message": "The project-review source did not complete.",
+                "source_ids": [],
+                "material": True,
+            }
+        )
     digest = output_sha256 or _project_review_digest(value)
     draft = {
         "normalization": {
@@ -825,15 +842,21 @@ def convert_project_review(value: Any, output_sha256: str | None = None) -> dict
         "limitations": limitations,
     }
     envelope = {
-        "target": copy.deepcopy(result["target"]),
+        "target": expected_target,
         "source": {
             "reviewer": "project-review",
             "reviewer_version": result["schema_version"],
             "output_format": "project_review_json",
             "output_sha256": digest,
-            "completed": True,
+            "completed": verdict != "INCOMPLETE",
             "verdict": verdict,
-            "outcome": "pass" if verdict == "PASS" else "changes_requested",
+            "outcome": (
+                "pass"
+                if verdict == "PASS"
+                else "incomplete"
+                if verdict == "INCOMPLETE"
+                else "changes_requested"
+            ),
         },
     }
     return finalize_batch(draft, envelope)
@@ -1333,6 +1356,12 @@ def _parser() -> argparse.ArgumentParser:
                 required=True,
                 help="lead-owned target/source envelope JSON path",
             )
+        if name == "from-project-review":
+            command.add_argument(
+                "--target",
+                required=True,
+                help="lead-owned expected target JSON path",
+            )
         if name in {"finalize-plan", "validate-plan"}:
             command.add_argument(
                 "--batch",
@@ -1360,7 +1389,10 @@ def main(argv: list[str] | None = None) -> int:
             raise WorkflowError("--replace requires --output")
         value, raw = _read_json(args.input)
         if args.command == "from-project-review":
-            result = convert_project_review(value, hashlib.sha256(raw).hexdigest())
+            expected_target, _ = _read_json(args.target)
+            result = convert_project_review(
+                value, expected_target, hashlib.sha256(raw).hexdigest()
+            )
         elif args.command == "finalize-batch":
             envelope, _ = _read_json(args.envelope)
             result = finalize_batch(value, envelope)
