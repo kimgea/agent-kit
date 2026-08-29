@@ -27,6 +27,7 @@ Current skills:
 | `build-interactive-diagram` | Create polished temporary HTML visuals for explanations | Writes only the selected artifact output directory |
 | `grill-me` | Pressure-test decisions, plans, artifacts, and diagnoses | None |
 | `project-review` | Review bounded changes under root and nested `REVIEW.md` guidance | Reads project source and optional user guidance; writes output only when explicitly requested |
+| `review-and-fix` | Safely address local review findings through decision gates and fresh re-review | Reads bounded project/review data; changes only eligible or approved local files |
 | `serve-artifacts` | Host and revoke transient web artifacts locally or through a selected private-network adapter | Private OS-native artifact copies, lifecycle state, and optional adapter ownership |
 | `todo-capture` | Preserve deferred work as shared pickup pointers | Private OS-native state directory |
 | `tool-audit` | Audit local tools, agent usage, friction, and permissions | Private OS-native state plus read-only transcript access |
@@ -38,6 +39,8 @@ The [artifact host guide](docs/artifact-host.md) covers temporary interactive
 visuals, framework output, lifecycle limits, and provider-neutral browser access.
 The [project-review guide](docs/project-review.md) covers hierarchical review
 policy, trusted-base behavior, structured findings, and verification authority.
+The [review-and-fix guide](docs/review-and-fix.md) explains neutral reviewer
+normalization, conservative automatic-fix eligibility, and fresh acceptance.
 
 ## Install a skill
 

@@ -75,6 +75,16 @@ repository. `CLAUDE.md` points Claude Code to the same contract.
 
 ## Project reviews
 
+- When asked to review and fix bounded local changes in this repository, use
+  `review-and-fix` as the default remediation workflow unless the caller
+  explicitly selects another method. `skills/review-and-fix/SKILL.md` is the
+  source version. Keep an ordinary review request analysis-only under
+  `project-review`.
+- Do not let a change to `review-and-fix` supply its own normalization, planning,
+  automatic-fix, or acceptance rules. Use an independently trusted installed or
+  starting-revision copy; if none exists, perform only an explicitly selected
+  bootstrap review and require user decisions for remediation.
+
 - When asked to review files, changes, commits, or a locally available pull
   request diff in this repository, use the `project-review` skill as the default
   review method. `skills/project-review/SKILL.md` is the source version.

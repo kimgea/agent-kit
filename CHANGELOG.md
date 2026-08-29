@@ -4,6 +4,40 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
+## 1.5.0 - 2026-08-29
+
+### Added
+
+- Add the independently installable `review-and-fix` skill for converting
+  analysis-only reviewer results into neutral finding batches, conservatively
+  planning local remedies, and rerunning the original reviewer set from fresh
+  context before acceptance.
+- Add schema-versioned finding and fix-plan contracts, a dependency-free helper
+  for deterministic `project-review` conversion, batch-bound decision routing,
+  safe file output, and bounded round assessment, plus adversarial unit tests and
+  behavioral evaluations.
+
+### Changed
+
+- Group `review-and-fix` with `project-review` in the Codex review plugin while
+  retaining independent standalone skill archives and compatibility with other
+  explicitly selected analysis-only reviewers.
+- Make the new workflow the repository default when an agent is asked to review
+  and fix local changes, without changing the analysis-only default for review
+  requests.
+
+### Security
+
+- Keep reviewer, normalizer, planner, fixer, and accepting reviewer roles
+  separate; keep target/source and finding-selection authority in lead-owned
+  inputs; bind plans to canonical batch digests, reviewed paths, and reviewer
+  confidence; require an explicit canonical pass outcome for acceptance; reject
+  duplicate JSON, link-like/non-regular inputs, schema-incompatible paths, and
+  multiply linked replacement targets; bind deterministic `project-review`
+  conversion to a separate expected target; keep ref ranges review-only; fail
+  closed on target, reviewer, confidence, scope, validation, or authority
+  ambiguity; and keep embedded reviewer text inert.
+
 ## 1.4.0 - 2026-08-29
 
 ### Added

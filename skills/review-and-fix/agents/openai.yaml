@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review and Fix"
+  short_description: "Safely fix findings from local reviews"
+  default_prompt: "Use $review-and-fix to review and safely fix these local changes."
