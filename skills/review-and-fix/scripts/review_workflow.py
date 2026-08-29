@@ -11,6 +11,7 @@ import os
 import re
 import stat
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -329,14 +330,17 @@ def _evidence(value: Any, label: str) -> dict[str, Any]:
 def _field_provenance(value: Any, finding: dict[str, Any], label: str) -> dict[str, str]:
     item = _object(value, label, set(SEMANTIC_FIELDS))
     result: dict[str, str] = {}
+    errors: list[str] = []
     for field in SEMANTIC_FIELDS:
         provenance = _enum(item[field], PROVENANCE, f"{label}.{field}")
         expected_missing = finding[field] == UNKNOWN_VALUES[field]
         if provenance == "missing" and not expected_missing:
-            raise WorkflowError(f"{label}.{field} cannot be missing when the value is known")
+            errors.append(f"{label}.{field} cannot be missing when the value is known")
         if provenance != "missing" and expected_missing:
-            raise WorkflowError(f"{label}.{field} must be missing when the value is unknown")
+            errors.append(f"{label}.{field} must be missing when the value is unknown")
         result[field] = provenance
+    if errors:
+        raise WorkflowError("; ".join(errors))
     return result
 
 
@@ -457,21 +461,37 @@ def _fingerprint(source: dict[str, Any], finding: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def finalize_batch(draft: Any) -> dict[str, Any]:
-    item = _object(draft, "batch draft", {"target", "source", "normalization", "findings", "limitations"})
-    target = _target(item["target"])
-    source = _source(item["source"])
-    normalization = _normalization(item["normalization"])
+def _batch_envelope(value: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    item = _object(value, "batch envelope", {"target", "source"})
+    return _target(item["target"]), _source(item["source"])
+
+
+def _normalization_draft(value: Any) -> dict[str, Any]:
+    item = _object(value, "normalization", {"confidence", "notes"})
+    notes = [
+        _text(note, f"normalization.notes[{index}]", 2000) or ""
+        for index, note in enumerate(_sequence(item["notes"], "normalization.notes", 256))
+    ]
+    return {
+        "confidence": _enum(item["confidence"], LEVELS, "normalization.confidence"),
+        "notes": notes,
+    }
+
+
+def finalize_batch(draft: Any, envelope_value: Any) -> dict[str, Any]:
+    item = _object(draft, "batch draft", {"normalization", "findings", "limitations"})
+    target, source = _batch_envelope(envelope_value)
+    normalization_draft = _normalization_draft(item["normalization"])
     expected_modes = {
         "project_review_json": "deterministic",
         "neutral_json": "native",
         "structured": "independent_agent",
         "prose": "independent_agent",
     }
-    if normalization["mode"] != expected_modes[source["output_format"]]:
-        raise WorkflowError(
-            "normalization.mode does not match the source output format's trusted path"
-        )
+    normalization = {
+        "mode": expected_modes[source["output_format"]],
+        **normalization_draft,
+    }
     findings = [
         _finding_draft(finding, index)
         for index, finding in enumerate(_sequence(item["findings"], "findings", 1000))
@@ -592,13 +612,18 @@ def validate_batch(value: Any) -> dict[str, Any]:
             {key: copy.deepcopy(value) for key, value in canonical.items() if key not in {"finding_id", "fingerprint"}}
         )
     draft = {
-        "target": copy.deepcopy(item["target"]),
-        "source": copy.deepcopy(item["source"]),
-        "normalization": copy.deepcopy(item["normalization"]),
+        "normalization": {
+            "confidence": copy.deepcopy(item["normalization"]["confidence"]),
+            "notes": copy.deepcopy(item["normalization"]["notes"]),
+        },
         "findings": draft_findings,
         "limitations": copy.deepcopy(item["limitations"]),
     }
-    expected = finalize_batch(draft)
+    envelope = {
+        "target": copy.deepcopy(item["target"]),
+        "source": copy.deepcopy(item["source"]),
+    }
+    expected = finalize_batch(draft, envelope)
     if item != expected:
         raise WorkflowError("batch is not in canonical finalized form")
     return expected
@@ -750,6 +775,14 @@ def convert_project_review(value: Any, output_sha256: str | None = None) -> dict
         )
     digest = output_sha256 or _project_review_digest(value)
     draft = {
+        "normalization": {
+            "confidence": "high",
+            "notes": ["Converted from canonical project-review JSON without semantic reinterpretation."],
+        },
+        "findings": findings,
+        "limitations": limitations,
+    }
+    envelope = {
         "target": copy.deepcopy(result["target"]),
         "source": {
             "reviewer": "project-review",
@@ -759,55 +792,56 @@ def convert_project_review(value: Any, output_sha256: str | None = None) -> dict
             "completed": True,
             "verdict": verdict,
         },
-        "normalization": {
-            "mode": "deterministic",
-            "confidence": "high",
-            "notes": ["Converted from canonical project-review JSON without semantic reinterpretation."],
-        },
-        "findings": findings,
-        "limitations": limitations,
     }
-    return finalize_batch(draft)
+    return finalize_batch(draft, envelope)
 
 
 def _selection(value: Any) -> dict[str, str]:
-    item = _object(value, "finding.selection", {"source_kind", "source"})
+    item = _object(value, "finding.selection", {"source_kind", "basis", "source"})
     return {
         "source_kind": _enum(item["source_kind"], {"default", "caller"}, "finding.selection.source_kind"),
+        "basis": _enum(
+            item["basis"],
+            {"default_policy", "caller_explicit", "path_snapshot_request"},
+            "finding.selection.basis",
+        ),
         "source": _text(item["source"], "finding.selection.source", 1000) or "",
     }
 
 
-def _finding_ref(value: Any) -> dict[str, Any]:
-    item = _object(
-        value,
-        "finding",
-        {
-            "finding_id",
-            "fingerprint",
-            "disposition",
-            "scope_relation",
-            "normalization_confidence",
-            "actionability",
-            "selection",
-        },
-    )
-    finding_id = _text(item["finding_id"], "finding.finding_id", 16, single_line=True)
-    fingerprint = _text(item["fingerprint"], "finding.fingerprint", 64, single_line=True)
+def _finding_ref_from_batch(
+    batch: dict[str, Any], context_value: Any
+) -> dict[str, Any]:
+    context = _object(context_value, "plan context", {"finding_id", "selection"})
+    finding_id = _text(context["finding_id"], "plan context.finding_id", 16, single_line=True)
     if finding_id is None or not FINDING_ID.fullmatch(finding_id):
-        raise WorkflowError("finding.finding_id is invalid")
-    if fingerprint is None or not HEX_DIGEST.fullmatch(fingerprint):
-        raise WorkflowError("finding.fingerprint is invalid")
+        raise WorkflowError("plan context.finding_id is invalid")
+    matches = [item for item in batch["findings"] if item["finding_id"] == finding_id]
+    if len(matches) != 1:
+        raise WorkflowError("plan context.finding_id must identify exactly one batch finding")
+    source = matches[0]
+    selection = _selection(context["selection"])
+    if selection["source_kind"] == "default" and selection["basis"] != "default_policy":
+        raise WorkflowError("default selection requires basis default_policy")
+    if selection["source_kind"] == "caller" and selection["basis"] == "default_policy":
+        raise WorkflowError("caller selection cannot use basis default_policy")
+    if selection["basis"] == "path_snapshot_request" and not (
+        batch["target"]["kind"] == "paths"
+        and source["disposition"] == "blocker"
+        and source["scope_relation"] in {"unknown", "uncertain"}
+        and source["actionability"] == "actionable"
+    ):
+        raise WorkflowError(
+            "path_snapshot_request selection is limited to actionable unknown-relation path blockers"
+        )
     return {
-        "finding_id": finding_id,
-        "fingerprint": fingerprint,
-        "disposition": _enum(item["disposition"], DISPOSITIONS, "finding.disposition"),
-        "scope_relation": _enum(item["scope_relation"], SCOPE_RELATIONS, "finding.scope_relation"),
-        "normalization_confidence": _enum(
-            item["normalization_confidence"], LEVELS, "finding.normalization_confidence"
-        ),
-        "actionability": _enum(item["actionability"], ACTIONABILITIES, "finding.actionability"),
-        "selection": _selection(item["selection"]),
+        "finding_id": source["finding_id"],
+        "fingerprint": source["fingerprint"],
+        "disposition": source["disposition"],
+        "scope_relation": source["scope_relation"],
+        "normalization_confidence": source["normalization_confidence"],
+        "actionability": source["actionability"],
+        "selection": selection,
     }
 
 
@@ -934,31 +968,20 @@ def derive_decision(finding: dict[str, Any], assessment: dict[str, Any]) -> tupl
     return "auto", ["all_auto_conditions_satisfied"]
 
 
-def _bind_finding_to_batch(finding: dict[str, Any], batch: dict[str, Any]) -> None:
-    matches = [item for item in batch["findings"] if item["finding_id"] == finding["finding_id"]]
-    if len(matches) != 1:
-        raise WorkflowError("finding.finding_id must identify exactly one finding in the batch")
-    source = matches[0]
-    for field in (
-        "fingerprint",
-        "disposition",
-        "scope_relation",
-        "normalization_confidence",
-        "actionability",
-    ):
-        if finding[field] != source[field]:
-            raise WorkflowError(f"finding.{field} does not match the canonical batch")
-
-
-def finalize_plan(draft: Any, batch_value: Any) -> dict[str, Any]:
-    item = _object(draft, "plan draft", {"finding", "assessment", "proposal"})
+def finalize_plan(draft: Any, batch_value: Any, context_value: Any) -> dict[str, Any]:
+    item = _object(draft, "plan draft", {"assessment", "proposal"})
     batch = validate_batch(batch_value)
     if batch["status"] != "complete":
         raise WorkflowError("a partial finding batch cannot enter fix planning")
-    finding = _finding_ref(item["finding"])
-    _bind_finding_to_batch(finding, batch)
+    finding = _finding_ref_from_batch(batch, context_value)
     assessment = _assessment(item["assessment"])
     proposal = _proposal(item["proposal"])
+    outside_target = sorted(set(proposal["paths"]) - set(batch["target"]["requested_paths"]))
+    if outside_target:
+        raise WorkflowError(
+            "proposal.paths require target expansion and re-review before planning: "
+            + ", ".join(outside_target)
+        )
     decision, reasons = derive_decision(finding, assessment)
     return {
         "schema_version": PLAN_SCHEMA_VERSION,
@@ -971,7 +994,7 @@ def finalize_plan(draft: Any, batch_value: Any) -> dict[str, Any]:
     }
 
 
-def validate_plan(value: Any, batch_value: Any) -> dict[str, Any]:
+def validate_plan(value: Any, batch_value: Any, context_value: Any) -> dict[str, Any]:
     item = _object(
         value,
         "plan",
@@ -997,11 +1020,11 @@ def validate_plan(value: Any, batch_value: Any) -> dict[str, Any]:
     _unique_strings(item["decision_reasons"], "decision_reasons", 128, item_maximum=200)
     expected = finalize_plan(
         {
-            "finding": copy.deepcopy(item["finding"]),
             "assessment": copy.deepcopy(item["assessment"]),
             "proposal": copy.deepcopy(item["proposal"]),
         },
         batch,
+        context_value,
     )
     if item != expected:
         raise WorkflowError("plan is not in canonical finalized form")
@@ -1153,10 +1176,44 @@ def _emit(value: Any, output: str | None, replace: bool) -> None:
         raise WorkflowError("output path must not contain symlinks")
     if not path.parent.is_dir():
         raise WorkflowError("output parent directory does not exist")
+    if replace and path.exists():
+        try:
+            metadata = path.lstat()
+        except OSError as exc:
+            raise WorkflowError(f"cannot inspect existing output: {exc}") from exc
+        if not stat.S_ISREG(metadata.st_mode):
+            raise WorkflowError("refusing to replace an output that is not a regular file")
+        if metadata.st_nlink > 1:
+            raise WorkflowError("refusing to replace an output with multiple hard links")
     if path.exists() and not replace:
         raise WorkflowError("output already exists; pass --replace only with explicit replacement intent")
-    flags = os.O_WRONLY | os.O_CREAT | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
-    flags |= os.O_TRUNC if replace else os.O_EXCL
+    if replace:
+        temporary: Path | None = None
+        try:
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+            )
+            temporary = Path(temporary_name)
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+                handle.write(rendered)
+            os.replace(temporary, path)
+            temporary = None
+        except OSError as exc:
+            raise WorkflowError(f"cannot replace output: {exc}") from exc
+        finally:
+            if temporary is not None:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        return
+    flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
     try:
         descriptor = os.open(path, flags, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
@@ -1178,11 +1235,22 @@ def _parser() -> argparse.ArgumentParser:
     ):
         command = subparsers.add_parser(name)
         command.add_argument("--input", required=True, help="UTF-8 JSON input path or - for stdin")
+        if name == "finalize-batch":
+            command.add_argument(
+                "--envelope",
+                required=True,
+                help="lead-owned target/source envelope JSON path",
+            )
         if name in {"finalize-plan", "validate-plan"}:
             command.add_argument(
                 "--batch",
                 required=True,
                 help="canonical finding-batch JSON path",
+            )
+            command.add_argument(
+                "--context",
+                required=True,
+                help="lead-owned finding selection context JSON path",
             )
         command.add_argument("--output", help="explicit JSON output path; stdout when omitted")
         command.add_argument(
@@ -1202,15 +1270,18 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "from-project-review":
             result = convert_project_review(value, hashlib.sha256(raw).hexdigest())
         elif args.command == "finalize-batch":
-            result = finalize_batch(value)
+            envelope, _ = _read_json(args.envelope)
+            result = finalize_batch(value, envelope)
         elif args.command == "validate-batch":
             result = validate_batch(value)
         elif args.command == "finalize-plan":
             batch, _ = _read_json(args.batch)
-            result = finalize_plan(value, batch)
+            context, _ = _read_json(args.context)
+            result = finalize_plan(value, batch, context)
         elif args.command == "validate-plan":
             batch, _ = _read_json(args.batch)
-            result = validate_plan(value, batch)
+            context, _ = _read_json(args.context)
+            result = validate_plan(value, batch, context)
         elif args.command == "assess-round":
             result = assess_round(value)
         else:  # pragma: no cover - argparse owns this boundary

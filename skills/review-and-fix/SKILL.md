@@ -44,7 +44,7 @@ Use `scripts/review_workflow.py` from the installed skill directory:
 
 ```text
 python <skill-dir>/scripts/review_workflow.py from-project-review --input <result.json>
-python <skill-dir>/scripts/review_workflow.py finalize-batch --input <draft.json>
+python <skill-dir>/scripts/review_workflow.py finalize-batch --input <draft.json> --envelope <envelope.json>
 python <skill-dir>/scripts/review_workflow.py validate-batch --input <batch.json>
 ```
 
@@ -53,7 +53,12 @@ First validate canonical `project-review` JSON with the producing skill's
 command. An already canonical neutral batch uses `validate-batch`. For every other structured
 or prose result, read [normalization.md](references/normalization.md) and give the
 raw output, exact target metadata, and batch contract to a fresh non-editing
-subagent. Finalize its draft before the fixing context receives it.
+subagent. The lead separately writes an immutable envelope containing the exact
+target, reviewer identity/version, format, raw-output digest, completion state,
+and verdict. The normalizer returns only semantic normalization confidence and
+notes, findings, and limitations; it must not copy or choose the envelope or
+normalization mode. Finalize its draft with that envelope before the fixing
+context receives it.
 
 If finalization rejects an independent draft, return only the exact validator
 error and rejected draft to that independent normalizer for one structure-only
@@ -97,17 +102,23 @@ planning either remedy.
 Read [fix-planning.md](references/fix-planning.md). Give one coherent finding
 group, relevant local source and tests, applicable trusted instructions, and
 bounded history to a fresh planning context. The planner must not edit or run
-commands. It states facts about intent, behavior effect, remedy shape, scope,
-reversibility, validation, and risk; the helper derives the route:
+commands. The lead separately records the selected canonical finding and whether
+selection came from default policy, an explicit caller choice, or the constrained
+path-snapshot request rule. The planner returns only facts about intent, behavior
+effect, remedy shape, scope, reversibility, validation, risk, and its proposed
+paths; it must not choose or copy the finding or selection authority. The helper
+derives the route:
 
 ```text
-python <skill-dir>/scripts/review_workflow.py finalize-plan --input <draft.json> --batch <batch.json>
-python <skill-dir>/scripts/review_workflow.py validate-plan --input <plan.json> --batch <batch.json>
+python <skill-dir>/scripts/review_workflow.py finalize-plan --input <draft.json> --batch <batch.json> --context <selection.json>
+python <skill-dir>/scripts/review_workflow.py validate-plan --input <plan.json> --batch <batch.json> --context <selection.json>
 ```
 
-The finalizer binds the plan to the canonical batch digest and rejects any
-planner-supplied finding classification that differs from that batch. The only
-routes are:
+The finalizer takes finding classifications only from the canonical batch,
+binds the plan to that batch digest, rejects planner-supplied authority fields,
+and permits proposal paths only inside the exact reviewed target. If a safe
+remedy needs another path, expand the review target and restart review before
+planning it. The only routes are:
 
 - `auto`: intent is explicit, the remedy is singular, confidence is high, the
   scope is small and reversible, validation is sufficient, the effect is

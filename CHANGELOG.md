@@ -29,9 +29,11 @@ in `toolkit.toml`.
 ### Security
 
 - Keep reviewer, normalizer, planner, fixer, and accepting reviewer roles
-  separate; bind plans to canonical batch digests; fail closed on target,
-  reviewer, confidence, scope, validation, or authority ambiguity; and keep
-  embedded reviewer text inert.
+  separate; keep target/source and finding-selection authority in lead-owned
+  inputs; bind plans to canonical batch digests and reviewed paths; refuse
+  multiply linked replacement targets; fail closed on target, reviewer,
+  confidence, scope, validation, or authority ambiguity; and keep embedded
+  reviewer text inert.
 
 ## 1.4.0 - 2026-08-29
 

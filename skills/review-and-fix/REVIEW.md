@@ -20,12 +20,16 @@ Apply these rules in addition to the repository root policy when reviewing the
 
 - Block a neutral batch that can make an out-of-target or insufficiently
   evidenced finding actionable, hide inference, merge distinct reviewer
-  provenance, or silently accept an incomplete source. Safe path: preserve the
-  exact target and source digest, field-level provenance, explicit limitations,
-  and separate batches per reviewer.
+  provenance, let its normalizer choose the target/source/mode envelope, or
+  silently accept an incomplete source. Safe path: keep the exact target,
+  reviewer identity, source digest, and derived mode in a lead-owned envelope;
+  preserve field-level provenance, explicit limitations, and separate batches
+  per reviewer.
 - Block a fix plan whose finding identity or classifications are not bound to
-  the exact validated canonical batch, or whose decision can be supplied or
-  overridden by a planner. Safe path: verify the batch digest and finding fields,
+  the exact validated canonical batch, whose selection authority can be forged,
+  whose proposed paths escape the reviewed target, or whose decision can be
+  supplied or overridden by a planner. Safe path: load finding and lead-owned
+  selection context independently, verify the batch digest and target paths,
   then derive the route mechanically from conservative planner facts.
 
 ## Decisions and acceptance

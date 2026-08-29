@@ -24,9 +24,10 @@
     "selection": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source_kind", "source"],
+      "required": ["source_kind", "basis", "source"],
       "properties": {
         "source_kind": { "enum": ["default", "caller"] },
+        "basis": { "enum": ["default_policy", "caller_explicit", "path_snapshot_request"] },
         "source": { "type": "string", "minLength": 1, "maxLength": 1000 }
       }
     },

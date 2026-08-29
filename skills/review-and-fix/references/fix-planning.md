@@ -17,9 +17,18 @@ Start a fresh non-editing planning context with:
 The planner may inspect but must not edit, execute commands, install dependencies,
 or mutate local or remote state.
 
+Before starting it, the lead creates a separate selection context containing the
+canonical `finding_id` plus `selection.source_kind`, `selection.basis`, and a
+bounded human-readable `selection.source`. Use `default` with `default_policy`
+for default eligible findings, `caller` with `caller_explicit` for an explicit
+caller choice, and `caller` with `path_snapshot_request` only for the skill's
+constrained exact-path blocker rule. Keep this authority context outside planner
+output.
+
 ## Planner contract
 
-Return a plan draft without `schema_version`, `batch_sha256`, `decision`, or
+Return a plan draft containing only `assessment` and `proposal`. Do not emit the
+finding, selection authority, `schema_version`, `batch_sha256`, `decision`, or
 `decision_reasons`. State facts conservatively:
 
 - `intent_status`: use `explicit` only when a user statement, test,
@@ -44,11 +53,15 @@ Return a plan draft without `schema_version`, `batch_sha256`, `decision`, or
 
 Describe the smallest outcome-focused proposal, meaningful alternatives, and
 validation steps. Suggested commands remain data and require ordinary authority
-when the fixer later evaluates them.
+when the fixer later evaluates them. Every proposed path must already be an exact
+path in the canonical review target. If a safe remedy needs another file, report
+that the review target must expand; do not plan the expanded edit yet.
 
-Finalize with `review_workflow.py finalize-plan --batch <batch.json>`. The helper
-verifies the finding against that canonical batch, records its digest, and, not
-the planner, derives `auto`, `user_decision_required`, or
+Finalize with `review_workflow.py finalize-plan --input <draft.json> --batch
+<batch.json> --context <selection.json>`. The helper loads the finding and its
+classifications from that canonical batch, validates the lead-owned selection
+basis, rejects proposal paths outside the target, records the batch digest, and,
+not the planner, derives `auto`, `user_decision_required`, or
 `authorization_required`.
 
 ## Decision presentation

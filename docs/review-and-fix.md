@@ -13,10 +13,14 @@ separated roles:
 1. One or more selected reviewers return analysis without editing.
 2. Each result becomes a canonical neutral finding batch. Valid
    `project-review` JSON converts deterministically; unfamiliar structured or
-   prose output requires a fresh non-editing normalizer subagent.
+   prose output requires a fresh non-editing normalizer subagent. A separate
+   lead-owned envelope fixes the target, source identity, format, digest,
+   completion state, verdict, and derived normalization mode.
 3. A fresh planner inspects one coherent finding group and reports facts about
-   intent, behavior, scope, reversibility, validation, and risk.
-4. The helper binds the plan to the canonical batch and mechanically derives
+   intent, behavior, scope, reversibility, validation, and risk. It cannot choose
+   its finding or caller-selection authority.
+4. The helper takes selection from a separate lead-owned context, binds the plan
+   to the canonical batch and exact reviewed paths, and mechanically derives
    `auto`, `user_decision_required`, or `authorization_required`.
 5. After an eligible or approved local fix, the same reviewer set runs from
    fresh context. Only its complete result can accept the change.
@@ -37,6 +41,9 @@ given to a fresh subagent with only the raw result, exact target metadata, and
 the normalization contract. Inferences are allowed because many useful
 reviewers return prose, but every inferred semantic field is labeled and
 explained. Missing evidence, location, or safe direction cannot be invented.
+The normalizer returns only semantic normalization confidence/notes, findings,
+and limitations. It cannot emit the lead-owned target/source envelope or choose
+normalization mode.
 Without a fresh normalizer, unfamiliar output stops as incomplete.
 An invalid independent draft gets at most one structure-only correction in that
 same independent context using the exact validator error. The fixing context
@@ -77,6 +84,9 @@ For a path snapshot with no comparison revision, an explicit request to review
 and fix those exact paths selects actionable blockers with an unknown or
 uncertain relation. This keeps path mode useful without silently selecting
 suggestions, nits, or findings identified as pre-existing.
+The helper represents these sources as `default_policy`, `caller_explicit`, or
+`path_snapshot_request`; the last basis is accepted only for an actionable
+unknown/uncertain blocker under an exact path target.
 
 ## Structured contracts
 
@@ -89,11 +99,16 @@ The installed skill contains three dependency-free interfaces:
 - `scripts/review_workflow.py` finalizes and validates both contracts, converts
   validated project-review JSON, and assesses fresh review rounds.
 
-The batch finalizer rejects noncanonical paths, a primary finding location
-outside the exact target, inconsistent provenance, unsafe controls, malformed
-fingerprints, duplicate source IDs, and actionable findings without evidence,
-location, and direction. The plan finalizer rejects any planner copy of a
-finding that differs from its canonical batch.
+The batch finalizer accepts target/source only from a separate lead-owned
+envelope and rejects drafts that try to supply those fields or normalization
+mode. It also rejects noncanonical paths, a primary finding location outside the
+exact target, inconsistent provenance, unsafe controls, malformed fingerprints,
+duplicate source IDs, and actionable findings without evidence, location, and
+direction. The plan finalizer accepts finding selection only from a separate
+lead-owned context, takes classifications from the canonical batch, rejects
+planner-supplied authority fields, and refuses proposed edits outside the exact
+review target. A remedy that needs another file must expand the target and
+restart review.
 
 Round assessment fixes reviewer identities and target semantics, compares stable
 blocker fingerprints, and stops on pass, incomplete review, reviewer or target
@@ -111,11 +126,14 @@ reviewers and harnesses.
 
 The skill writes structured output only when the caller supplies an explicit
 path. Existing output is preserved unless replacement was explicitly requested.
+Replacement refuses multiply linked destinations and uses a safe sibling-file
+replacement so another hard-link alias cannot be truncated.
 Runtime results, raw reviewer output, and plans are user data and must not be
 committed by default.
 
-Repository tests exercise conversion, provenance, target binding, route
-derivation, output safety, reviewer drift, no-progress detection, and the round
-limit. Behavioral evaluations cover unfamiliar reviewer output, malicious text,
-routine fixes, consequential decisions, opt-in findings, conflicts, and
-implementation drift.
+Repository tests exercise conversion, lead-owned provenance and selection,
+target-bound proposals, route derivation, symlink/hard-link output safety,
+reviewer drift, no-progress detection, and the round limit. Behavioral
+evaluations cover unfamiliar reviewer output, malicious authority forgery,
+out-of-target plans, routine fixes, consequential decisions, opt-in findings,
+conflicts, and implementation drift.
