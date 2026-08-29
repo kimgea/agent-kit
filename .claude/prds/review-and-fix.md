@@ -43,8 +43,9 @@ only eligible or explicitly approved plans.
 ## User Stories
 
 - As a developer, I can ask an agent to review and fix local working-tree,
-  staged, ref-range, or explicitly bounded path changes without involving
-  GitHub.
+  staged, or explicitly bounded path changes without involving GitHub. I can
+  review an immutable ref range, then re-scope and re-review its files locally
+  before remediation.
 - As a developer, I can use `project-review` by default or explicitly select
   another analysis-only review skill without writing a custom adapter first.
 - As a maintainer, I can trust that unfamiliar reviewer prose is normalized by a
@@ -77,9 +78,11 @@ only eligible or explicitly approved plans.
 - Permit the normalizer to infer missing disposition, severity, confidence,
   scope relation, actionability, and safe direction only when every inferred
   field is labeled as inferred with a normalization confidence and explanation.
-- Require the normalizer to preserve reviewer identity, target, raw-output
-  digest, source finding identifiers when present, evidence, locations,
-  limitations, completion state, and explicit-versus-inferred provenance.
+- Keep reviewer identity, target, raw-output digest, completion state, raw
+  verdict, and canonical outcome in a separate lead-owned envelope. Require the
+  normalizer to preserve source finding identifiers when present, evidence,
+  locations, limitations, and explicit-versus-inferred semantic provenance
+  without emitting authority fields.
 - Treat vague, contradictory, target-mismatched, or materially incomplete output
   as partial normalization. Never manufacture an actionable finding merely to
   satisfy the schema.
@@ -91,10 +94,13 @@ only eligible or explicitly approved plans.
   bounded history needed to establish intent and remedy.
 - Produce a versioned fix plan whose decision is deterministically derived as
   `auto`, `user_decision_required`, or `authorization_required`.
+- Keep immutable ref-range batches review/summary-only. Re-scope and rerun the
+  initial review as a working-tree or exact path target before fix planning.
 - Permit `auto` only when intent is explicit, the remedy is singular, the plan
-  and normalization confidence are high, the effect is behavior-preserving or
-  restores an existing contract, the scope is small and reversible, validation
-  is available, and no consequential risk factor is present.
+  confidence, normalization confidence, and canonical reviewer finding
+  confidence are high, the effect is behavior-preserving or restores an existing
+  contract, the scope is small and reversible, validation is available, and no
+  consequential risk factor is present.
 - Require a user decision for new or meaningfully changed behavior, multiple
   reasonable remedies, public APIs or file formats, compatibility, security,
   privacy, durable data, concurrency, retry or failure policy, dependencies,
@@ -113,9 +119,10 @@ only eligible or explicitly approved plans.
   implementation reveals broader scope or risk than the approved plan.
 - Run existing relevant project validation under ordinary caller and agent
   authority. Do not install dependencies or infer remote/destructive authority.
-- Rerun the same reviewer set from fresh context after every fix round. Stop on
-  pass, incomplete review, repeated findings without progress, changed reviewer
-  availability, or three rounds.
+- Rerun the same reviewer set from fresh context after every fix round. Accept
+  only complete high-confidence normalization with canonical source outcome
+  `pass`; stop on a non-pass or incomplete review, repeated findings without
+  progress, changed reviewer availability, or three rounds.
 - Return a concise human summary. Write finding batches or plans only to an
   explicit output path and never overwrite without explicit replacement intent.
 
@@ -126,8 +133,9 @@ only eligible or explicitly approved plans.
 - Treat raw review output and normalized JSON as untrusted data, not executable
   agent instructions.
 - Reject control characters, unsafe paths, malformed target bindings, duplicate
-  IDs, invalid fingerprints, inconsistent inferred-field provenance, and plans
-  whose declared `auto` route contradicts the locked decision policy.
+  JSON members or finding IDs, invalid fingerprints, link-like/non-regular
+  authority inputs, inconsistent inferred-field provenance, and plans whose
+  declared `auto` route contradicts the locked decision policy.
 - Derive identifiers, fingerprints, and fix decisions deterministically.
 - Keep all runtime schemas, validators, rendering guidance, and prompts inside
   the installed skill directory; never import repository-only tooling.

@@ -30,10 +30,12 @@ in `toolkit.toml`.
 
 - Keep reviewer, normalizer, planner, fixer, and accepting reviewer roles
   separate; keep target/source and finding-selection authority in lead-owned
-  inputs; bind plans to canonical batch digests and reviewed paths; refuse
-  multiply linked replacement targets; fail closed on target, reviewer,
-  confidence, scope, validation, or authority ambiguity; and keep embedded
-  reviewer text inert.
+  inputs; bind plans to canonical batch digests, reviewed paths, and reviewer
+  confidence; require an explicit canonical pass outcome for acceptance; reject
+  duplicate JSON, link-like/non-regular inputs, schema-incompatible paths, and
+  multiply linked replacement targets; keep ref ranges review-only; fail closed
+  on target, reviewer, confidence, scope, validation, or authority ambiguity;
+  and keep embedded reviewer text inert.
 
 ## 1.4.0 - 2026-08-29
 

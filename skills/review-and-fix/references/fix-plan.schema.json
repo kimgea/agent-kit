@@ -34,11 +34,12 @@
     "finding_ref": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["finding_id", "fingerprint", "disposition", "scope_relation", "normalization_confidence", "actionability", "selection"],
+      "required": ["finding_id", "fingerprint", "disposition", "confidence", "scope_relation", "normalization_confidence", "actionability", "selection"],
       "properties": {
         "finding_id": { "type": "string", "pattern": "^RF[0-9]{3,6}$" },
         "fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "disposition": { "enum": ["blocker", "suggestion", "nit", "unknown"] },
+        "confidence": { "enum": ["high", "medium", "low", "unknown"] },
         "scope_relation": { "enum": ["introduced", "worsened", "pre_existing", "uncertain", "unknown"] },
         "normalization_confidence": { "enum": ["high", "medium", "low"] },
         "actionability": { "enum": ["actionable", "needs_triage", "informational"] },

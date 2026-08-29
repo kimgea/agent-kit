@@ -19,9 +19,17 @@ the review.
 Before starting it, the lead computes the raw-output SHA-256 and creates a
 separate envelope with exactly `target` and `source`. `target` is the exact
 workflow target. `source` contains `reviewer`, `reviewer_version`,
-`output_format`, `output_sha256`, `completed`, and `verdict`. Keep this envelope
-outside the normalizer's output; it is lead-owned authority data supplied to the
-finalizer.
+`output_format`, `output_sha256`, `completed`, `verdict`, and `outcome`. Keep
+this envelope outside the normalizer's output; it is lead-owned authority data
+supplied to the finalizer.
+
+Also record canonical `source.outcome`: `pass` only when the reviewer explicitly
+returns an affirmative final result, `changes_requested` for an explicit block
+or change request, `incomplete` when the reviewer did not complete, and `unknown`
+when its outcome is absent or ambiguous. Preserve the reviewer's original short
+verdict string separately in `source.verdict`. An `unknown` or incomplete outcome
+requires a matching material limitation; a pass result that still contains a
+blocker is contradictory and cannot become a complete batch.
 
 ## Normalizer contract
 
@@ -67,6 +75,10 @@ finding identifier or fingerprint. The raw-output digest belongs only in the
 lead-owned `source.output_sha256`; never copy it into the draft or reuse it as a
 finding fingerprint. The helper derives normalization `mode` from the trusted
 source format; the normalizer never chooses it.
+
+Write envelope and draft JSON only to no-link regular files, or pass one explicit
+input through stdin. The helper rejects duplicate JSON object members instead of
+using last-value-wins parsing.
 
 Classification provenance is literal: a reviewer saying “blocking issue” makes
 the disposition explicit, but does not make severity, confidence, scope relation,

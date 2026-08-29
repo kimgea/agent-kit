@@ -3,6 +3,10 @@
 Use this procedure after a finding is valid, actionable, and selected for
 planning. Plan one coherent root-cause group at a time.
 
+Do not plan a finding whose batch target is `ref_range`. A ref range is an
+immutable review snapshot; re-scope and re-review a working-tree or exact path
+target before local remediation.
+
 ## Planner input
 
 Start a fresh non-editing planning context with:
@@ -62,7 +66,9 @@ Finalize with `review_workflow.py finalize-plan --input <draft.json> --batch
 classifications from that canonical batch, validates the lead-owned selection
 basis, rejects proposal paths outside the target, records the batch digest, and,
 not the planner, derives `auto`, `user_decision_required`, or
-`authorization_required`.
+`authorization_required`. The automatic route requires the canonical reviewer's
+finding confidence, normalization confidence, and planner confidence all to be
+high.
 
 ## Decision presentation
 

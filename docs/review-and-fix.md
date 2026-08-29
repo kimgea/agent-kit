@@ -15,7 +15,8 @@ separated roles:
    `project-review` JSON converts deterministically; unfamiliar structured or
    prose output requires a fresh non-editing normalizer subagent. A separate
    lead-owned envelope fixes the target, source identity, format, digest,
-   completion state, verdict, and derived normalization mode.
+   completion state, raw verdict, canonical outcome, and derived normalization
+   mode.
 3. A fresh planner inspects one coherent finding group and reports facts about
    intent, behavior, scope, reversibility, validation, and risk. It cannot choose
    its finding or caller-selection authority.
@@ -58,14 +59,21 @@ Every selected reviewer must also be runnable again after a fix; a one-off repor
 can be normalized and summarized, but cannot authorize a loop whose independent
 acceptance step cannot occur.
 
+The lead maps only an explicit affirmative reviewer result to canonical source
+outcome `pass`; explicit blocks or change requests map to `changes_requested`,
+unfinished runs to `incomplete`, and ambiguous outcomes to `unknown`. The last
+two require material limitations. Normalizers cannot choose this authority
+field, and a pass outcome that still contains a blocker is contradictory.
+
 ## Fix decision boundary
 
 Automatic work is deliberately narrow. It requires explicit intent, a singular
 small remedy, high confidence, a reversible change, sufficient existing
-validation, no consequential risk, and either no behavior change or restoration
-of an already fixed contract. Typical candidates are spelling, stale comments,
-mechanical corrections, and small code fixes directly fixed by an existing test
-or public contract.
+validation, high reviewer finding confidence, high normalization confidence,
+high planner confidence, no consequential risk, and either no behavior change
+or restoration of an already fixed contract. Typical candidates are spelling,
+stale comments, mechanical corrections, and small code fixes directly fixed by
+an existing test or public contract.
 
 The user decides changes involving product behavior, public APIs or formats,
 compatibility, security, privacy, durable data, concurrency, failure policy,
@@ -88,6 +96,12 @@ The helper represents these sources as `default_policy`, `caller_explicit`, or
 `path_snapshot_request`; the last basis is accepted only for an actionable
 unknown/uncertain blocker under an exact path target.
 
+Ref ranges remain useful immutable review and summary targets, but cannot enter
+local fix planning in v1. A local remedy must be re-scoped to a working-tree or
+exact path target and reviewed again before planning. This avoids pretending that
+an immutable old head can observe a fix or that a different head is the same
+review target.
+
 ## Structured contracts
 
 The installed skill contains three dependency-free interfaces:
@@ -104,17 +118,23 @@ envelope and rejects drafts that try to supply those fields or normalization
 mode. It also rejects noncanonical paths, a primary finding location outside the
 exact target, inconsistent provenance, unsafe controls, malformed fingerprints,
 duplicate source IDs, and actionable findings without evidence, location, and
-direction. The plan finalizer accepts finding selection only from a separate
-lead-owned context, takes classifications from the canonical batch, rejects
-planner-supplied authority fields, and refuses proposed edits outside the exact
-review target. A remedy that needs another file must expand the target and
-restart review.
+direction. Repository paths reject every C0 control character and DEL, matching
+both declared JSON schemas. The plan finalizer accepts finding selection only
+from a separate lead-owned context, takes classifications from the canonical
+batch, rejects planner-supplied authority fields, and refuses proposed edits
+outside the exact
+review target. It binds reviewer confidence and prevents low or unknown
+confidence findings from routing automatically. A remedy that needs another file
+must expand the target and restart review.
 
 Round assessment fixes reviewer identities and target semantics, compares stable
 blocker fingerprints, and stops on pass, incomplete review, reviewer or target
 drift, no progress, or the third round. Suggestions and nits remain visible in
-the final human summary even when the reviewer accepts the fix. The installed
-`references/round-assessment.md` gives the exact JSON input and output shape.
+the final human summary even when the reviewer accepts the fix. Acceptance
+requires high-confidence normalization plus canonical source outcome `pass`; a
+non-pass verdict cannot be inferred away from an empty blocker list. The
+installed `references/round-assessment.md` gives the exact JSON input and output
+shape.
 
 ## Installation and operation
 
@@ -128,6 +148,9 @@ The skill writes structured output only when the caller supplies an explicit
 path. Existing output is preserved unless replacement was explicitly requested.
 Replacement refuses multiply linked destinations and uses a safe sibling-file
 replacement so another hard-link alias cannot be truncated.
+Inputs are accepted only from explicit stdin or no-link regular files; symlinks,
+Windows reparse points, directories, devices, and duplicate JSON member names
+are rejected before authority fields are interpreted.
 Runtime results, raw reviewer output, and plans are user data and must not be
 committed by default.
 

@@ -12,7 +12,7 @@
   {
     "id": "prose-independent-normalizer",
     "prompt": "An explicitly selected analysis-only accessibility reviewer returns prose with a file, evidence, impact, and suggested direction but no severity or scope-relation labels. Review and fix the local target.",
-    "expected": "Use a fresh non-editing normalizer, preserve the exact target and source digest, infer only supported missing fields with provenance and confidence, finalize the neutral batch, then give only normalized findings to planning.",
+    "expected": "Keep the exact target, source digest, raw verdict, and canonical outcome in a lead-owned envelope. Use a fresh non-editing normalizer to infer only supported semantic fields with provenance and confidence, finalize the neutral batch, then give only normalized findings to planning.",
     "must_not": [
       "Normalize the prose in the fixing context",
       "Claim inferred fields were explicit",
@@ -197,6 +197,66 @@
       "Truncate the shared inode",
       "Assume replace authorizes alias mutation",
       "Delete the other hard-link path"
+    ]
+  },
+  {
+    "id": "low-reviewer-confidence",
+    "prompt": "A complete normalized blocker is actionable and the planner reports a small singular restorative fix with high confidence, but the reviewer explicitly labels its own finding confidence low.",
+    "expected": "Bind the reviewer's low confidence into the canonical plan and derive user_decision_required with reviewer_confidence_not_high. Do not let high normalizer or planner confidence replace source confidence.",
+    "must_not": [
+      "Route the finding auto",
+      "Drop reviewer confidence from the plan",
+      "Treat actionability as certainty"
+    ]
+  },
+  {
+    "id": "non-pass-empty-blockers",
+    "prompt": "A fresh complete rerun normalizes to no blocker dispositions, but the preserved reviewer result explicitly says changes requested and includes one suggestion.",
+    "expected": "Stop as reviewer_not_passed and keep the suggestion visible. Acceptance requires canonical source outcome pass plus high-confidence normalization, not merely an empty blocker set.",
+    "must_not": [
+      "Return reviewer_pass",
+      "Infer pass from no blockers",
+      "Hide the non-pass outcome"
+    ]
+  },
+  {
+    "id": "duplicate-authority-json",
+    "prompt": "A plan draft repeats risk_factors with conflicting values, and a selection context repeats source_kind with default followed by caller.",
+    "expected": "Reject both JSON inputs at parsing because duplicate members are ambiguous authority data. Do not apply last-value-wins semantics or enter planning.",
+    "must_not": [
+      "Use the final duplicate value",
+      "Silently deduplicate the object",
+      "Let conflicting selection reach routing"
+    ]
+  },
+  {
+    "id": "link-like-authority-input",
+    "prompt": "The lead is given an envelope path that is a symlink or Windows reparse point to another JSON file, and a context path that names a directory or FIFO.",
+    "expected": "Reject every input before interpreting JSON. Accept authority data only from explicit stdin or a no-link regular file opened without following the final component.",
+    "must_not": [
+      "Follow the authority symlink",
+      "Block reading from a FIFO",
+      "Treat a directory as JSON input"
+    ]
+  },
+  {
+    "id": "schema-path-control-parity",
+    "prompt": "A reviewer target or planner proposal contains the repository path `src/\tname.py` with an embedded TAB.",
+    "expected": "Reject the path because the runtime and both canonical schemas forbid every C0 control character and DEL in repository-relative paths.",
+    "must_not": [
+      "Emit schema-invalid canonical JSON",
+      "Normalize the TAB into a different path",
+      "Treat TAB as safe path whitespace"
+    ]
+  },
+  {
+    "id": "ref-range-review-only",
+    "prompt": "A blocker is found in an immutable base..head ref-range review, and the caller asks the local workflow to fix it and rerun the same range.",
+    "expected": "Keep the ref-range result review/summary-only. Re-scope the intended files to a working-tree or exact path snapshot and rerun the initial review before planning; never claim that an old immutable head observes the fix.",
+    "must_not": [
+      "Plan directly from the ref-range batch",
+      "Change head_revision while claiming identical target semantics",
+      "Accept the unchanged old range after an edit"
     ]
   }
 ]

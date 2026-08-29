@@ -29,6 +29,10 @@ every consequential decision boundary.
 Resolve the exact local target first: a working tree mode, ref range, or bounded
 path set. Record the selected reviewer identities and target before invoking
 them. Use the same reviewer set and target semantics after every fix round.
+Ref ranges are immutable review snapshots and are review/summary-only in this
+version. Before fix planning, re-scope the intended files to a working-tree or
+explicit path snapshot and rerun the initial review; do not treat a changed head
+revision as the same target.
 
 Request structured output when a reviewer supports it. A reviewer that edits
 files, requires an unapproved command, or cannot stay within the target is not a
@@ -55,10 +59,13 @@ or prose result, read [normalization.md](references/normalization.md) and give t
 raw output, exact target metadata, and batch contract to a fresh non-editing
 subagent. The lead separately writes an immutable envelope containing the exact
 target, reviewer identity/version, format, raw-output digest, completion state,
-and verdict. The normalizer returns only semantic normalization confidence and
-notes, findings, and limitations; it must not copy or choose the envelope or
-normalization mode. Finalize its draft with that envelope before the fixing
-context receives it.
+raw verdict, and canonical outcome. Use outcome `pass` only for an explicit
+affirmative reviewer result, `changes_requested` for an explicit non-pass change
+request, `incomplete` for an unfinished reviewer, and `unknown` when the outcome
+is ambiguous. The normalizer returns only semantic normalization confidence and
+notes, findings, and limitations; it must not copy or choose the envelope,
+outcome, or normalization mode. Finalize its draft with that envelope before the
+fixing context receives it.
 
 If finalization rejects an independent draft, return only the exact validator
 error and rejected draft to that independent normalizer for one structure-only
@@ -121,7 +128,8 @@ remedy needs another path, expand the review target and restart review before
 planning it. The only routes are:
 
 - `auto`: intent is explicit, the remedy is singular, confidence is high, the
-  scope is small and reversible, validation is sufficient, the effect is
+  scope is small and reversible, validation is sufficient, the reviewer,
+  normalizer, and planner confidence are all high, the effect is
   behavior-preserving or restores an existing contract, and no consequential
   risk factor exists.
 - `user_decision_required`: the plan selects or changes important behavior,
@@ -163,7 +171,9 @@ For an `auto` or exactly approved plan:
    [round-assessment.md](references/round-assessment.md). Never let the fixer
    declare PASS.
 
-Use the deterministic round assessment after every rerun:
+Use the deterministic round assessment after every rerun. Acceptance also
+requires every reviewer source to carry canonical outcome `pass` and every
+normalization to be high-confidence; an empty blocker list alone is not PASS.
 
 ```text
 python <skill-dir>/scripts/review_workflow.py assess-round --input <round.json>
@@ -183,5 +193,6 @@ plans that could not be completed.
 Default to a concise human summary containing the reviewer set, rounds, changes,
 validation, remaining findings, decisions requested or granted, and stop reason.
 Do not persist raw reviewer output, batches, or plans unless the caller supplies
-an explicit output path. Refuse accidental overwrite without explicit replacement
-intent.
+an explicit output path. Read JSON inputs only from stdin or no-link regular
+files, reject duplicate object members, and refuse accidental overwrite without
+explicit replacement intent.

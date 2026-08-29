@@ -79,14 +79,17 @@ still apply.
 result as a separate neutral batch, deterministically bridges validated
 `project-review` JSON, and uses a fresh subagent only to normalize unfamiliar
 output. Lead-owned envelopes keep target/source provenance outside normalizer
-control. A second fresh context reports facts for a proposed remedy; lead-owned
-selection stays outside planner control, and the runtime helper binds those
-facts to the canonical batch and exact reviewed paths before mechanically
+control and carry an explicit canonical reviewer outcome. A second fresh context
+reports facts for a proposed remedy; lead-owned selection stays outside planner
+control, and the runtime helper binds those facts to the canonical batch and
+exact reviewed paths before mechanically
 deriving whether the plan is routine, needs a user decision, or requires
 separate authorization.
 The fixer cannot accept its own result: the same reviewer set reruns from fresh
 context, with stable fingerprints, target/reviewer drift detection, no-progress
-stopping, and a three-round limit.
+stopping, an explicit pass outcome, and a three-round limit. Ref ranges are
+immutable review-only snapshots; remediation uses a freshly reviewed
+working-tree or path target.
 
 ## Installation ownership
 

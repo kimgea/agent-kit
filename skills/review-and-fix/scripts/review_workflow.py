@@ -24,6 +24,7 @@ FINDING_ID = re.compile(r"^RF[0-9]{3,6}$")
 TARGET_KINDS = {"ref_range", "working_tree", "paths"}
 WORKING_TREE_MODES = {"staged", "unstaged", "combined", None}
 OUTPUT_FORMATS = {"project_review_json", "neutral_json", "structured", "prose"}
+SOURCE_OUTCOMES = {"pass", "changes_requested", "incomplete", "unknown"}
 NORMALIZATION_MODES = {"deterministic", "native", "independent_agent"}
 LEVELS = {"high", "medium", "low"}
 PROVENANCE = {"explicit", "inferred", "missing"}
@@ -210,6 +211,8 @@ def _unique_strings(
 def _repo_path(value: Any, label: str) -> str:
     path = _text(value, label, 4096, single_line=True)
     assert path is not None
+    if any(ord(char) < 32 or ord(char) == 127 for char in path):
+        raise WorkflowError(f"{label} contains unsafe control characters")
     if path.startswith("/") or re.match(r"^[A-Za-z]:", path) or "\\" in path:
         raise WorkflowError(f"{label} must be a portable repository-relative path")
     parts = path.split("/")
@@ -267,12 +270,20 @@ def _source(value: Any) -> dict[str, Any]:
     item = _object(
         value,
         "source",
-        {"reviewer", "reviewer_version", "output_format", "output_sha256", "completed", "verdict"},
+        {
+            "reviewer",
+            "reviewer_version",
+            "output_format",
+            "output_sha256",
+            "completed",
+            "verdict",
+            "outcome",
+        },
     )
     digest = _text(item["output_sha256"], "source.output_sha256", 64, single_line=True)
     if digest is None or not HEX_DIGEST.fullmatch(digest):
         raise WorkflowError("source.output_sha256 must be a lowercase SHA-256 digest")
-    return {
+    result = {
         "reviewer": _text(item["reviewer"], "source.reviewer", 128, single_line=True),
         "reviewer_version": _text(
             item["reviewer_version"], "source.reviewer_version", 128, nullable=True, single_line=True
@@ -281,7 +292,11 @@ def _source(value: Any) -> dict[str, Any]:
         "output_sha256": digest,
         "completed": _boolean(item["completed"], "source.completed"),
         "verdict": _text(item["verdict"], "source.verdict", 128, nullable=True, single_line=True),
+        "outcome": _enum(item["outcome"], SOURCE_OUTCOMES, "source.outcome"),
     }
+    if result["outcome"] in {"pass", "changes_requested"} and result["verdict"] is None:
+        raise WorkflowError("pass and changes_requested outcomes require an explicit source verdict")
+    return result
 
 
 def _normalization(value: Any) -> dict[str, Any]:
@@ -511,11 +526,38 @@ def finalize_batch(draft: Any, envelope_value: Any) -> dict[str, Any]:
         _limitation(limitation, index)
         for index, limitation in enumerate(_sequence(item["limitations"], "limitations", 256))
     ]
+    material_codes = {
+        limitation["code"] for limitation in limitations if limitation["material"]
+    }
+    if not source["completed"] and source["outcome"] != "incomplete":
+        raise WorkflowError("an incomplete source must use outcome incomplete")
+    if source["completed"] and source["outcome"] == "incomplete":
+        raise WorkflowError("a completed source cannot use outcome incomplete")
     if not source["completed"] and not any(
         limitation["code"] == "source_incomplete" and limitation["material"]
         for limitation in limitations
     ):
         raise WorkflowError("an incomplete source requires a material source_incomplete limitation")
+    if source["outcome"] == "unknown" and "output_ambiguous" not in material_codes:
+        raise WorkflowError("an unknown source outcome requires a material output_ambiguous limitation")
+    if (
+        source["outcome"] == "pass"
+        and any(finding["disposition"] == "blocker" for finding in findings)
+        and "contradictory_output" not in material_codes
+    ):
+        raise WorkflowError(
+            "a pass source with blockers requires a material contradictory_output limitation"
+        )
+    if (
+        source["outcome"] == "changes_requested"
+        and not findings
+        and not material_codes.intersection(
+            {"missing_evidence", "missing_location", "contradictory_output", "output_ambiguous"}
+        )
+    ):
+        raise WorkflowError(
+            "a changes_requested source without findings requires a material source limitation"
+        )
     for finding in findings:
         finding["fingerprint"] = _fingerprint(source, finding)
     source_ids = [finding["source_id"] for finding in findings if finding["source_id"] is not None]
@@ -791,6 +833,7 @@ def convert_project_review(value: Any, output_sha256: str | None = None) -> dict
             "output_sha256": digest,
             "completed": True,
             "verdict": verdict,
+            "outcome": "pass" if verdict == "PASS" else "changes_requested",
         },
     }
     return finalize_batch(draft, envelope)
@@ -838,6 +881,7 @@ def _finding_ref_from_batch(
         "finding_id": source["finding_id"],
         "fingerprint": source["fingerprint"],
         "disposition": source["disposition"],
+        "confidence": source["confidence"],
         "scope_relation": source["scope_relation"],
         "normalization_confidence": source["normalization_confidence"],
         "actionability": source["actionability"],
@@ -931,6 +975,8 @@ def derive_decision(finding: dict[str, Any], assessment: dict[str, Any]) -> tupl
         reasons.append("finding_not_actionable")
     if finding["normalization_confidence"] != "high":
         reasons.append("normalization_not_high_confidence")
+    if finding["confidence"] != "high":
+        reasons.append("reviewer_confidence_not_high")
     if assessment["intent_status"] != "explicit":
         reasons.append("intent_not_explicit")
     if assessment["intent_source"] == "none":
@@ -973,6 +1019,10 @@ def finalize_plan(draft: Any, batch_value: Any, context_value: Any) -> dict[str,
     batch = validate_batch(batch_value)
     if batch["status"] != "complete":
         raise WorkflowError("a partial finding batch cannot enter fix planning")
+    if batch["target"]["kind"] == "ref_range":
+        raise WorkflowError(
+            "ref-range batches are review-only; re-scope and re-review a working tree or path target"
+        )
     finding = _finding_ref_from_batch(batch, context_value)
     assessment = _assessment(item["assessment"])
     proposal = _proposal(item["proposal"])
@@ -1103,9 +1153,12 @@ def assess_round(value: Any) -> dict[str, Any]:
         action, reason = "stop", "reviewer_set_drift"
     elif any(batch["target"] != previous[0]["target"] for batch in previous + current):
         action, reason = "stop", "target_drift"
+    elif previous[0]["target"]["kind"] == "ref_range":
+        action, reason = "stop", "ref_range_review_only"
     elif any(
         batch["status"] != "complete"
         or not batch["source"]["completed"]
+        or batch["normalization"]["confidence"] != "high"
         or any(
             finding["disposition"] == "unknown"
             or finding["actionability"] == "needs_triage"
@@ -1115,7 +1168,10 @@ def assess_round(value: Any) -> dict[str, Any]:
     ):
         action, reason = "stop", "incomplete_review"
     elif not current_blockers:
-        action, reason = "accept", "reviewer_pass"
+        if all(batch["source"]["outcome"] == "pass" for batch in current):
+            action, reason = "accept", "reviewer_pass"
+        else:
+            action, reason = "stop", "reviewer_not_passed"
     elif current_blockers == previous_blockers:
         action, reason = "stop", "no_material_progress"
     elif round_number == 3:
@@ -1130,16 +1186,52 @@ def assess_round(value: Any) -> dict[str, Any]:
     }
 
 
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise WorkflowError(f"input JSON contains duplicate object member: {key}")
+        result[key] = value
+    return result
+
+
+def _read_regular_bytes(path: Path) -> bytes:
+    if _has_symlink_component(path):
+        raise WorkflowError("input path must not contain symlinks or reparse points")
+    try:
+        before = path.lstat()
+    except OSError as exc:
+        raise WorkflowError(f"cannot inspect input: {exc}") from exc
+    if _is_link_like(before) or not stat.S_ISREG(before.st_mode):
+        raise WorkflowError("input path must identify a regular file")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as handle:
+            after = os.fstat(handle.fileno())
+            if _is_link_like(after) or not stat.S_ISREG(after.st_mode):
+                raise WorkflowError("input path must identify a regular file")
+            if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+                raise WorkflowError("input path changed while it was being opened")
+            return handle.read()
+    except WorkflowError:
+        raise
+    except OSError as exc:
+        raise WorkflowError(f"cannot read input: {exc}") from exc
+
+
 def _read_json(path_value: str) -> tuple[Any, bytes]:
     try:
         if path_value == "-":
             raw = sys.stdin.buffer.read()
         else:
-            raw = Path(path_value).read_bytes()
+            raw = _read_regular_bytes(Path(path_value))
+    except WorkflowError:
+        raise
     except OSError as exc:
         raise WorkflowError(f"cannot read input: {exc}") from exc
     try:
-        return json.loads(raw.decode("utf-8")), raw
+        return json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_json_object), raw
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise WorkflowError(f"input is not valid UTF-8 JSON: {exc}") from exc
 

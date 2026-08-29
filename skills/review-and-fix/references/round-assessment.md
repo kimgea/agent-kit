@@ -27,7 +27,9 @@ current batch per reviewer.
 All batches must have identical target metadata. A changed reviewer identity or
 version stops as `reviewer_set_drift`; changed target metadata stops as
 `target_drift`. A partial, incomplete, unknown-disposition, or triage-needed
-current result stops as `incomplete_review`.
+current result stops as `incomplete_review`. A `ref_range` target stops as
+`ref_range_review_only`; re-scope and re-review a working-tree or path snapshot
+before fixing rather than changing the range's immutable head.
 
 ## Output
 
@@ -44,7 +46,10 @@ The helper returns:
 ```
 
 `action` is `accept`, `continue`, or `stop`. Acceptance requires a complete
-fresh result with no remaining blocker dispositions. Suggestions and nits do not
-block acceptance but remain visible in the final summary. Identical blocker
-fingerprints stop as `no_material_progress`; remaining changed blockers continue
-before round three and stop as `maximum_rounds_reached` on round three.
+fresh result with high-confidence normalization, canonical source outcome
+`pass`, and no remaining blocker dispositions. A non-pass result without
+blockers stops as `reviewer_not_passed`; an empty blocker list never overrides
+the reviewer outcome. Suggestions and nits do not block acceptance when the
+reviewer still returns pass, but remain visible in the final summary. Identical
+blocker fingerprints stop as `no_material_progress`; remaining changed blockers
+continue before round three and stop as `maximum_rounds_reached` on round three.

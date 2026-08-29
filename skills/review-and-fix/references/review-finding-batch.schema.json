@@ -46,14 +46,15 @@
     "source": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["reviewer", "reviewer_version", "output_format", "output_sha256", "completed", "verdict"],
+      "required": ["reviewer", "reviewer_version", "output_format", "output_sha256", "completed", "verdict", "outcome"],
       "properties": {
         "reviewer": { "type": "string", "minLength": 1, "maxLength": 128 },
         "reviewer_version": { "type": ["string", "null"], "minLength": 1, "maxLength": 128 },
         "output_format": { "enum": ["project_review_json", "neutral_json", "structured", "prose"] },
         "output_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "completed": { "type": "boolean" },
-        "verdict": { "type": ["string", "null"], "minLength": 1, "maxLength": 128 }
+        "verdict": { "type": ["string", "null"], "minLength": 1, "maxLength": 128 },
+        "outcome": { "enum": ["pass", "changes_requested", "incomplete", "unknown"] }
       }
     },
     "normalization": {

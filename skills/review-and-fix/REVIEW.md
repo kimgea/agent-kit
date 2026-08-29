@@ -25,6 +25,10 @@ Apply these rules in addition to the repository root policy when reviewing the
   reviewer identity, source digest, and derived mode in a lead-owned envelope;
   preserve field-level provenance, explicit limitations, and separate batches
   per reviewer.
+- Block authority JSON that accepts duplicate members, follows link-like or
+  non-regular files, or emits repository paths forbidden by the published
+  schemas. Safe path: reject duplicates recursively, allow only explicit stdin
+  or no-link regular inputs, and keep runtime/schema path rules identical.
 - Block a fix plan whose finding identity or classifications are not bound to
   the exact validated canonical batch, whose selection authority can be forged,
   whose proposed paths escape the reviewed target, or whose decision can be
@@ -39,10 +43,17 @@ Apply these rules in addition to the repository root policy when reviewing the
   Safe path: reserve automatic routing for small singular behavior-preserving or
   contract-restoring changes and obtain one bounded user decision or separate
   action authorization otherwise.
+- Block automatic work when the canonical reviewer finding, normalization, or
+  planner confidence is not high. Block acceptance unless the fresh source has
+  an explicit canonical pass outcome and high-confidence normalization; an
+  empty blocker list does not override a non-pass reviewer result.
 - Block acceptance by the fixer, a changed reviewer set, an incomplete rerun, or
   an unbounded retry loop. Safe path: rerun the original reviewer identities from
   fresh context, compare stable finding fingerprints, stop on no progress or
   drift, and cap the workflow at three fix rounds.
+- Block ref-range remediation unless successor-snapshot semantics are explicitly
+  designed and validated. In v1, keep immutable ref ranges review-only and
+  re-scope/re-review a working-tree or path target before planning fixes.
 
 ## Compatibility and evidence
 
