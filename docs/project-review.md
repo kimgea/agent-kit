@@ -177,7 +177,8 @@ The canonical schema is bundled at
 - target revisions and paths;
 - normalized change status plus destination and optional source guidance-chain
   associations, so renames preserve both rule contexts;
-- guidance paths, revisions, and digests without raw private guidance;
+- guidance paths, revisions, and canonical-LF digests and byte counts without
+  raw private guidance;
 - reviewed and contextual coverage groups bound to the exact ordered guidance
   chain set used for each path;
 - verification commands, authorization provenance, and bounded outcomes;

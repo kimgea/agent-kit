@@ -114,11 +114,13 @@ the same effective chain may be reviewed together. A nested rule applies only to
 files beneath its directory; inspecting a related file for context does not
 silently add that file to the finding scope or import its sibling rules.
 
-The resolver returns source kind, normalized path, source revision, SHA-256
-digest, byte count, and target paths for every loaded file. A default 32 KiB
-combined guidance budget applies per distinct chain, matching the familiar Codex
-default. Exceeding it is never silent: the resolver reports the skipped source,
-and the lead returns `INCOMPLETE` when the missing rules could be material.
+The resolver normalizes CRLF and CR line endings to LF, then returns source kind,
+normalized path, source revision, SHA-256 digest and byte count of that canonical
+content, and target paths for every loaded file. A default 32 KiB combined
+guidance budget applies per distinct chain, matching the familiar Codex default.
+The raw per-file safety limit is checked before normalization. Exceeding either
+limit is never silent: the resolver reports the skipped source, and the lead
+returns `INCOMPLETE` when the missing rules could be material.
 
 ### Trusted-base policy
 

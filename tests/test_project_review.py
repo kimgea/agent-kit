@@ -1,4 +1,5 @@
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -266,6 +267,24 @@ class ReviewContextTests(unittest.TestCase):
                 [source["content"] for source in sources],
             )
             self.assertEqual([], result["limitations"])
+
+    def test_snapshot_normalizes_guidance_line_endings_and_provenance(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "target.py").write_text("value = 1\n", encoding="utf-8")
+            (root / "REVIEW.md").write_bytes(b"first\r\nsecond\rthird\n")
+
+            result = review_context.resolve(context_args(root, paths=["target.py"]))
+
+            source = next(
+                item
+                for item in result["guidance"][0]["sources"]
+                if item["source_kind"] == "repository"
+            )
+            normalized = b"first\nsecond\nthird\n"
+            self.assertEqual(normalized.decode("utf-8"), source["content"])
+            self.assertEqual(len(normalized), source["bytes"])
+            self.assertEqual(hashlib.sha256(normalized).hexdigest(), source["sha256"])
 
     def test_working_tree_uses_head_guidance_not_changed_guidance(self):
         with tempfile.TemporaryDirectory() as temporary:

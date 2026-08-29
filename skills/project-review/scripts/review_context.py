@@ -452,6 +452,7 @@ def _read_git_file(root: Path, revision: str, relative: str) -> tuple[bytes | No
 def _source(kind: str, path: str, revision: str | None, content: bytes, include_content: bool = True) -> dict[str, Any]:
     if len(content) > MAX_GUIDANCE_SOURCE_BYTES:
         raise ContextError(f"guidance exceeds {MAX_GUIDANCE_SOURCE_BYTES} bytes: {path}")
+    content = content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
     try:
         decoded = content.decode("utf-8", "strict")
     except UnicodeDecodeError as exc:
