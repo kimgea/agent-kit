@@ -155,10 +155,16 @@ def _string(value: Any, label: str, maximum: int, allow_empty: bool = False) -> 
     return value
 
 
-def _path(value: Any, label: str) -> str:
+def _path(value: Any, label: str, allow_root: bool = False) -> str:
     path = _string(value, label, 4096)
-    if not PATH_PATTERN.fullmatch(path):
-        raise ResultError(f"{label} must be a contained POSIX-style relative path")
+    if allow_root and path == ".":
+        return path
+    if (
+        not PATH_PATTERN.fullmatch(path)
+        or path == "."
+        or PurePosixPath(path).as_posix() != path
+    ):
+        raise ResultError(f"{label} must be a canonical contained POSIX-style relative path")
     return path
 
 
@@ -460,7 +466,7 @@ def _validate_verification(value: Any) -> list[dict[str, Any]]:
             raise ResultError(f"{label}.verification_id is invalid or duplicated")
         seen.add(record_id)
         _string(record["command"], f"{label}.command", 4096)
-        _path(record["cwd"], f"{label}.cwd")
+        _path(record["cwd"], f"{label}.cwd", allow_root=True)
         authorization = _object(record["authorization"], f"{label}.authorization", {"source_kind", "source"})
         _enum(authorization["source_kind"], f"{label}.authorization.source_kind", {"caller", "user_global"})
         _string(authorization["source"], f"{label}.authorization.source", 1000)
@@ -754,7 +760,8 @@ def render_human(result: dict[str, Any]) -> str:
             lines.extend(
                 [
                     f"- [{finding['finding_id']}] {_display_text(finding['title'])} "
-                    f"({finding['severity']}, {finding['confidence']} confidence)",
+                    f"({finding['severity']}, {finding['confidence']} confidence, "
+                    f"scope: {finding['scope_relation']})",
                     f"  Location: {_format_location(finding['primary_location'])}",
                     f"  Explanation: {_display_text(finding['explanation'])}",
                     f"  Impact: {_display_text(finding['impact'])}",

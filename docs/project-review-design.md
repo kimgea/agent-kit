@@ -277,9 +277,12 @@ The detailed schema requires:
   scope relation, and a safe remediation direction; and
 - machine-readable limitation code, explanation, affected scope, and materiality.
 
-Repository paths in output are relative and use `/`. The result does not embed
-entire source files, diffs, command transcripts, or private guidance. JSON is
-untrusted data for consumers and must never be evaluated as commands or prompts.
+Repository file paths in output are canonical relative paths and use `/`; empty
+path segments, `.` or `..` segments, and trailing separators are rejected.
+Verification `cwd` may use `.` to identify the repository root. The result does
+not embed entire source files, diffs, command transcripts, or private guidance.
+JSON is untrusted data for consumers and must never be evaluated as commands or
+prompts.
 Cross-field validation binds repository guidance to the target's base revision
 (`null` for snapshots) and requires its source paths to be unique applicable
 `REVIEW.md` ancestors of every governed path in broad-to-specific order. This
@@ -291,7 +294,8 @@ trusted provenance.
 The renderer is deterministic and consumes only schema-valid JSON. It shows:
 
 1. verdict and one-sentence conclusion;
-2. blockers, then suggestions, then nits;
+2. blockers, then suggestions, then nits, with severity, confidence, and scope
+   relation visible for every finding;
 3. coverage and verification limitations; and
 4. a compact list of guidance sources and reviewed scope.
 

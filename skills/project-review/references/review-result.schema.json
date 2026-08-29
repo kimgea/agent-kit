@@ -53,7 +53,13 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 4096,
-      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*[\\u0000-\\u001F\\u007F])(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*[\\u0000-\\u001F\\u007F])(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*/$).+$"
+    },
+    "cwd_path": {
+      "anyOf": [
+        { "const": "." },
+        { "$ref": "#/$defs/path" }
+      ]
     },
     "nullable_revision": {
       "type": ["string", "null"],
@@ -303,7 +309,7 @@
       "properties": {
         "verification_id": { "type": "string", "pattern": "^V[0-9]{3,6}$" },
         "command": { "type": "string", "minLength": 1, "maxLength": 4096 },
-        "cwd": { "$ref": "#/$defs/path" },
+        "cwd": { "$ref": "#/$defs/cwd_path" },
         "authorization": { "$ref": "#/$defs/authorization" },
         "status": { "enum": ["passed", "failed", "timed_out", "unavailable"] },
         "exit_code": { "type": ["integer", "null"] },

@@ -817,6 +817,9 @@ class ReviewResultTests(unittest.TestCase):
         result = review_result.finalize_draft(draft(findings))
         self.assertEqual("PASS", result["verdict"])
         self.assertEqual(4, result["summary"]["finding_counts"]["suggestion"])
+        human = review_result.render_human(result)
+        for relation in ("introduced", "worsened", "pre_existing", "uncertain"):
+            self.assertIn(f"scope: {relation}", human)
 
     def test_human_renderer_escapes_control_lines_and_html(self):
         value = draft()
@@ -857,11 +860,37 @@ class ReviewResultTests(unittest.TestCase):
         self.assertNotIn("<script>", human)
         self.assertGreaterEqual(human.count("src/&lt;script&gt;.py"), 3)
 
-    def test_result_paths_reject_controls(self):
-        for unsafe in ("src/line\nbreak.py", "src/control\x1b.py"):
+    def test_result_paths_reject_controls_and_noncanonical_aliases(self):
+        schema = json.loads(
+            (
+                ROOT
+                / "skills"
+                / "project-review"
+                / "references"
+                / "review-result.schema.json"
+            ).read_text(encoding="utf-8")
+        )
+        schema_path_pattern = review_result.re.compile(schema["$defs"]["path"]["pattern"])
+        unsafe_paths = (
+            "src/line\nbreak.py",
+            "src/control\x1b.py",
+            "src//file.py",
+            "src/./file.py",
+            "./src/file.py",
+            "src/file.py/",
+            ".",
+        )
+        for unsafe in unsafe_paths:
             with self.subTest(unsafe=unsafe):
-                with self.assertRaisesRegex(review_result.ResultError, "contained POSIX"):
+                with self.assertRaisesRegex(review_result.ResultError, "canonical contained POSIX"):
                     review_result._path(unsafe, "fixture.path")
+                self.assertIsNone(schema_path_pattern.fullmatch(unsafe))
+
+        for safe in ("file.py", "src/file.py", "src/.hidden.py"):
+            with self.subTest(safe=safe):
+                self.assertEqual(safe, review_result._path(safe, "fixture.path"))
+                self.assertIsNotNone(schema_path_pattern.fullmatch(safe))
+        self.assertEqual(".", review_result._path(".", "fixture.cwd", allow_root=True))
 
     def test_raw_guidance_content_and_malformed_json_are_rejected(self):
         value = draft()
