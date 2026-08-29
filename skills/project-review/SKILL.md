@@ -152,6 +152,10 @@ mapping, and include a `summary.conclusion`, coverage, guidance provenance witho
 resolver `content`, verification records, findings, and limitations. Coverage
 groups use `guidance_chain_ids`; for renames list the destination chain and then
 the source chain. Finding IDs, fingerprints, counts, and verdict are derived.
+Repository guidance provenance must use `target.base_revision` (`null` for an
+explicit snapshot) and list only applicable `REVIEW.md` ancestors in root-to-parent
+order. The finalizer rejects head-revision, sibling, duplicate, or reordered
+repository guidance.
 
 Verdict rules are locked:
 

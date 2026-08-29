@@ -280,6 +280,11 @@ The detailed schema requires:
 Repository paths in output are relative and use `/`. The result does not embed
 entire source files, diffs, command transcripts, or private guidance. JSON is
 untrusted data for consumers and must never be evaluated as commands or prompts.
+Cross-field validation binds repository guidance to the target's base revision
+(`null` for snapshots) and requires its source paths to be unique applicable
+`REVIEW.md` ancestors of every governed path in broad-to-specific order. This
+prevents head, sibling, duplicate, or reordered guidance from being presented as
+trusted provenance.
 
 ## Human report
 

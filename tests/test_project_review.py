@@ -184,6 +184,10 @@ class ReviewContextTests(unittest.TestCase):
             ROOT / "skills" / "project-review" / "SKILL.md"
         ).read_text(encoding="utf-8")
 
+        self.assertEqual(
+            review_result.SKILL_REVISION,
+            f"project-review@{review_context.SKILL_VERSION}",
+        )
         self.assertIn("reviewed change supply or modify", instructions)
         self.assertIn("starting revision", instructions)
         self.assertIn("never bootstrap", instructions)
@@ -888,6 +892,102 @@ class ReviewResultTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(review_result.ResultError, "start with exactly one skill"):
             review_result.finalize_draft(value)
+
+        invented_skill = draft()
+        invented_skill["guidance"][0]["sources"][0]["path"] = "other/SKILL.md"
+        with self.assertRaisesRegex(review_result.ResultError, "skill source must be SKILL.md"):
+            review_result.finalize_draft(invented_skill)
+
+        versionless_skill = draft()
+        versionless_skill["guidance"][0]["sources"][0]["revision"] = None
+        with self.assertRaisesRegex(review_result.ResultError, "project-review@1.0.0"):
+            review_result.finalize_draft(versionless_skill)
+
+        revised_global = draft()
+        revised_global["guidance"][0]["sources"].insert(
+            1,
+            {
+                "source_kind": "user_global",
+                "path": "/fixture/REVIEW.md",
+                "revision": "invented-revision",
+                "sha256": "1" * 64,
+                "bytes": 1,
+            },
+        )
+        with self.assertRaisesRegex(review_result.ResultError, "null for user_global"):
+            review_result.finalize_draft(revised_global)
+
+    def test_repository_guidance_provenance_is_bound_to_target_and_path(self):
+        base = "a" * 40
+        head = "b" * 40
+
+        def ref_range_draft():
+            value = draft()
+            value["target"].update(
+                {
+                    "kind": "ref_range",
+                    "base_revision": base,
+                    "head_revision": head,
+                }
+            )
+            value["guidance"][0]["sources"].extend(
+                [
+                    {
+                        "source_kind": "repository",
+                        "path": "REVIEW.md",
+                        "revision": base,
+                        "sha256": "1" * 64,
+                        "bytes": 1,
+                    },
+                    {
+                        "source_kind": "repository",
+                        "path": "src/REVIEW.md",
+                        "revision": base,
+                        "sha256": "2" * 64,
+                        "bytes": 1,
+                    },
+                ]
+            )
+            return value
+
+        self.assertEqual("PASS", review_result.finalize_draft(ref_range_draft())["verdict"])
+
+        wrong_revision = ref_range_draft()
+        wrong_revision["guidance"][0]["sources"][1]["revision"] = head
+        with self.assertRaisesRegex(review_result.ResultError, "target.base_revision"):
+            review_result.finalize_draft(wrong_revision)
+
+        sibling = ref_range_draft()
+        sibling["guidance"][0]["sources"][2]["path"] = "sibling/REVIEW.md"
+        with self.assertRaisesRegex(review_result.ResultError, "applicable REVIEW.md ancestors"):
+            review_result.finalize_draft(sibling)
+
+        reversed_order = ref_range_draft()
+        reversed_order["guidance"][0]["sources"][1:] = reversed_order["guidance"][0][
+            "sources"
+        ][1:][::-1]
+        with self.assertRaisesRegex(review_result.ResultError, "broad-to-specific order"):
+            review_result.finalize_draft(reversed_order)
+
+        duplicated = ref_range_draft()
+        duplicated["guidance"][0]["sources"].append(
+            dict(duplicated["guidance"][0]["sources"][1])
+        )
+        with self.assertRaisesRegex(review_result.ResultError, "unique applicable"):
+            review_result.finalize_draft(duplicated)
+
+        snapshot = draft()
+        snapshot["guidance"][0]["sources"].append(
+            {
+                "source_kind": "repository",
+                "path": "REVIEW.md",
+                "revision": base,
+                "sha256": "1" * 64,
+                "bytes": 1,
+            }
+        )
+        with self.assertRaisesRegex(review_result.ResultError, "target.base_revision"):
+            review_result.finalize_draft(snapshot)
 
     def test_cli_json_output_round_trips_and_existing_output_is_protected(self):
         with tempfile.TemporaryDirectory() as temporary:

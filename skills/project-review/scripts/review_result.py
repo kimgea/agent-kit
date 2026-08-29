@@ -12,11 +12,12 @@ import re
 import stat
 import sys
 import unicodedata
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 
 SCHEMA_VERSION = "1.0.0"
+SKILL_REVISION = "project-review@1.0.0"
 VERDICTS = {"PASS", "BLOCK", "INCOMPLETE"}
 DISPOSITIONS = ("blocker", "suggestion", "nit")
 SEVERITIES = {"critical", "high", "medium", "low"}
@@ -243,7 +244,18 @@ def _validate_target(value: Any) -> dict[str, Any]:
     return target
 
 
-def _validate_guidance(value: Any) -> list[dict[str, Any]]:
+def _applicable_review_paths(target_path: str) -> list[str]:
+    parent = PurePosixPath(target_path).parent
+    paths = ["REVIEW.md"]
+    current = PurePosixPath()
+    if parent.as_posix() != ".":
+        for part in parent.parts:
+            current = current / part
+            paths.append((current / "REVIEW.md").as_posix())
+    return paths
+
+
+def _validate_guidance(value: Any, target: dict[str, Any]) -> list[dict[str, Any]]:
     chains = _array(value, "guidance", 512)
     seen_ids: set[str] = set()
     seen_paths: set[str] = set()
@@ -265,13 +277,28 @@ def _validate_guidance(value: Any) -> list[dict[str, Any]]:
         if not sources:
             raise ResultError(f"{label}.sources must not be empty")
         source_kinds: list[str] = []
+        repository_paths: list[str] = []
         for source_index, source_value in enumerate(sources):
             source_label = f"{label}.sources[{source_index}]"
             source = _object(source_value, source_label, {"source_kind", "path", "revision", "sha256", "bytes"})
-            _enum(source["source_kind"], f"{source_label}.source_kind", SOURCE_KINDS)
-            source_kinds.append(source["source_kind"])
-            _string(source["path"], f"{source_label}.path", 4096)
-            _nullable_string(source["revision"], f"{source_label}.revision", 512)
+            source_kind = _enum(source["source_kind"], f"{source_label}.source_kind", SOURCE_KINDS)
+            source_kinds.append(source_kind)
+            source_path = _string(source["path"], f"{source_label}.path", 4096)
+            revision = _nullable_string(source["revision"], f"{source_label}.revision", 512)
+            if source_kind == "skill" and (
+                source_path != "SKILL.md" or revision != SKILL_REVISION
+            ):
+                raise ResultError(
+                    f"{source_label} skill source must be SKILL.md at {SKILL_REVISION}"
+                )
+            if source_kind == "user_global" and revision is not None:
+                raise ResultError(f"{source_label}.revision must be null for user_global guidance")
+            if source_kind == "repository":
+                repository_paths.append(_path(source_path, f"{source_label}.path"))
+                if revision != target["base_revision"]:
+                    raise ResultError(
+                        f"{source_label}.revision must match target.base_revision"
+                    )
             digest = _string(source["sha256"], f"{source_label}.sha256", 64)
             if not HEX64.fullmatch(digest):
                 raise ResultError(f"{source_label}.sha256 must be lowercase SHA-256")
@@ -285,6 +312,14 @@ def _validate_guidance(value: Any) -> list[dict[str, Any]]:
         first_repository = next((i for i, kind in enumerate(source_kinds) if kind == "repository"), len(source_kinds))
         if any(kind != "repository" for kind in source_kinds[first_repository:]):
             raise ResultError(f"{label}.repository sources must come last")
+        for target_path in paths:
+            applicable = _applicable_review_paths(target_path)
+            expected = [path for path in applicable if path in repository_paths]
+            if repository_paths != expected:
+                raise ResultError(
+                    f"{label}.repository sources must be unique applicable REVIEW.md "
+                    f"ancestors of {target_path} in broad-to-specific order"
+                )
         if not isinstance(chain["complete"], bool):
             raise ResultError(f"{label}.complete must be boolean")
     return chains
@@ -550,7 +585,7 @@ def validate_result(value: Any) -> dict[str, Any]:
         raise ResultError(f"schema_version must be {SCHEMA_VERSION}")
     target = _validate_target(result["target"])
     _enum(result["verdict"], "verdict", VERDICTS)
-    guidance = _validate_guidance(result["guidance"])
+    guidance = _validate_guidance(result["guidance"], target)
     requested = set(target["requested_paths"])
     _, path_chains = _validate_changes(result["changes"], guidance, requested)
     coverage = _validate_coverage(

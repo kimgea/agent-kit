@@ -136,6 +136,7 @@
     },
     "guidance_chain": {
       "type": "object",
+      "description": "Repository sources must use target.base_revision and be unique applicable REVIEW.md ancestors of every applies_to path in broad-to-specific order.",
       "additionalProperties": false,
       "required": ["chain_id", "applies_to", "sources", "complete"],
       "properties": {
