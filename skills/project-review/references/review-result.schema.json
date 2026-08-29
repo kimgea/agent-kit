@@ -1,0 +1,456 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kimgea/agent-kit/schemas/project-review/review-result-1.0.0.json",
+  "title": "Project review result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "target",
+    "changes",
+    "verdict",
+    "summary",
+    "guidance",
+    "coverage",
+    "verification",
+    "findings",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "target": { "$ref": "#/$defs/target" },
+    "changes": {
+      "type": "array",
+      "maxItems": 5000,
+      "items": { "$ref": "#/$defs/change" }
+    },
+    "verdict": { "enum": ["PASS", "BLOCK", "INCOMPLETE"] },
+    "summary": { "$ref": "#/$defs/summary" },
+    "guidance": {
+      "type": "array",
+      "maxItems": 512,
+      "items": { "$ref": "#/$defs/guidance_chain" }
+    },
+    "coverage": { "$ref": "#/$defs/coverage" },
+    "verification": {
+      "type": "array",
+      "maxItems": 128,
+      "items": { "$ref": "#/$defs/verification" }
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "limitations": {
+      "type": "array",
+      "maxItems": 256,
+      "items": { "$ref": "#/$defs/limitation" }
+    }
+  },
+  "$defs": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*[\\u0000-\\u001F\\u007F])(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+    },
+    "nullable_revision": {
+      "type": ["string", "null"],
+      "maxLength": 512
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "repository_root",
+        "base_revision",
+        "head_revision",
+        "working_tree_mode",
+        "requested_paths"
+      ],
+      "properties": {
+        "kind": { "enum": ["ref_range", "working_tree", "paths"] },
+        "repository_root": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "base_revision": { "$ref": "#/$defs/nullable_revision" },
+        "head_revision": { "$ref": "#/$defs/nullable_revision" },
+        "working_tree_mode": {
+          "type": ["string", "null"],
+          "enum": ["staged", "unstaged", "combined", null]
+        },
+        "requested_paths": {
+          "type": "array",
+          "maxItems": 5000,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/path" }
+        }
+      }
+    },
+    "finding_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blocker", "suggestion", "nit", "total"],
+      "properties": {
+        "blocker": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "suggestion": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "nit": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "total": { "type": "integer", "minimum": 0, "maximum": 1000 }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conclusion", "finding_counts"],
+      "properties": {
+        "conclusion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "finding_counts": { "$ref": "#/$defs/finding_counts" }
+      }
+    },
+    "guidance_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_kind", "path", "revision", "sha256", "bytes"],
+      "properties": {
+        "source_kind": { "enum": ["skill", "user_global", "repository"] },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "revision": { "$ref": "#/$defs/nullable_revision" },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "bytes": { "type": "integer", "minimum": 0, "maximum": 1048576 }
+      }
+    },
+    "guidance_chain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["chain_id", "applies_to", "sources", "complete"],
+      "properties": {
+        "chain_id": { "type": "string", "pattern": "^G[0-9]{3,6}$" },
+        "applies_to": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5000,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/path" }
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": { "$ref": "#/$defs/guidance_source" }
+        },
+        "complete": { "type": "boolean" }
+      }
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "old_path",
+        "status",
+        "similarity",
+        "guidance_chain_id",
+        "old_guidance_chain_id"
+      ],
+      "properties": {
+        "path": { "$ref": "#/$defs/path" },
+        "old_path": {
+          "oneOf": [
+            { "$ref": "#/$defs/path" },
+            { "type": "null" }
+          ]
+        },
+        "status": {
+          "enum": [
+            "added",
+            "broken_pairing",
+            "copied",
+            "deleted",
+            "modified",
+            "renamed",
+            "replaced",
+            "snapshot",
+            "type_changed",
+            "unmerged",
+            "unknown",
+            "untracked"
+          ]
+        },
+        "similarity": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "guidance_chain_id": { "type": "string", "pattern": "^G[0-9]{3,6}$" },
+        "old_guidance_chain_id": {
+          "type": ["string", "null"],
+          "pattern": "^G[0-9]{3,6}$"
+        }
+      }
+    },
+    "review_group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["group_id", "paths", "guidance_chain_ids", "reviewer_mode"],
+      "properties": {
+        "group_id": { "type": "string", "pattern": "^R[0-9]{3,6}$" },
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5000,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/path" }
+        },
+        "guidance_chain_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^G[0-9]{3,6}$" }
+        },
+        "reviewer_mode": { "enum": ["lead", "delegated"] }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "complete",
+        "requested_paths",
+        "reviewed_paths",
+        "context_paths",
+        "groups",
+        "residual_risk"
+      ],
+      "properties": {
+        "complete": { "type": "boolean" },
+        "requested_paths": {
+          "type": "array",
+          "maxItems": 5000,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/path" }
+        },
+        "reviewed_paths": {
+          "type": "array",
+          "maxItems": 5000,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/path" }
+        },
+        "context_paths": {
+          "type": "array",
+          "maxItems": 5000,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/path" }
+        },
+        "groups": {
+          "type": "array",
+          "maxItems": 512,
+          "items": { "$ref": "#/$defs/review_group" }
+        },
+        "residual_risk": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        }
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_kind", "source"],
+      "properties": {
+        "source_kind": { "enum": ["caller", "user_global"] },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verification_id",
+        "command",
+        "cwd",
+        "authorization",
+        "status",
+        "exit_code",
+        "duration_ms",
+        "output_summary"
+      ],
+      "properties": {
+        "verification_id": { "type": "string", "pattern": "^V[0-9]{3,6}$" },
+        "command": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "cwd": { "$ref": "#/$defs/path" },
+        "authorization": { "$ref": "#/$defs/authorization" },
+        "status": { "enum": ["passed", "failed", "timed_out", "unavailable"] },
+        "exit_code": { "type": ["integer", "null"] },
+        "duration_ms": { "type": "integer", "minimum": 0, "maximum": 86400000 },
+        "output_summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        }
+      }
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "start_line", "end_line"],
+      "properties": {
+        "path": { "$ref": "#/$defs/path" },
+        "start_line": { "type": ["integer", "null"], "minimum": 1 },
+        "end_line": { "type": ["integer", "null"], "minimum": 1 }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "description", "location"],
+      "properties": {
+        "kind": { "enum": ["code", "test", "rule", "history", "command", "reasoning"] },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "location": {
+          "oneOf": [
+            { "$ref": "#/$defs/location" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "governing_rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_kind", "path", "section", "revision"],
+      "properties": {
+        "source_kind": { "enum": ["skill", "user_global", "repository"] },
+        "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "section": { "type": ["string", "null"], "maxLength": 500 },
+        "revision": { "$ref": "#/$defs/nullable_revision" }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "finding_id",
+        "fingerprint",
+        "disposition",
+        "severity",
+        "confidence",
+        "category",
+        "scope_relation",
+        "blocking_basis",
+        "title",
+        "explanation",
+        "impact",
+        "evidence",
+        "primary_location",
+        "related_locations",
+        "governing_rule",
+        "safe_direction"
+      ],
+      "properties": {
+        "finding_id": { "type": "string", "pattern": "^F[0-9]{3,6}$" },
+        "fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "disposition": { "enum": ["blocker", "suggestion", "nit"] },
+        "severity": { "enum": ["critical", "high", "medium", "low"] },
+        "confidence": { "enum": ["high", "medium", "low"] },
+        "category": {
+          "enum": [
+            "correctness",
+            "security",
+            "privacy",
+            "data_integrity",
+            "reliability",
+            "concurrency",
+            "compatibility",
+            "performance",
+            "testing",
+            "maintainability",
+            "documentation",
+            "policy",
+            "other"
+          ]
+        },
+        "scope_relation": { "enum": ["introduced", "worsened", "pre_existing", "uncertain"] },
+        "blocking_basis": {
+          "type": ["string", "null"],
+          "enum": ["change", "touched_code_policy", null]
+        },
+        "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "explanation": { "type": "string", "minLength": 1, "maxLength": 8000 },
+        "impact": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/evidence" }
+        },
+        "primary_location": { "$ref": "#/$defs/location" },
+        "related_locations": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/location" }
+        },
+        "governing_rule": { "$ref": "#/$defs/governing_rule" },
+        "safe_direction": { "type": "string", "minLength": 1, "maxLength": 4000 }
+      }
+    },
+    "limitation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "affected_paths", "material"],
+      "properties": {
+        "code": {
+          "enum": [
+            "guidance_truncated",
+            "scope_truncated",
+            "scope_unavailable",
+            "file_unreadable",
+            "verification_not_authorized",
+            "verification_unavailable",
+            "verification_failed",
+            "evidence_inconclusive",
+            "delegation_unavailable",
+            "budget_exhausted",
+            "other"
+          ]
+        },
+        "message": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "affected_paths": {
+          "type": "array",
+          "maxItems": 5000,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/path" }
+        },
+        "material": { "type": "boolean" }
+      }
+    }
+  }
+}

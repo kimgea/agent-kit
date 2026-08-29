@@ -4,6 +4,28 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
+## 1.4.0 - 2026-08-29
+
+### Added
+
+- Add the independently installable `project-review` skill and focused plugin
+  for bounded, analysis-only reviews under root and nested `REVIEW.md` guidance.
+- Add canonical schema-versioned JSON findings with deterministic human
+  rendering, trusted-base rule provenance, coverage, limitations, and stable
+  finding fingerprints for future publisher or fix-loop consumers.
+- Dogfood the review hierarchy with repository-wide and project-review-specific
+  policies, and make `project-review` the default method for agent reviews of
+  this repository unless the caller explicitly chooses another method.
+
+### Security
+
+- Keep reviewed changes from supplying their own reviewer, keep repository
+  guidance from authorizing commands or weakening its own review, reject escaped
+  or link-like targets and guidance, and make static inspection the default
+  unless the caller or bounded user-global policy grants verification authority.
+- Escape untrusted controls and HTML in human reports, preserve old and new rule
+  chains across renames, and fail closed when scope or guidance is incomplete.
+
 ## 1.3.1 - 2026-08-17
 
 ### Fixed

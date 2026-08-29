@@ -26,6 +26,7 @@ Current skills:
 | `agent-context` | Resolve explicitly registered private context for the current project | Reads registered context repositories; writes nothing |
 | `build-interactive-diagram` | Create polished temporary HTML visuals for explanations | Writes only the selected artifact output directory |
 | `grill-me` | Pressure-test decisions, plans, artifacts, and diagnoses | None |
+| `project-review` | Review bounded changes under root and nested `REVIEW.md` guidance | Reads project source and optional user guidance; writes output only when explicitly requested |
 | `serve-artifacts` | Host and revoke transient web artifacts locally or through a selected private-network adapter | Private OS-native artifact copies, lifecycle state, and optional adapter ownership |
 | `todo-capture` | Preserve deferred work as shared pickup pointers | Private OS-native state directory |
 | `tool-audit` | Audit local tools, agent usage, friction, and permissions | Private OS-native state plus read-only transcript access |
@@ -35,6 +36,8 @@ See [compatibility](docs/compatibility.md) for the tested support matrix. The
 home, or domain knowledge over the public defaults without committing it here.
 The [artifact host guide](docs/artifact-host.md) covers temporary interactive
 visuals, framework output, lifecycle limits, and provider-neutral browser access.
+The [project-review guide](docs/project-review.md) covers hierarchical review
+policy, trusted-base behavior, structured findings, and verification authority.
 
 ## Install a skill
 
@@ -43,7 +46,7 @@ for repeatable use. For an ownership-aware installation, clone the tagged toolki
 release, then install only the selected skill:
 
 ```bash
-git clone --branch v1.3.1 --depth 1 https://github.com/kimgea/agent-kit.git
+git clone --branch v1.4.0 --depth 1 https://github.com/kimgea/agent-kit.git
 cd agent-kit
 python scripts/agent_kit.py list
 ```

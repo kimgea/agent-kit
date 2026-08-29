@@ -491,6 +491,7 @@ def validate_repository_controls(root: Path, catalog: dict[str, Any]) -> list[st
     required = (
         "AGENTS.md",
         "CLAUDE.md",
+        "REVIEW.md",
         "LICENSE",
         "SECURITY.md",
         "THIRD_PARTY_NOTICES.md",

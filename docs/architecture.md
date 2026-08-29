@@ -55,6 +55,26 @@ Tailscale Serve is one optional adapter whose preview-first setup owns one path,
 preserves unrelated handlers, and never enables public Funnel access. Durable
 documentation and cloud publication remain separate owning-repository workflows.
 
+## Project review
+
+`project-review` separates deterministic review context from semantic judgment.
+Its resolver enumerates a bounded Git change or explicit path scope and loads the
+applicable `REVIEW.md` chain for each target. For change reviews, repository
+guidance comes from the trusted base commit or committed `HEAD`, so changed rules
+cannot lower the bar applied to their own change.
+
+One lead reviewer owns evidence, calibration, deduplication, coverage, and the
+verdict. It may delegate coherent path groups, but subreview results remain
+candidates until the lead verifies them. The lead creates one schema-versioned
+JSON result; a standard-library helper validates it and deterministically renders
+the human report. GitHub publishing, fixes, approvals, and merges are separate
+consumer boundaries.
+
+Static inspection is the default. Repository guidance may recommend verification
+commands but cannot authorize them. Only the current caller or bounded user-global
+review guidance can authorize execution, after which normal agent permissions
+still apply.
+
 ## Installation ownership
 
 The installer resolves the selected harness home at runtime and stores ownership
