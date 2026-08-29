@@ -75,6 +75,16 @@ commands but cannot authorize them. Only the current caller or bounded user-glob
 review guidance can authorize execution, after which normal agent permissions
 still apply.
 
+`review-and-fix` is the local remediation consumer. It keeps each reviewer
+result as a separate neutral batch, deterministically bridges validated
+`project-review` JSON, and uses a fresh subagent only to normalize unfamiliar
+output. A second fresh context reports facts for a proposed remedy; the runtime
+helper binds those facts to the canonical batch and mechanically derives whether
+the plan is routine, needs a user decision, or requires separate authorization.
+The fixer cannot accept its own result: the same reviewer set reruns from fresh
+context, with stable fingerprints, target/reviewer drift detection, no-progress
+stopping, and a three-round limit.
+
 ## Installation ownership
 
 The installer resolves the selected harness home at runtime and stores ownership

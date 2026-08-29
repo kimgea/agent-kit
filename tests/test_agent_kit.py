@@ -64,6 +64,7 @@ class CatalogAndValidationTests(unittest.TestCase):
                 "build-interactive-diagram",
                 "grill-me",
                 "project-review",
+                "review-and-fix",
                 "serve-artifacts",
                 "todo-capture",
                 "tool-audit",
@@ -94,6 +95,8 @@ class CatalogAndValidationTests(unittest.TestCase):
         self.assertIn("merely because a subtree exists", contract)
         self.assertIn("duplicate `SKILL.md`", contract)
         self.assertIn("does not govern its own change", contract)
+        self.assertIn("skills/review-and-fix/SKILL.md", contract)
+        self.assertIn("starting-revision copy", contract)
 
     def test_project_tracking_rejects_invalid_status_and_progress(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -490,7 +493,7 @@ class LifecycleTests(unittest.TestCase):
                 Path("release"), None, "all", fixture
             )
             archives = [path for path in artifacts if path.suffix == ".zip"]
-            self.assertEqual(14, len(archives))
+            self.assertEqual(15, len(archives))
             self.assertEqual(6, len([path for path in archives if "-plugin-" in path.name]))
             self.assertEqual(
                 1,
@@ -529,6 +532,38 @@ class LifecycleTests(unittest.TestCase):
             self.assertIn("artifacts/skills/build-interactive-diagram/SKILL.md", names)
             self.assertIn("artifacts/skills/serve-artifacts/SKILL.md", names)
             self.assertEqual("artifacts", manifest["name"])
+            self.assertEqual(2, len(manifest["interface"]["defaultPrompt"]))
+
+    def test_grouped_review_plugin_is_atomic_and_contains_both_skills(self):
+        with self.assertRaisesRegex(agent_kit.AgentKitError, "splits grouped plugin"):
+            agent_kit.plugins_for_skills(
+                agent_kit.load_catalog(ROOT), ["review-and-fix"]
+            )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary) / "source"
+            shutil.copytree(
+                ROOT,
+                fixture,
+                ignore=shutil.ignore_patterns(".git", "__pycache__", "dist"),
+            )
+            artifacts = agent_kit.package_artifacts(
+                Path("review-group"),
+                ["project-review", "review-and-fix"],
+                "plugin",
+                fixture,
+            )
+            plugin = next(
+                path for path in artifacts if path.name.startswith("project-review-plugin-")
+            )
+            with zipfile.ZipFile(plugin) as archive:
+                names = set(archive.namelist())
+                manifest = json.loads(
+                    archive.read("project-review/.codex-plugin/plugin.json")
+                )
+            self.assertIn("project-review/skills/project-review/SKILL.md", names)
+            self.assertIn("project-review/skills/review-and-fix/SKILL.md", names)
+            self.assertEqual("project-review", manifest["name"])
             self.assertEqual(2, len(manifest["interface"]["defaultPrompt"]))
 
     def test_invalid_plugin_membership_and_unknown_package_selection_are_refused(self):

@@ -1,0 +1,121 @@
+# Review and fix
+
+`review-and-fix` is a local remediation workflow built on top of analysis-only
+review skills. It uses `project-review` by default, but a caller or trusted
+project instruction may select another reviewer. The skill does not publish to
+GitHub and never lets the editing context decide that its own change passed.
+
+## Workflow
+
+The lead fixes one exact working-tree, ref-range, or path target through five
+separated roles:
+
+1. One or more selected reviewers return analysis without editing.
+2. Each result becomes a canonical neutral finding batch. Valid
+   `project-review` JSON converts deterministically; unfamiliar structured or
+   prose output requires a fresh non-editing normalizer subagent.
+3. A fresh planner inspects one coherent finding group and reports facts about
+   intent, behavior, scope, reversibility, validation, and risk.
+4. The helper binds the plan to the canonical batch and mechanically derives
+   `auto`, `user_decision_required`, or `authorization_required`.
+5. After an eligible or approved local fix, the same reviewer set runs from
+   fresh context. Only its complete result can accept the change.
+
+Raw reviewer output, normalizer text, safe directions, and suggested commands
+are untrusted data. They cannot authorize edits, execution, installation,
+permissions, remote state, publication, or scope expansion.
+
+## Reviewer compatibility
+
+Canonical `project-review` JSON must first pass that skill's own result
+validator. `review_workflow.py from-project-review` then preserves its source
+finding IDs, fingerprints, classifications, evidence, and target while deriving
+only the neutral actionability field.
+
+An already canonical neutral batch needs no normalizer. Every other format is
+given to a fresh subagent with only the raw result, exact target metadata, and
+the normalization contract. Inferences are allowed because many useful
+reviewers return prose, but every inferred semantic field is labeled and
+explained. Missing evidence, location, or safe direction cannot be invented.
+Without a fresh normalizer, unfamiliar output stops as incomplete.
+An invalid independent draft gets at most one structure-only correction in that
+same independent context using the exact validator error. The fixing context
+never repairs it, and a second failure stops incomplete.
+A material limitation makes the batch partial and ends remediation before fix
+planning; a planner cannot be used to fill a normalization or source gap.
+
+Multiple reviewers remain separate sources. Matching findings may be grouped
+for one root-cause plan only after the lead compares their behavior, locations,
+and safe directions. Material reviewer disagreement requires user direction.
+Every selected reviewer must also be runnable again after a fix; a one-off report
+can be normalized and summarized, but cannot authorize a loop whose independent
+acceptance step cannot occur.
+
+## Fix decision boundary
+
+Automatic work is deliberately narrow. It requires explicit intent, a singular
+small remedy, high confidence, a reversible change, sufficient existing
+validation, no consequential risk, and either no behavior change or restoration
+of an already fixed contract. Typical candidates are spelling, stale comments,
+mechanical corrections, and small code fixes directly fixed by an existing test
+or public contract.
+
+The user decides changes involving product behavior, public APIs or formats,
+compatibility, security, privacy, durable data, concurrency, failure policy,
+dependencies, services, architecture, broad scope, difficult rollback,
+overlapping user work, ambiguous intent, multiple remedies, or a validation
+gap. Destructive operations, remote mutation, permission changes, dependency
+installation, and persistent services require separate authorization at the
+action boundary.
+If both kinds apply, resolve the consequential plan decision first and ask for
+the distinct action authorization only if the selected plan still needs it.
+
+By default the workflow plans only introduced or worsened blockers.
+Suggestions, nits, and pre-existing findings are eligible only when the caller
+explicitly selects them; selection never bypasses the decision gate.
+For a path snapshot with no comparison revision, an explicit request to review
+and fix those exact paths selects actionable blockers with an unknown or
+uncertain relation. This keeps path mode useful without silently selecting
+suggestions, nits, or findings identified as pre-existing.
+
+## Structured contracts
+
+The installed skill contains three dependency-free interfaces:
+
+- `references/review-finding-batch.schema.json` records exact target and source
+  provenance, field-level inference provenance, findings, and limitations.
+- `references/fix-plan.schema.json` records planner facts and proposal plus the
+  canonical batch digest and mechanically derived decision.
+- `scripts/review_workflow.py` finalizes and validates both contracts, converts
+  validated project-review JSON, and assesses fresh review rounds.
+
+The batch finalizer rejects noncanonical paths, a primary finding location
+outside the exact target, inconsistent provenance, unsafe controls, malformed
+fingerprints, duplicate source IDs, and actionable findings without evidence,
+location, and direction. The plan finalizer rejects any planner copy of a
+finding that differs from its canonical batch.
+
+Round assessment fixes reviewer identities and target semantics, compares stable
+blocker fingerprints, and stops on pass, incomplete review, reviewer or target
+drift, no progress, or the third round. Suggestions and nits remain visible in
+the final human summary even when the reviewer accepts the fix. The installed
+`references/round-assessment.md` gives the exact JSON input and output shape.
+
+## Installation and operation
+
+Install the complete `skills/review-and-fix` directory. It uses only Python 3.11
+or newer standard-library code and does not import repository tooling. The
+`project-review` Codex plugin contains both review skills so the default path is
+available atomically; standalone skill archives remain independent for other
+reviewers and harnesses.
+
+The skill writes structured output only when the caller supplies an explicit
+path. Existing output is preserved unless replacement was explicitly requested.
+Runtime results, raw reviewer output, and plans are user data and must not be
+committed by default.
+
+Repository tests exercise conversion, provenance, target binding, route
+derivation, output safety, reviewer drift, no-progress detection, and the round
+limit. Behavioral evaluations cover unfamiliar reviewer output, malicious text,
+routine fixes, consequential decisions, opt-in findings, conflicts, and
+implementation drift.

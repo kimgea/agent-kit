@@ -20,6 +20,7 @@ and GitHub reads require them.
 | `build-interactive-diagram` | Supported | Supported | Plain HTML/CSS/JS starter; host is optional |
 | `grill-me` | Supported | Supported | Plain Markdown; no runtime code |
 | `project-review` | Supported | Supported | Standard-library scope/result helpers; Git is needed for change scopes |
+| `review-and-fix` | Supported | Supported | Plain orchestration plus standard-library batch, plan, and round helpers; fresh subagents are required for unfamiliar prose |
 | `serve-artifacts` | Supported | Supported | Standard-library local-first host; network adapters are optional |
 | `todo-capture` | Supported | Supported | Native Windows and POSIX storage/permission fixtures |
 | `tool-audit` | Supported | Supported | Codex and Claude transcript parsers; wrapped Codex calls are conservative |
