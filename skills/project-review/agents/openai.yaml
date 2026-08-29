@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Review"
+  short_description: "Review project changes with scoped guidance"
+  default_prompt: "Use $project-review to review these changes under the applicable REVIEW.md guidance."

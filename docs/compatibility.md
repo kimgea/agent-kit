@@ -19,6 +19,7 @@ and GitHub reads require them.
 | `agent-context` | Supported | Supported | Plain Markdown plus standard-library resolver; private registry paths are OS-native |
 | `build-interactive-diagram` | Supported | Supported | Plain HTML/CSS/JS starter; host is optional |
 | `grill-me` | Supported | Supported | Plain Markdown; no runtime code |
+| `project-review` | Supported | Supported | Standard-library scope/result helpers; Git is needed for change scopes |
 | `serve-artifacts` | Supported | Supported | Standard-library local-first host; network adapters are optional |
 | `todo-capture` | Supported | Supported | Native Windows and POSIX storage/permission fixtures |
 | `tool-audit` | Supported | Supported | Codex and Claude transcript parsers; wrapped Codex calls are conservative |
@@ -45,6 +46,12 @@ advertised URLs, and Tailscale command construction are covered on Linux and Win
 CI. Linux additionally has live loopback HTTP integration tests. CI changes no real
 network configuration; provider ownership behavior uses synthetic CLI responses,
 and a maintainer performs any private-network smoke test explicitly.
+
+Project-review scope and result helpers use only Python 3.11 standard-library
+modules. Git ref and working-tree modes require Git; bounded snapshot review does
+not. Unit fixtures cover POSIX and Windows-style path rejection on all CI hosts,
+while native Git behavior runs on Ubuntu and Windows. Optional subagents change
+throughput, not the result contract.
 
 ## Installation paths
 

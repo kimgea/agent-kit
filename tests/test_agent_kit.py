@@ -63,6 +63,7 @@ class CatalogAndValidationTests(unittest.TestCase):
                 "agent-context",
                 "build-interactive-diagram",
                 "grill-me",
+                "project-review",
                 "serve-artifacts",
                 "todo-capture",
                 "tool-audit",
@@ -80,6 +81,19 @@ class CatalogAndValidationTests(unittest.TestCase):
     def test_claude_uses_native_shared_contract_import(self):
         lines = (ROOT / "CLAUDE.md").read_text(encoding="utf-8").splitlines()
         self.assertIn("@AGENTS.md", (line.strip() for line in lines))
+
+    def test_agent_contract_defaults_repository_reviews_to_project_review(self):
+        contract = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+
+        self.assertIn("skills/project-review/SKILL.md", contract)
+        self.assertIn("trusted starting revision", contract)
+        self.assertIn("do not fall back to the reviewed copy", contract)
+        self.assertIn("explicitly requests a different review method", contract)
+        self.assertIn("does not authorize verification", contract)
+        self.assertIn("durable, non-obvious acceptance", contract)
+        self.assertIn("merely because a subtree exists", contract)
+        self.assertIn("duplicate `SKILL.md`", contract)
+        self.assertIn("does not govern its own change", contract)
 
     def test_project_tracking_rejects_invalid_status_and_progress(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -476,8 +490,8 @@ class LifecycleTests(unittest.TestCase):
                 Path("release"), None, "all", fixture
             )
             archives = [path for path in artifacts if path.suffix == ".zip"]
-            self.assertEqual(12, len(archives))
-            self.assertEqual(5, len([path for path in archives if "-plugin-" in path.name]))
+            self.assertEqual(14, len(archives))
+            self.assertEqual(6, len([path for path in archives if "-plugin-" in path.name]))
             self.assertEqual(
                 1,
                 len(
