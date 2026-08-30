@@ -92,6 +92,21 @@ stopping, an explicit pass outcome, and a three-round limit. Ref ranges are
 immutable review-only snapshots; remediation uses a freshly reviewed
 working-tree or path target.
 
+`review-guidance-audit` maintains the policy layer rather than reviewing or
+fixing a change. Its current-filesystem resolver maps a caller-selected file
+part, file, directory, or project to every relevant file and the applicable
+user-global plus root-to-nearest repository guidance chain. The semantic agent
+inspects guidance and implementation independently, then reconciles usefulness,
+coverage, placement, conflicts, and context cost. A separate finalizer binds the
+result to resolver-owned target and provenance and renders human output from the
+same canonical JSON.
+
+Harness recommendations remain subordinate to guidance recommendations. A
+complete deterministic check required in the ordinary review loop may replace
+prose; slow, late, optional, or partial controls only support or narrow the
+remaining human-review rule. General harness auditing and future storage of
+review-cycle pain-point evidence remain separate adapter and skill boundaries.
+
 ## Installation ownership
 
 The installer resolves the selected harness home at runtime and stores ownership

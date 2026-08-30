@@ -4,6 +4,25 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
+## 1.6.0 - 2026-08-30
+
+### Added
+
+- Add the independently installable, analysis-only `review-guidance-audit`
+  skill for auditing hierarchical `REVIEW.md` usefulness, coverage, placement,
+  conflicts, and context bloat across file-part, file, directory, and project
+  scopes.
+- Add lead-bound canonical JSON, deterministic human rendering, context and
+  inheritance metrics, nested guidance-specific harness proposals, unit and
+  boundary tests, behavioral evaluations, and future storage-neutral
+  review-cycle evidence guidance.
+
+### Fixed
+
+- Preserve independent standalone skill packaging for a selected skill even
+  when its optional Codex plugin groups it with related skills; plugin and
+  all-format selection remain atomic at the plugin boundary.
+
 ## 1.5.0 - 2026-08-29
 
 ### Added

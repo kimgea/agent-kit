@@ -1,0 +1,152 @@
+[
+  {
+    "id": "hierarchical-file-audit",
+    "prompt": "Use review-guidance-audit on services/billing/ledger.py. Root REVIEW.md covers public compatibility, services/REVIEW.md covers tenant isolation, and services/billing/REVIEW.md covers ledger balance. Return the normal human report.",
+    "expected": "Resolve all three repository guidance files in broad-to-specific order, inspect the entire target file and bounded related evidence, and render recommendations from a validated canonical result.",
+    "must_not": [
+      "Apply a sibling REVIEW.md",
+      "Edit any file",
+      "Return freeform prose that was not derived from canonical JSON"
+    ]
+  },
+  {
+    "id": "focused-symbol-scope",
+    "prompt": "Audit the retry_payment function at payments/client.py lines 80 through 125. Its file contains unrelated token-refresh logic.",
+    "expected": "Resolve guidance for payments/client.py, preserve the exact part range as the target focus, use related code only as context, and keep recommendations tied to review guidance affecting retry_payment.",
+    "must_not": [
+      "Turn the entire file into the semantic target",
+      "Recommend policy for unrelated token refresh code",
+      "Lose the requested line range"
+    ]
+  },
+  {
+    "id": "recursive-directory-coverage",
+    "prompt": "Audit REVIEW.md guidance for the entire parser/ directory, which has source, fixtures, generated snapshots, and a nested protocol/REVIEW.md.",
+    "expected": "Resolve every relevant file recursively, apply the proper chain per file, inspect or explicitly exclude every resolved file, and make material omissions produce INCOMPLETE.",
+    "must_not": [
+      "Sample only one convenient file",
+      "Apply protocol guidance outside protocol/",
+      "Hide excluded files"
+    ]
+  },
+  {
+    "id": "move-narrow-root-rule",
+    "prompt": "Root REVIEW.md contains a detailed rule about Stripe webhook replay, but only payments/stripe/webhook.py and its sibling handler implement Stripe. Audit the project.",
+    "expected": "Recommend moving the narrow rule to the closest useful shared ancestor, preserve coverage for affected Stripe paths, explain root inheritance fanout and savings, and keep intent preserved when wording is unchanged.",
+    "must_not": [
+      "Leave narrow details at root without analysis",
+      "Move the rule below one of the affected siblings",
+      "Claim unrelated project files need the Stripe rule"
+    ]
+  },
+  {
+    "id": "duplicate-inherited-guidance",
+    "prompt": "Root REVIEW.md says stable event names are wire contracts. events/REVIEW.md repeats the same sentence and then adds event-specific schema rules.",
+    "expected": "Recommend removing or merging only the inherited duplicate, retain the event-specific rule, mark intent preserved, and estimate the directly measurable savings.",
+    "must_not": [
+      "Remove the unique schema rule",
+      "Call deduplication a new policy decision",
+      "Ignore inherited context"
+    ]
+  },
+  {
+    "id": "small-but-useless-guidance",
+    "prompt": "A 90-word REVIEW.md says to write good code, use clear names, read files before editing, and check for bugs. Its governed code has no specialized invariant.",
+    "expected": "Consider removal despite the small size, explain that generic agent behavior adds no review signal, and avoid inventing replacement policy.",
+    "must_not": [
+      "Keep text solely because it is below a word threshold",
+      "Invent a hard context budget",
+      "Create a new nested REVIEW.md"
+    ]
+  },
+  {
+    "id": "missing-rule-from-existing-contract",
+    "prompt": "The public API specification and compatibility tests require stable enum wire values, but the applicable REVIEW.md discusses only naming style. Audit api/enums.py.",
+    "expected": "Propose concise guidance for the evidenced compatibility invariant, cite the specification and tests, place it at the closest useful ancestor, and mark it ready because existing contracts fix the intent.",
+    "must_not": [
+      "Present the invariant as unsupported opinion",
+      "Place a file-specific rule at repository root",
+      "Edit REVIEW.md"
+    ]
+  },
+  {
+    "id": "new-security-policy-needs-decision",
+    "prompt": "No current contract defines session duration. While auditing auth/REVIEW.md, the reviewer thinks sessions should expire after 15 minutes instead of 24 hours.",
+    "expected": "Treat the proposed duration as new security and product policy, set decision_required with changed intent, and distinguish it from evidence-backed cleanup.",
+    "must_not": [
+      "Establish the 15-minute value as existing policy",
+      "Mark the change ready because it sounds safer",
+      "Modify authentication configuration"
+    ]
+  },
+  {
+    "id": "fast-check-replaces-rule",
+    "prompt": "REVIEW.md instructs reviewers to verify a manifest's deterministic key ordering manually. A fast deterministic required validator runs locally in every review and completely rejects wrong ordering with an actionable message.",
+    "expected": "Recommend removing or rewriting the redundant manual rule and nest a replace harness record with complete coverage, review-loop timing, required enforcement, and deterministic behavior.",
+    "must_not": [
+      "Emit the validator as a freestanding harness proposal",
+      "Retain redundant manual steps without reason",
+      "Claim replacement without tying it to the exact rule"
+    ]
+  },
+  {
+    "id": "slow-test-supports-rule",
+    "prompt": "REVIEW.md asks reviewers to inspect migration rollback compatibility. A full integration test covers rollback but runs only in the pre-deployment suite because it takes 45 minutes.",
+    "expected": "Retain or compact the review-time rule and nest the integration test as support rather than replacement because its feedback is late and slow.",
+    "must_not": [
+      "Remove the rule merely because a test exists",
+      "Label the pre-deployment test review_loop",
+      "Recommend unrelated integration improvements"
+    ]
+  },
+  {
+    "id": "partial-linter-coverage",
+    "prompt": "A linter detects direct SQL string concatenation, while REVIEW.md also requires authenticated tenant scoping and transaction-boundary reasoning.",
+    "expected": "Rewrite the guidance only if it can remove the automated syntax portion, retain tenant and transaction judgment, and describe the linter as partially_cover.",
+    "must_not": [
+      "Claim the linter fully enforces tenant isolation",
+      "Remove the entire review rule",
+      "Report the linter independently of the guidance change"
+    ]
+  },
+  {
+    "id": "unrelated-harness-gap-omitted",
+    "prompt": "While auditing docs/REVIEW.md wording, the agent notices the repository has no load tests for an unrelated queue service.",
+    "expected": "Omit the unrelated load-test gap because it does not replace, partially cover, or support a guidance recommendation in the selected scope.",
+    "must_not": [
+      "Add a freestanding load-test recommendation",
+      "Expand the target to the queue service",
+      "Hide a scope expansion inside context paths"
+    ]
+  },
+  {
+    "id": "conflicting-hierarchy",
+    "prompt": "Root REVIEW.md says all public parse failures must fail closed. legacy/REVIEW.md says malformed legacy input should silently fall back, while existing public docs and tests disagree with each other.",
+    "expected": "Apply local precedence for describing the current chain but report conflicting durable evidence, require a policy decision before proposing changed intent, and avoid asserting either behavior as established.",
+    "must_not": [
+      "Resolve the product conflict solely by path proximity",
+      "Mark a behavior-changing rewrite ready",
+      "Discard contradictory evidence"
+    ]
+  },
+  {
+    "id": "json-consumer-output",
+    "prompt": "Another local skill requests a structured review-guidance audit of src/. Persist the result to an explicit new temporary path for later processing.",
+    "expected": "Produce schema-valid canonical JSON bound to resolver-owned scope and provenance, use exclusive output creation, and include no independent prose interpretation.",
+    "must_not": [
+      "Let the semantic draft supply target metadata",
+      "Overwrite an existing path without explicit replacement",
+      "Edit the canonical JSON after finalization"
+    ]
+  },
+  {
+    "id": "future-painpoint-data-not-yet-supported",
+    "prompt": "A directory contains an ad hoc JSON export of past review pain points. Use it automatically to add REVIEW.md rules during this v1 audit.",
+    "expected": "Explain that review-cycle evidence ingestion is a documented future storage-neutral extension, do not treat the ad hoc export as canonical authority, and complete the ordinary current-evidence audit without it when possible.",
+    "must_not": [
+      "Infer an undocumented evidence schema",
+      "Turn historical pain points into policy automatically",
+      "Search GitHub or another storage service"
+    ]
+  }
+]

@@ -1,5 +1,5 @@
 schema_version = 2
-toolkit_version = "1.5.0"
+toolkit_version = "1.6.0"
 minimum_python = "3.11"
 
 [plugin_marketplace]
@@ -42,17 +42,18 @@ authentication = "ON_INSTALL"
 
 [[plugins]]
 id = "project-review"
-skills = ["project-review", "review-and-fix"]
+skills = ["project-review", "review-and-fix", "review-guidance-audit"]
 category = "Developer Tools"
 installation = "AVAILABLE"
 authentication = "ON_INSTALL"
-version = "1.1.0"
-description = "Review bounded project changes, safely plan local remedies, and fix only routine or explicitly approved findings."
+version = "1.2.0"
+description = "Review bounded project changes, safely remediate findings, and improve the hierarchical guidance used by reviewers."
 display_name = "Project Review Workflow"
-short_description = "Review and safely fix bounded local changes"
+short_description = "Review, remediate, and improve review guidance"
 default_prompts = [
   "Use $project-review to review these bounded project changes.",
   "Use $review-and-fix to review and safely fix these local changes.",
+  "Use $review-guidance-audit to improve the applicable REVIEW.md guidance.",
 ]
 
 [[plugins]]
@@ -148,6 +149,22 @@ data_sensitivity = "repository source, reviewer output, normalized findings, and
 docs = "docs/review-and-fix.md"
 tests = ["tests/test_review_and_fix.py", "tests/test_agent_kit.py"]
 evals = "evals/review-and-fix/cases.json"
+
+[[resources]]
+id = "review-guidance-audit"
+kind = "skill"
+path = "skills/review-guidance-audit"
+version = "1.0.0"
+summary = "Audit hierarchical REVIEW.md guidance for useful, compact, correctly placed review policy."
+agents = ["codex", "claude"]
+platforms = ["linux", "windows", "macos"]
+maturity = "beta"
+installable = true
+setup_requires_approval = false
+data_sensitivity = "repository source, active-agent review guidance, context metrics, and generated recommendations"
+docs = "docs/review-guidance-audit.md"
+tests = ["tests/test_review_guidance_audit.py", "tests/test_agent_kit.py"]
+evals = "evals/review-guidance-audit/cases.json"
 
 [[resources]]
 id = "serve-artifacts"

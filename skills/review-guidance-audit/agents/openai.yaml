@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Guidance Audit"
+  short_description: "Improve hierarchical review guidance safely"
+  default_prompt: "Use $review-guidance-audit to analyze the applicable REVIEW.md guidance and recommend bounded improvements."
