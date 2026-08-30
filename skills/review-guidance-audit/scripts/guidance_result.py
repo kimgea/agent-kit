@@ -198,7 +198,7 @@ def _integer(value: Any, label: str, minimum: int, maximum: int) -> int:
 
 
 def _enum(value: Any, label: str, choices: set[str] | tuple[str, ...]) -> str:
-    if value not in choices:
+    if not isinstance(value, str) or value not in choices:
         raise ResultError(f"{label} must be one of {sorted(choices)}")
     return value
 
@@ -352,7 +352,11 @@ def _validate_context(value: Any) -> dict[str, Any]:
             raise ResultError("each target file must have exactly one guidance chain")
         guided.update(applies)
         sources = _array(chain["sources"], f"{label}.sources", 256)
-        if not sources or sources[0].get("source_kind") != "skill":
+        if (
+            not sources
+            or not isinstance(sources[0], dict)
+            or sources[0].get("source_kind") != "skill"
+        ):
             raise ResultError(f"{label}.sources must begin with the skill contract")
         previous_depth = -2
         seen_source_identities: set[tuple[str, str, str]] = set()

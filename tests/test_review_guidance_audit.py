@@ -628,6 +628,35 @@ class GuidanceResultTests(unittest.TestCase):
             ):
                 guidance_result.render_human(truthy_strings)
 
+    def test_cli_rejects_malformed_json_shapes_without_tracebacks(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "project"
+            root.mkdir()
+            context = self.make_context(root)
+            result = guidance_result.finalize(context, draft_for(context))
+            malformed_results = []
+
+            unhashable_status = copy.deepcopy(result)
+            unhashable_status["status"] = []
+            malformed_results.append(unhashable_status)
+
+            non_object_source = copy.deepcopy(result)
+            non_object_source["guidance"][0]["sources"][0] = []
+            malformed_results.append(non_object_source)
+
+            for index, malformed in enumerate(malformed_results):
+                with self.subTest(index=index):
+                    input_path = Path(temporary) / f"malformed-{index}.json"
+                    input_path.write_text(json.dumps(malformed), encoding="utf-8")
+                    stderr = io.StringIO()
+                    with contextlib.redirect_stderr(stderr):
+                        exit_code = guidance_result.main(
+                            ["validate", "--input", str(input_path)]
+                        )
+                    self.assertEqual(2, exit_code)
+                    self.assertIn("review-guidance result:", stderr.getvalue())
+                    self.assertNotIn("Traceback", stderr.getvalue())
+
     def test_draft_cannot_supply_target_or_status(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
