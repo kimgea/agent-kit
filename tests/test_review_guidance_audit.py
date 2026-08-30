@@ -636,7 +636,7 @@ class GuidanceResultTests(unittest.TestCase):
             self.assertLess(raw_bytes, escaped_bytes)
 
             input_path = Path(temporary) / "raw-result.json"
-            input_path.write_text(raw_text + "\n", encoding="utf-8")
+            input_path.write_bytes((raw_text + "\n").encode("utf-8"))
             output_path = Path(temporary) / "rendered-result.json"
             original_ceiling = guidance_result.MAX_JSON_BYTES
             try:
