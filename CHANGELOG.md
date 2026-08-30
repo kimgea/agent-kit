@@ -30,6 +30,9 @@ in `toolkit.toml`.
   manifest-controlled commands, validators, schemas, binaries, unsafe paths,
   duplicate JSON, target/provenance drift, forbidden command execution, and
   audited-fixture mutation.
+- Freeze and digest exact run inputs before case execution, reject symlinked
+  ancestors and Windows reparse inputs, use a Windows-aware Codex launcher, and
+  terminate the complete agent process tree on timeout.
 
 ## 1.6.0 - 2026-08-30
 

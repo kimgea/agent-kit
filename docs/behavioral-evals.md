@@ -38,6 +38,13 @@ target before invoking the agent and keeps that context as lead-owned authority.
 Afterward it verifies canonical validity, exact target and guidance provenance,
 fixture content, hidden assertions, and prohibited command execution.
 
+Before the first case, the harness freezes the parsed suite, every selected
+fixture, the complete evaluated skill, the fixed output envelope, its own source
+digest, and one discovered Codex launcher/version descriptor. Every case is
+materialized only from those snapshots. Input traversal rejects symlinked
+ancestors and Windows reparse points. A timeout terminates and reaps the complete
+POSIX process group or Windows process tree before mutation checks continue.
+
 Codex inference normally uses an external model service and may consume the
 user's allowance or API billing. The command is never run by the canonical gate,
 commit hooks, packaging, GitHub Actions, or release automation.
@@ -56,10 +63,9 @@ Local runs create a new ignored directory under `.eval-results/` by default:
         └── score.json
 ```
 
-The summary binds the observation to the suite digest, installed skill digest,
-harness digest, Codex version, explicit model, reasoning effort, and individual
-case outcomes. Case records preserve canonical context and output plus
-per-assertion grading. Raw
+The summary binds the observation to the frozen suite, skill, harness, runner,
+Codex version, explicit model, reasoning effort, and each fixture digest. Case
+records preserve canonical context and output plus per-assertion grading. Raw
 event streams, stderr, prompts, and reasoning are not retained.
 
 Results are local evidence, not universal proof. A useful claim names the exact

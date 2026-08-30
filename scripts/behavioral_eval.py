@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 import re
 import shutil
 import shlex
+import signal
 import stat
 import subprocess
 import sys
@@ -29,6 +30,7 @@ MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_RESULT_BYTES = 16 * 1024 * 1024
 MAX_ENVELOPE_BYTES = 32 * 1024 * 1024
 MAX_EVENT_BYTES = 32 * 1024 * 1024
+MAX_RUNNER_BYTES = 512 * 1024 * 1024
 MAX_FIXTURE_FILES = 1000
 MAX_FIXTURE_FILE_BYTES = 2 * 1024 * 1024
 MAX_FIXTURE_BYTES = 16 * 1024 * 1024
@@ -64,6 +66,7 @@ def _reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def _read_bytes(path: Path, label: str, ceiling: int) -> bytes:
+    _assert_no_link_components(path, include_final=True)
     try:
         metadata = path.lstat()
     except OSError as exc:
@@ -92,6 +95,34 @@ def _load_json(path: Path, label: str, ceiling: int = MAX_RESULT_BYTES) -> Any:
         return json.loads(data.decode("utf-8"), object_pairs_hook=_reject_duplicates)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise EvalError(f"invalid UTF-8 JSON in {label}: {exc}") from exc
+
+
+def _sha256_file(path: Path, label: str, ceiling: int) -> str:
+    _assert_no_link_components(path, include_final=True)
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise EvalError(f"cannot inspect {label}: {exc}") from exc
+    if _metadata_is_link_like(metadata) or not stat.S_ISREG(metadata.st_mode):
+        raise EvalError(f"{label} must be a regular non-link file")
+    if metadata.st_size > ceiling:
+        raise EvalError(f"{label} exceeds the {ceiling}-byte limit")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    digest = hashlib.sha256()
+    total = 0
+    try:
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                total += len(chunk)
+                if total > ceiling:
+                    raise EvalError(f"{label} exceeds the {ceiling}-byte limit")
+                digest.update(chunk)
+    except OSError as exc:
+        raise EvalError(f"cannot read {label}: {exc}") from exc
+    return digest.hexdigest()
 
 
 def _canonical_json(value: Any) -> bytes:
@@ -165,6 +196,10 @@ def _is_link_like(path: Path) -> bool:
         metadata = path.lstat()
     except OSError:
         return False
+    return _metadata_is_link_like(metadata)
+
+
+def _metadata_is_link_like(metadata: os.stat_result | Any) -> bool:
     if stat.S_ISLNK(metadata.st_mode):
         return True
     reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
@@ -185,8 +220,10 @@ def _assert_no_link_components(path: Path, *, include_final: bool) -> None:
 def _load_catalog(root: Path) -> dict[str, Any]:
     path = root / "toolkit.toml"
     try:
-        return tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        return tomllib.loads(
+            _read_bytes(path, "toolkit catalog", MAX_MANIFEST_BYTES).decode("utf-8")
+        )
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         raise EvalError(f"cannot load toolkit catalog: {exc}") from exc
 
 
@@ -283,10 +320,18 @@ def _validate_assertion(value: Any, label: str) -> dict[str, Any]:
     return item
 
 
-def load_suite(root: Path, suite_id: str) -> dict[str, Any]:
+def _load_suite_bundle(
+    root: Path, suite_id: str
+) -> tuple[dict[str, Any], Path, bytes]:
     _validate_agent_envelope_schema(root)
     path = _suite_path(root, suite_id)
-    value = _load_json(path, "behavioral suite", MAX_MANIFEST_BYTES)
+    source_bytes = _read_bytes(path, "behavioral suite", MAX_MANIFEST_BYTES)
+    try:
+        value = json.loads(
+            source_bytes.decode("utf-8"), object_pairs_hook=_reject_duplicates
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise EvalError(f"invalid UTF-8 JSON in behavioral suite: {exc}") from exc
     suite = _object(
         value,
         "suite",
@@ -309,8 +354,7 @@ def load_suite(root: Path, suite_id: str) -> dict[str, Any]:
     if contract is None or contract["skill"] != skill:
         raise EvalError("suite selects an unsupported result contract")
     for label, contract_path in _contract(suite, root).items():
-        if not contract_path.is_file() or contract_path.is_symlink():
-            raise EvalError(f"result contract {label} is not a regular file")
+        _read_bytes(contract_path, f"result contract {label}", MAX_RESULT_BYTES)
     defaults = suite["default_assertions"]
     if not isinstance(defaults, list) or len(defaults) > MAX_ASSERTIONS:
         raise EvalError("suite.default_assertions must be a bounded array")
@@ -369,40 +413,58 @@ def load_suite(root: Path, suite_id: str) -> dict[str, Any]:
         if fixture_root not in fixture_path.parents:
             raise EvalError(f"fixture is outside the suite fixture root: {fixture}")
         snapshot_fixture(fixture_path)
-    return suite
+    return suite, path, source_bytes
+
+
+def load_suite(root: Path, suite_id: str) -> dict[str, Any]:
+    return _load_suite_bundle(root, suite_id)[0]
 
 
 def snapshot_fixture(root: Path) -> dict[str, dict[str, Any]]:
+    _assert_no_link_components(root, include_final=True)
     try:
         metadata = root.lstat()
     except OSError as exc:
         raise EvalError(f"cannot inspect fixture {root}: {exc}") from exc
-    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+    if _metadata_is_link_like(metadata) or not stat.S_ISDIR(metadata.st_mode):
         raise EvalError(f"fixture must be a regular non-link directory: {root}")
     snapshot: dict[str, dict[str, Any]] = {}
     total = 0
-    for path in sorted(root.rglob("*")):
-        relative = path.relative_to(root).as_posix()
-        _relative_path(relative, "fixture entry")
-        info = path.lstat()
-        if stat.S_ISLNK(info.st_mode):
-            raise EvalError(f"fixture contains a link-like entry: {relative}")
-        if stat.S_ISDIR(info.st_mode):
-            continue
-        if not stat.S_ISREG(info.st_mode):
-            raise EvalError(f"fixture contains a non-regular entry: {relative}")
-        if len(snapshot) >= MAX_FIXTURE_FILES:
-            raise EvalError("fixture has too many files")
-        data = _read_bytes(path, f"fixture file {relative}", MAX_FIXTURE_FILE_BYTES)
-        total += len(data)
-        if total > MAX_FIXTURE_BYTES:
-            raise EvalError("fixture exceeds the total byte limit")
-        snapshot[relative] = {
-            "sha256": hashlib.sha256(data).hexdigest(),
-            "bytes": len(data),
-            "mode": stat.S_IMODE(info.st_mode),
-            "data": data,
-        }
+    pending = [root]
+    while pending:
+        directory = pending.pop()
+        try:
+            with os.scandir(directory) as iterator:
+                entries = sorted(iterator, key=lambda entry: entry.name)
+        except OSError as exc:
+            raise EvalError(f"cannot inspect fixture directory {directory}: {exc}") from exc
+        for entry in entries:
+            path = Path(entry.path)
+            relative = path.relative_to(root).as_posix()
+            _relative_path(relative, "fixture entry")
+            try:
+                info = entry.stat(follow_symlinks=False)
+            except OSError as exc:
+                raise EvalError(f"cannot inspect fixture entry {relative}: {exc}") from exc
+            if _metadata_is_link_like(info) or _is_link_like(path):
+                raise EvalError(f"fixture contains a link-like entry: {relative}")
+            if stat.S_ISDIR(info.st_mode):
+                pending.append(path)
+                continue
+            if not stat.S_ISREG(info.st_mode):
+                raise EvalError(f"fixture contains a non-regular entry: {relative}")
+            if len(snapshot) >= MAX_FIXTURE_FILES:
+                raise EvalError("fixture has too many files")
+            data = _read_bytes(path, f"fixture file {relative}", MAX_FIXTURE_FILE_BYTES)
+            total += len(data)
+            if total > MAX_FIXTURE_BYTES:
+                raise EvalError("fixture exceeds the total byte limit")
+            snapshot[relative] = {
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "bytes": len(data),
+                "mode": stat.S_IMODE(info.st_mode),
+                "data": data,
+            }
     if not snapshot:
         raise EvalError(f"fixture must contain at least one file: {root}")
     return snapshot
@@ -436,6 +498,12 @@ def _materialize_snapshot(
 
 
 def materialize_skill(source: Path, destination: Path) -> dict[str, dict[str, Any]]:
+    snapshot = skill_snapshot(source)
+    _materialize_snapshot(snapshot, destination)
+    return snapshot
+
+
+def skill_snapshot(source: Path) -> dict[str, dict[str, Any]]:
     snapshot = {
         path: item
         for path, item in snapshot_fixture(source).items()
@@ -443,8 +511,21 @@ def materialize_skill(source: Path, destination: Path) -> dict[str, dict[str, An
     }
     if not snapshot:
         raise EvalError("evaluated skill has no distributable files")
-    _materialize_snapshot(snapshot, destination)
     return snapshot
+
+
+def _snapshot_digest(snapshot: dict[str, dict[str, Any]]) -> str:
+    return _sha256_json(
+        [
+            (
+                relative,
+                item["sha256"],
+                item["bytes"],
+                item["mode"],
+            )
+            for relative, item in sorted(snapshot.items())
+        ]
+    )
 
 
 def _case_by_id(suite: dict[str, Any], case_id: str) -> dict[str, Any]:
@@ -508,9 +589,12 @@ def resolve_context(
 
 
 def validate_result_contract(
-    suite: dict[str, Any], result_path: Path, root: Path
+    suite: dict[str, Any],
+    result_path: Path,
+    root: Path,
+    runtime_skill: Path | None = None,
 ) -> tuple[bool, str]:
-    contract = _contract(suite, root)
+    contract = _contract(suite, root, runtime_skill)
     try:
         completed = subprocess.run(
             [
@@ -672,10 +756,13 @@ def grade_case(
     result_path: Path,
     root: Path,
     *,
+    runtime_skill: Path | None = None,
     mutation_free: bool | None,
     forbidden_commands: list[str] | None,
 ) -> dict[str, Any]:
-    contract_ok, contract_message = validate_result_contract(suite, result_path, root)
+    contract_ok, contract_message = validate_result_contract(
+        suite, result_path, root, runtime_skill
+    )
     binding_ok, binding_message = _bind_result(context, result)
     fixture_context_ok = _normalize_context_root(context) == _normalize_context_root(
         expected_context
@@ -878,6 +965,91 @@ Request:
 """
 
 
+def _codex_command_prefix(
+    launcher: Path, platform: str, command_processor: Path | None = None
+) -> tuple[list[str], str]:
+    if platform == "nt" and launcher.suffix.casefold() in {".bat", ".cmd"}:
+        if command_processor is None:
+            raise EvalError("Windows batch launch requires a command processor")
+        return (
+            [
+                str(command_processor),
+                "/d",
+                "/s",
+                "/c",
+                str(launcher),
+            ],
+            "windows-batch",
+        )
+    return [str(launcher)], "native"
+
+
+def discover_codex_runner() -> dict[str, Any]:
+    names = ("codex.exe", "codex") if os.name == "nt" else ("codex",)
+    discovered = None
+    for name in names:
+        discovered = shutil.which(name)
+        if discovered:
+            break
+    if discovered is None:
+        raise EvalError("Codex CLI is not installed")
+    candidate = Path(discovered).absolute()
+    suffix = candidate.suffix.casefold()
+    if os.name == "nt" and suffix in {".bat", ".cmd"}:
+        _assert_no_link_components(candidate, include_final=True)
+        launcher = candidate
+        raw_executor = os.environ.get("COMSPEC") or shutil.which("cmd.exe")
+        if not raw_executor:
+            raise EvalError("Windows command processor is unavailable")
+        try:
+            executor = Path(raw_executor).resolve(strict=True)
+        except OSError as exc:
+            raise EvalError(f"cannot resolve Windows command processor: {exc}") from exc
+        command, kind = _codex_command_prefix(launcher, os.name, executor)
+    else:
+        try:
+            launcher = candidate.resolve(strict=True)
+        except OSError as exc:
+            raise EvalError(f"cannot resolve Codex launcher: {exc}") from exc
+        _assert_no_link_components(launcher, include_final=True)
+        if os.name == "nt" and launcher.suffix.casefold() not in {".com", ".exe"}:
+            raise EvalError("Codex launcher must be a Windows executable or batch file")
+        command, kind = _codex_command_prefix(launcher, os.name)
+    components = [
+        ("launcher", _sha256_file(launcher, "Codex launcher", MAX_RUNNER_BYTES))
+    ]
+    if os.name == "nt" and suffix in {".bat", ".cmd"}:
+        components.append(
+            (
+                "command-processor",
+                _sha256_file(executor, "Windows command processor", MAX_RUNNER_BYTES),
+            )
+        )
+    runner_sha256 = _sha256_json(components)
+    try:
+        completed = subprocess.run(
+            [*command, "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise EvalError(f"cannot inspect Codex version: {exc}") from exc
+    if completed.returncode != 0:
+        message = completed.stderr.decode("utf-8", "replace")[:1000].strip()
+        raise EvalError(message or "Codex version command failed")
+    version = completed.stdout.decode("utf-8", "replace").strip()
+    if not version or CONTROL.search(version) or len(version.encode("utf-8")) > 1000:
+        raise EvalError("Codex version output is invalid")
+    return {
+        "command": command,
+        "kind": kind,
+        "sha256": runner_sha256,
+        "version": version,
+    }
+
+
 def build_codex_command(
     suite: dict[str, Any],
     fixture: Path,
@@ -886,15 +1058,14 @@ def build_codex_command(
     root: Path,
     model: str,
     reasoning_effort: str,
+    runner: dict[str, Any] | None = None,
 ) -> list[str]:
-    codex = shutil.which("codex")
-    if codex is None:
-        raise EvalError("Codex CLI is not installed")
+    runner = runner or discover_codex_runner()
     output_schema = _validate_agent_envelope_schema_path(
         work / "agent-result.schema.json"
     )
     command = [
-        codex,
+        *runner["command"],
         "exec",
         "--ephemeral",
         "--ignore-user-config",
@@ -929,6 +1100,41 @@ def build_codex_command(
     return command
 
 
+def _terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
+    if os.name == "nt":
+        try:
+            completed = subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=30,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            process.kill()
+            process.communicate()
+            raise EvalError(f"could not terminate the Codex process tree: {exc}") from exc
+        if completed.returncode != 0 and process.poll() is None:
+            process.kill()
+            process.communicate()
+            raise EvalError("could not terminate the Codex process tree")
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError as exc:
+            process.kill()
+            process.communicate()
+            raise EvalError(f"could not terminate the Codex process group: {exc}") from exc
+    try:
+        process.communicate(timeout=30)
+    except subprocess.TimeoutExpired as exc:
+        process.kill()
+        process.communicate()
+        raise EvalError("Codex process tree did not exit after termination") from exc
+
+
 def _run_codex(
     suite: dict[str, Any],
     case: dict[str, Any],
@@ -942,27 +1148,33 @@ def _run_codex(
     model: str,
     reasoning_effort: str,
     timeout: int,
+    runner: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     command = build_codex_command(
-        suite, fixture, work, result, root, model, reasoning_effort
+        suite, fixture, work, result, root, model, reasoning_effort, runner
     )
     prompt = _runner_prompt(suite, case, fixture, work, runtime_skill)
     started = dt.datetime.now(dt.timezone.utc)
     timed_out = False
     with events.open("wb") as stdout_handle, errors.open("wb") as stderr_handle:
+        isolation = (
+            {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+            if os.name == "nt"
+            else {"start_new_session": True}
+        )
         process = subprocess.Popen(
             command,
             cwd=root,
             stdin=subprocess.PIPE,
             stdout=stdout_handle,
             stderr=stderr_handle,
+            **isolation,
         )
         try:
             process.communicate(prompt.encode("utf-8"), timeout=timeout)
         except subprocess.TimeoutExpired:
             timed_out = True
-            process.kill()
-            process.communicate()
+            _terminate_process_tree(process)
     finished = dt.datetime.now(dt.timezone.utc)
     if events.stat().st_size > MAX_EVENT_BYTES:
         raise EvalError("Codex event stream exceeds the size limit")
@@ -993,18 +1205,9 @@ def _run_directory(parent: Path, suite_id: str) -> Path:
     return path
 
 
-def _skill_digest(suite: dict[str, Any], root: Path) -> str:
-    skill_root = root / "skills" / suite["skill"]
-    values: list[tuple[str, str]] = []
-    for path in sorted(skill_root.rglob("*")):
-        if path.is_file() and not path.is_symlink():
-            data = _read_bytes(path, "skill file", MAX_RESULT_BYTES)
-            values.append((path.relative_to(skill_root).as_posix(), hashlib.sha256(data).hexdigest()))
-    return _sha256_json(values)
-
-
 def command_check(args: argparse.Namespace) -> int:
-    root = Path(args.root).resolve() if args.root else ROOT
+    root = Path(args.root).absolute() if args.root else ROOT
+    _assert_no_link_components(root, include_final=True)
     suite = load_suite(root, args.suite)
     print(f"valid behavioral suite: {suite['suite']} ({len(suite['cases'])} cases)")
     return 0
@@ -1044,7 +1247,7 @@ def command_grade(args: argparse.Namespace) -> int:
 
 
 def command_run(args: argparse.Namespace) -> int:
-    suite = load_suite(ROOT, args.suite)
+    suite, manifest, suite_bytes = _load_suite_bundle(ROOT, args.suite)
     if args.runner != "codex":
         raise EvalError("the only direct runner in v1 is codex")
     selected = (
@@ -1058,7 +1261,23 @@ def command_run(args: argparse.Namespace) -> int:
     output_parent = Path(args.output_dir).absolute() if args.output_dir else ROOT / ".eval-results"
     run_directory = _run_directory(output_parent, suite["suite"])
     run_results: list[dict[str, Any]] = []
-    manifest = _suite_path(ROOT, suite["suite"])
+    envelope_schema = _load_json(
+        _validate_agent_envelope_schema(ROOT),
+        "behavioral agent result schema",
+        65536,
+    )
+    frozen_skill = skill_snapshot(ROOT / "skills" / suite["skill"])
+    frozen_fixtures = {
+        case["id"]: snapshot_fixture(manifest.parent / case["fixture"])
+        for case in selected
+    }
+    runner = discover_codex_runner()
+    harness_bytes = _read_bytes(
+        Path(__file__).resolve(), "behavioral evaluation harness", MAX_RESULT_BYTES
+    )
+    skill_sha256 = _snapshot_digest(frozen_skill)
+    suite_sha256 = hashlib.sha256(suite_bytes).hexdigest()
+    harness_sha256 = hashlib.sha256(harness_bytes).hexdigest()
     for index, case in enumerate(selected, start=1):
         print(
             f"[{index}/{len(selected)}] {case['id']}: running",
@@ -1075,15 +1294,10 @@ def command_run(args: argparse.Namespace) -> int:
             skill_parent = base / "evaluated-skill"
             skill_parent.mkdir(mode=0o700)
             runtime_skill = skill_parent / suite["skill"]
-            materialize_skill(ROOT / "skills" / suite["skill"], runtime_skill)
-            envelope_schema = _load_json(
-                _validate_agent_envelope_schema(ROOT),
-                "behavioral agent result schema",
-                65536,
-            )
+            _materialize_snapshot(frozen_skill, runtime_skill)
             _write_new_json(work / "agent-result.schema.json", envelope_schema)
-            source = manifest.parent / case["fixture"]
-            before = materialize_fixture(source, fixture)
+            before = frozen_fixtures[case["id"]]
+            _materialize_snapshot(before, fixture)
             context_path = work / "context.json"
             context = resolve_context(
                 suite, case, fixture, context_path, ROOT, runtime_skill
@@ -1107,6 +1321,7 @@ def command_run(args: argparse.Namespace) -> int:
                 args.model,
                 args.reasoning_effort,
                 timeout,
+                runner,
             )
             isolation_errors: list[str] = []
             try:
@@ -1159,6 +1374,7 @@ def command_run(args: argparse.Namespace) -> int:
                         result,
                         canonical_path,
                         ROOT,
+                        runtime_skill=runtime_skill,
                         mutation_free=mutation_free and context_unchanged,
                         forbidden_commands=forbidden,
                     )
@@ -1193,6 +1409,7 @@ def command_run(args: argparse.Namespace) -> int:
             if isolation_errors:
                 report["isolation_errors"] = isolation_errors
                 report["passed"] = False
+            report["fixture_sha256"] = _snapshot_digest(before)
             report["execution"] = execution
             _write_new_json(case_directory / "score.json", report)
             run_results.append(report)
@@ -1208,26 +1425,22 @@ def command_run(args: argparse.Namespace) -> int:
         "runner": "codex",
         "model": args.model,
         "reasoning_effort": args.reasoning_effort,
-        "codex_version": subprocess.run(
-            [shutil.which("codex") or "codex", "--version"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            timeout=10,
-            check=False,
-        ).stdout.strip(),
-        "skill_sha256": _skill_digest(suite, ROOT),
-        "harness_sha256": hashlib.sha256(
-            _read_bytes(Path(__file__).resolve(), "behavioral evaluation harness", MAX_RESULT_BYTES)
-        ).hexdigest(),
-        "suite_sha256": hashlib.sha256(
-            _read_bytes(manifest, "behavioral suite", MAX_MANIFEST_BYTES)
-        ).hexdigest(),
+        "codex_version": runner["version"],
+        "runner_kind": runner["kind"],
+        "runner_sha256": runner["sha256"],
+        "skill_sha256": skill_sha256,
+        "harness_sha256": harness_sha256,
+        "suite_sha256": suite_sha256,
         "total": len(run_results),
         "passed": sum(item["passed"] for item in run_results),
         "failed": sum(not item["passed"] for item in run_results),
         "cases": [
-            {"id": item["case"], "passed": item["passed"]} for item in run_results
+            {
+                "id": item["case"],
+                "passed": item["passed"],
+                "fixture_sha256": item["fixture_sha256"],
+            }
+            for item in run_results
         ],
     }
     _write_new_json(run_directory / "summary.json", summary)

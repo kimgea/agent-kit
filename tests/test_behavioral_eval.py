@@ -5,7 +5,11 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
+import sys
 import tempfile
+import time
+import types
 import unittest
 from unittest import mock
 
@@ -104,6 +108,39 @@ class SuiteValidationTests(unittest.TestCase):
             with self.assertRaisesRegex(behavioral_eval.EvalError, "exceeds"):
                 behavioral_eval.snapshot_fixture(root)
 
+    def test_input_symlinked_ancestor_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            real = base / "real"
+            fixture = real / "fixture"
+            fixture.mkdir(parents=True)
+            source = fixture / "value.txt"
+            source.write_text("safe", encoding="utf-8")
+            linked = base / "linked"
+            try:
+                linked.symlink_to(real, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks are unavailable")
+            with self.assertRaisesRegex(behavioral_eval.EvalError, "link-like path"):
+                behavioral_eval.snapshot_fixture(linked / "fixture")
+            with self.assertRaisesRegex(behavioral_eval.EvalError, "link-like path"):
+                behavioral_eval._read_bytes(
+                    linked / "fixture" / "value.txt", "linked input", 1024
+                )
+
+    def test_windows_reparse_metadata_is_link_like(self):
+        metadata = types.SimpleNamespace(
+            st_mode=0o040755,
+            st_file_attributes=0x400,
+        )
+        with mock.patch.object(
+            behavioral_eval.stat,
+            "FILE_ATTRIBUTE_REPARSE_POINT",
+            0x400,
+            create=True,
+        ):
+            self.assertTrue(behavioral_eval._metadata_is_link_like(metadata))
+
     def test_materialization_preserves_content_and_detects_mutation(self):
         source = (
             ROOT
@@ -125,6 +162,29 @@ class SuiteValidationTests(unittest.TestCase):
             self.assertNotEqual(
                 behavioral_eval._snapshot_identity(before),
                 behavioral_eval._snapshot_identity(changed),
+            )
+
+    def test_frozen_source_snapshots_survive_later_source_drift(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            source = base / "source"
+            source.mkdir()
+            value = source / "value.txt"
+            value.write_text("frozen", encoding="utf-8")
+            frozen = behavioral_eval.snapshot_fixture(source)
+            digest = behavioral_eval._snapshot_digest(frozen)
+            value.write_text("drifted", encoding="utf-8")
+            destination = base / "destination"
+            behavioral_eval._materialize_snapshot(frozen, destination)
+            self.assertEqual(
+                "frozen", (destination / "value.txt").read_text(encoding="utf-8")
+            )
+            self.assertEqual(digest, behavioral_eval._snapshot_digest(frozen))
+            self.assertNotEqual(
+                digest,
+                behavioral_eval._snapshot_digest(
+                    behavioral_eval.snapshot_fixture(source)
+                ),
             )
 
 
@@ -242,28 +302,48 @@ class RecordedGradingTests(unittest.TestCase):
 
 
 class CodexRunnerTests(unittest.TestCase):
+    def test_windows_batch_launcher_uses_fixed_command_processor_prefix(self):
+        command, kind = behavioral_eval._codex_command_prefix(
+            Path("tools/codex.cmd"), "nt", Path("system/cmd.exe")
+        )
+        self.assertEqual(
+            ["system/cmd.exe", "/d", "/s", "/c", "tools/codex.cmd"],
+            command,
+        )
+        self.assertEqual("windows-batch", kind)
+        native, native_kind = behavioral_eval._codex_command_prefix(
+            Path("tools/codex.exe"), "nt"
+        )
+        self.assertEqual(["tools/codex.exe"], native)
+        self.assertEqual("native", native_kind)
+
     def test_agent_prompt_uses_isolated_skill_and_hides_expectations(self):
         suite = behavioral_eval.load_suite(ROOT, "review-guidance-audit")
         case = behavioral_eval._case_by_id(suite, "slow-test-supports-rule")
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
+            skill = base / "evaluated-skill" / "review-guidance-audit"
             prompt = behavioral_eval._runner_prompt(
                 suite,
                 case,
                 base / "fixture",
                 base / "work",
-                base / "evaluated-skill" / "review-guidance-audit",
+                skill,
             )
-        self.assertIn("evaluated-skill/review-guidance-audit/SKILL.md", prompt)
+        self.assertIn(str(skill / "SKILL.md"), prompt)
         self.assertNotIn("suite.json", prompt)
         self.assertNotIn("default_assertions", prompt)
         self.assertNotIn("support-only", prompt)
 
     def test_command_is_fixed_ephemeral_and_schema_constrained(self):
         suite = behavioral_eval.load_suite(ROOT, "review-guidance-audit")
-        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
-            behavioral_eval.shutil, "which", return_value="/usr/bin/codex"
-        ):
+        runner = {
+            "command": ["codex"],
+            "kind": "test",
+            "sha256": "0" * 64,
+            "version": "codex-cli test",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             work = base / "work"
             work.mkdir()
@@ -283,23 +363,28 @@ class CodexRunnerTests(unittest.TestCase):
                 ROOT,
                 "gpt-5.6-luna",
                 "medium",
+                runner,
             )
-        self.assertEqual(["/usr/bin/codex", "exec"], command[:2])
+        self.assertEqual(["codex", "exec"], command[:2])
         self.assertIn("--ephemeral", command)
         self.assertIn("--ignore-user-config", command)
         self.assertIn("--approve-for-me", command)
         self.assertNotIn("--sandbox", command)
         self.assertIn("--output-schema", command)
         schema_index = command.index("--output-schema") + 1
-        self.assertTrue(command[schema_index].endswith("work/agent-result.schema.json"))
+        self.assertEqual(work / "agent-result.schema.json", Path(command[schema_index]))
         self.assertEqual("-", command[-1])
         self.assertNotIn("bash", command)
 
     def test_model_cannot_be_a_command_fragment(self):
         suite = behavioral_eval.load_suite(ROOT, "review-guidance-audit")
-        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
-            behavioral_eval.shutil, "which", return_value="/usr/bin/codex"
-        ):
+        runner = {
+            "command": ["codex"],
+            "kind": "test",
+            "sha256": "0" * 64,
+            "version": "codex-cli test",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             work = base / "work"
             work.mkdir()
@@ -320,6 +405,7 @@ class CodexRunnerTests(unittest.TestCase):
                     ROOT,
                     "model; touch owned",
                     "medium",
+                    runner,
                 )
 
     def test_command_events_are_detected_without_scanning_prompt_text(self):
@@ -401,7 +487,9 @@ class CodexRunnerTests(unittest.TestCase):
         process.returncode = -9
         with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
             behavioral_eval, "build_codex_command", return_value=["codex", "exec"]
-        ), mock.patch.object(behavioral_eval.subprocess, "Popen", return_value=process):
+        ), mock.patch.object(
+            behavioral_eval.subprocess, "Popen", return_value=process
+        ), mock.patch.object(behavioral_eval, "_terminate_process_tree") as terminate:
             base = Path(temporary)
             fixture = base / "fixture"
             work = base / "work"
@@ -422,7 +510,53 @@ class CodexRunnerTests(unittest.TestCase):
                 1,
             )
         self.assertTrue(outcome["timed_out"])
-        process.kill.assert_called_once_with()
+        terminate.assert_called_once_with(process)
+
+    def test_timeout_terminates_descendant_process(self):
+        if os.name == "nt" and shutil.which("taskkill") is None:
+            self.skipTest("taskkill is unavailable")
+        suite = behavioral_eval.load_suite(ROOT, "review-guidance-audit")
+        case = behavioral_eval._case_by_id(suite, "json-consumer-output")
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "fixture"
+            work = base / "work"
+            fixture.mkdir()
+            work.mkdir()
+            marker = base / "survived.txt"
+            parent = base / "parent.py"
+            child = (
+                "import pathlib,sys,time; time.sleep(2); "
+                "pathlib.Path(sys.argv[1]).write_text('survived', encoding='utf-8')"
+            )
+            parent.write_text(
+                "import subprocess,sys,time\n"
+                f"subprocess.Popen([sys.executable, '-c', {child!r}, sys.argv[1]])\n"
+                "time.sleep(60)\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                behavioral_eval,
+                "build_codex_command",
+                return_value=[sys.executable, str(parent), str(marker)],
+            ):
+                outcome = behavioral_eval._run_codex(
+                    suite,
+                    case,
+                    fixture,
+                    work,
+                    work / "result.json",
+                    work / "events.jsonl",
+                    work / "stderr.txt",
+                    ROOT,
+                    ROOT / "skills" / "review-guidance-audit",
+                    "gpt-5.6-luna",
+                    "medium",
+                    1,
+                )
+            self.assertTrue(outcome["timed_out"])
+            time.sleep(2.5)
+            self.assertFalse(marker.exists())
 
     def test_simulated_run_produces_local_evidence_without_invoking_codex(self):
         def fake_run(
@@ -438,6 +572,7 @@ class CodexRunnerTests(unittest.TestCase):
             model,
             reasoning_effort,
             timeout,
+            runner,
         ):
             context = json.loads((work / "context.json").read_text(encoding="utf-8"))
             result.write_text(
@@ -472,13 +607,26 @@ class CodexRunnerTests(unittest.TestCase):
             )
             printed = io.StringIO()
             progress = io.StringIO()
+            runner = {
+                "command": [str(fake_codex)],
+                "kind": "test",
+                "sha256": "1" * 64,
+                "version": "codex-cli test",
+            }
             with mock.patch.object(behavioral_eval, "_run_codex", side_effect=fake_run), mock.patch.object(
-                behavioral_eval.shutil, "which", return_value=str(fake_codex)
+                behavioral_eval, "discover_codex_runner", return_value=runner
             ), contextlib.redirect_stdout(printed), contextlib.redirect_stderr(progress):
                 code = behavioral_eval.command_run(args)
             self.assertEqual(0, code)
             summary = json.loads(printed.getvalue())
             self.assertEqual(1, summary["passed"])
+            self.assertEqual("1" * 64, summary["runner_sha256"])
+            self.assertRegex(summary["skill_sha256"], r"^[0-9a-f]{64}$")
+            self.assertRegex(summary["suite_sha256"], r"^[0-9a-f]{64}$")
+            self.assertRegex(summary["harness_sha256"], r"^[0-9a-f]{64}$")
+            self.assertRegex(
+                summary["cases"][0]["fixture_sha256"], r"^[0-9a-f]{64}$"
+            )
             self.assertEqual(
                 "[1/1] json-consumer-output: running\n"
                 "[1/1] json-consumer-output: passed\n",
@@ -502,6 +650,7 @@ class CodexRunnerTests(unittest.TestCase):
             model,
             reasoning_effort,
             timeout,
+            runner,
         ):
             context = json.loads((work / "context.json").read_text(encoding="utf-8"))
             result.write_text(
@@ -537,8 +686,14 @@ class CodexRunnerTests(unittest.TestCase):
             )
             printed = io.StringIO()
             progress = io.StringIO()
+            runner = {
+                "command": [str(fake_codex)],
+                "kind": "test",
+                "sha256": "1" * 64,
+                "version": "codex-cli test",
+            }
             with mock.patch.object(behavioral_eval, "_run_codex", side_effect=mutating_run), mock.patch.object(
-                behavioral_eval.shutil, "which", return_value=str(fake_codex)
+                behavioral_eval, "discover_codex_runner", return_value=runner
             ), contextlib.redirect_stdout(printed), contextlib.redirect_stderr(progress):
                 code = behavioral_eval.command_run(args)
             self.assertEqual(1, code)
