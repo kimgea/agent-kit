@@ -28,6 +28,7 @@ Current skills:
 | `grill-me` | Pressure-test decisions, plans, artifacts, and diagnoses | None |
 | `project-review` | Review bounded changes under root and nested `REVIEW.md` guidance | Reads project source and optional user guidance; writes output only when explicitly requested |
 | `review-and-fix` | Safely address local review findings through decision gates and fresh re-review | Reads bounded project/review data; changes only eligible or approved local files |
+| `review-guidance-audit` | Improve hierarchical `REVIEW.md` guidance without editing it | Reads selected project files and review guidance; writes output only when explicitly requested |
 | `serve-artifacts` | Host and revoke transient web artifacts locally or through a selected private-network adapter | Private OS-native artifact copies, lifecycle state, and optional adapter ownership |
 | `todo-capture` | Preserve deferred work as shared pickup pointers | Private OS-native state directory |
 | `tool-audit` | Audit local tools, agent usage, friction, and permissions | Private OS-native state plus read-only transcript access |
@@ -41,6 +42,9 @@ The [project-review guide](docs/project-review.md) covers hierarchical review
 policy, trusted-base behavior, structured findings, and verification authority.
 The [review-and-fix guide](docs/review-and-fix.md) explains neutral reviewer
 normalization, conservative automatic-fix eligibility, and fresh acceptance.
+The [review-guidance audit guide](docs/review-guidance-audit.md) explains scoped
+guidance analysis, context compaction, placement, and when automated checks can
+replace or only support review rules.
 
 ## Install a skill
 
@@ -87,12 +91,14 @@ available unless that deployment is first removed and installed through
 
 ## Install Codex plugins
 
-Every installable skill is also released in a focused Codex plugin. Most plugins
-contain one skill; the coherent `artifacts` plugin contains the independently
-useful diagram producer and artifact host. The release
+Every installable skill is released both as a standalone skill archive and as
+part of a Codex plugin. Most plugins contain one skill. The coherent `artifacts`
+plugin groups the diagram producer with the artifact host, while the
+`project-review` plugin groups project review, review-and-fix, and review-guidance
+audit. The release
 includes an `agent-kit-marketplace-<version>.zip` catalog whose entries point to
-the bundled local plugin directories. This supports installing one selected
-skill without turning the toolkit into an all-or-nothing plugin.
+the bundled local plugin directories. Select a focused plugin when its grouped
+workflow is useful, or use a standalone archive to install one skill by itself.
 
 After extracting the marketplace archive, register its root (the directory that
 contains `.agents/plugins/marketplace.json`) with Codex and select the plugins

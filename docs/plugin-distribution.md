@@ -13,9 +13,10 @@ also supports an explicitly reviewed group of related skills; every installable
 skill must still belong to exactly one plugin. The `artifacts` plugin groups
 `build-interactive-diagram` and `serve-artifacts` because creation and transient
 delivery are one workflow, while standalone archives preserve independent install.
-The `project-review` plugin similarly groups `project-review` with
-`review-and-fix` so the default analysis provider accompanies local remediation.
-Standalone archives still allow either review skill to be installed alone, and
+The `project-review` plugin similarly groups `project-review`,
+`review-and-fix`, and `review-guidance-audit` so change review, local remediation,
+and maintenance of the review-guidance layer can be installed together.
+Standalone archives still allow any review skill to be installed alone, and
 `review-and-fix` can use another explicitly selected analysis-only reviewer.
 
 ## Build and inspect

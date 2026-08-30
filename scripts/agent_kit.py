@@ -1476,7 +1476,7 @@ def package_artifacts(
     if plugin_errors:
         raise AgentKitError(plugin_errors[0])
     ids = selected_skill_ids(catalog, selected)
-    plugins = plugins_for_skills(catalog, ids)
+    plugins = plugins_for_skills(catalog, ids) if package_format in {"plugin", "all"} else []
     output = output if output.is_absolute() else root / output
     if not contained(root, output):
         raise AgentKitError("package output must stay inside the repository")

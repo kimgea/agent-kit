@@ -105,6 +105,12 @@ repository. `CLAUDE.md` points Claude Code to the same contract.
 - If the caller explicitly requests a different review method, follow that
   request instead. Do not silently combine methods that have incompatible
   verdict, evidence, or command-execution rules.
+- When asked to assess or improve the usefulness, placement, coverage, or
+  compactness of `REVIEW.md` guidance, use the analysis-only
+  `review-guidance-audit` skill unless the caller explicitly selects another
+  method. `skills/review-guidance-audit/SKILL.md` is the source version. Keep
+  general harness auditing outside that workflow; a harness proposal belongs
+  only when it directly supports a specific guidance recommendation.
 - This default chooses the review method; it does not authorize verification
   commands, source edits, result publication, pull request approval, or merge.
   Those actions remain governed by the skill and the applicable instructions.

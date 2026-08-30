@@ -65,6 +65,7 @@ class CatalogAndValidationTests(unittest.TestCase):
                 "grill-me",
                 "project-review",
                 "review-and-fix",
+                "review-guidance-audit",
                 "serve-artifacts",
                 "todo-capture",
                 "tool-audit",
@@ -96,6 +97,8 @@ class CatalogAndValidationTests(unittest.TestCase):
         self.assertIn("duplicate `SKILL.md`", contract)
         self.assertIn("does not govern its own change", contract)
         self.assertIn("skills/review-and-fix/SKILL.md", contract)
+        self.assertIn("skills/review-guidance-audit/SKILL.md", contract)
+        self.assertIn("general harness auditing", contract)
         self.assertIn("starting-revision copy", contract)
 
     def test_project_tracking_rejects_invalid_status_and_progress(self):
@@ -493,7 +496,7 @@ class LifecycleTests(unittest.TestCase):
                 Path("release"), None, "all", fixture
             )
             archives = [path for path in artifacts if path.suffix == ".zip"]
-            self.assertEqual(15, len(archives))
+            self.assertEqual(16, len(archives))
             self.assertEqual(6, len([path for path in archives if "-plugin-" in path.name]))
             self.assertEqual(
                 1,
@@ -534,7 +537,7 @@ class LifecycleTests(unittest.TestCase):
             self.assertEqual("artifacts", manifest["name"])
             self.assertEqual(2, len(manifest["interface"]["defaultPrompt"]))
 
-    def test_grouped_review_plugin_is_atomic_and_contains_both_skills(self):
+    def test_grouped_review_plugin_is_atomic_and_contains_all_skills(self):
         with self.assertRaisesRegex(agent_kit.AgentKitError, "splits grouped plugin"):
             agent_kit.plugins_for_skills(
                 agent_kit.load_catalog(ROOT), ["review-and-fix"]
@@ -549,7 +552,7 @@ class LifecycleTests(unittest.TestCase):
             )
             artifacts = agent_kit.package_artifacts(
                 Path("review-group"),
-                ["project-review", "review-and-fix"],
+                ["project-review", "review-and-fix", "review-guidance-audit"],
                 "plugin",
                 fixture,
             )
@@ -563,8 +566,36 @@ class LifecycleTests(unittest.TestCase):
                 )
             self.assertIn("project-review/skills/project-review/SKILL.md", names)
             self.assertIn("project-review/skills/review-and-fix/SKILL.md", names)
+            self.assertIn("project-review/skills/review-guidance-audit/SKILL.md", names)
             self.assertEqual("project-review", manifest["name"])
-            self.assertEqual(2, len(manifest["interface"]["defaultPrompt"]))
+            self.assertEqual(3, len(manifest["interface"]["defaultPrompt"]))
+
+    def test_grouped_plugin_skill_remains_independently_packageable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary) / "source"
+            shutil.copytree(
+                ROOT,
+                fixture,
+                ignore=shutil.ignore_patterns(".git", "__pycache__", "dist"),
+            )
+            artifacts = agent_kit.package_artifacts(
+                Path("standalone"), ["review-guidance-audit"], "skill", fixture
+            )
+            archive = next(
+                path
+                for path in artifacts
+                if path.name.startswith("review-guidance-audit-")
+            )
+            with zipfile.ZipFile(archive) as bundle:
+                names = set(bundle.namelist())
+            self.assertIn(
+                "review-guidance-audit/SKILL.md",
+                names,
+            )
+            self.assertNotIn(
+                "review-guidance-audit/skills/project-review/SKILL.md",
+                names,
+            )
 
     def test_invalid_plugin_membership_and_unknown_package_selection_are_refused(self):
         with tempfile.TemporaryDirectory() as temporary:
