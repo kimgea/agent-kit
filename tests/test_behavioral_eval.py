@@ -5,7 +5,6 @@ import io
 import json
 import os
 from pathlib import Path
-import shutil
 import sys
 import tempfile
 import time
@@ -307,14 +306,20 @@ class CodexRunnerTests(unittest.TestCase):
             Path("tools/codex.cmd"), "nt", Path("system/cmd.exe")
         )
         self.assertEqual(
-            ["system/cmd.exe", "/d", "/s", "/c", "tools/codex.cmd"],
+            [
+                str(Path("system/cmd.exe")),
+                "/d",
+                "/s",
+                "/c",
+                str(Path("tools/codex.cmd")),
+            ],
             command,
         )
         self.assertEqual("windows-batch", kind)
         native, native_kind = behavioral_eval._codex_command_prefix(
             Path("tools/codex.exe"), "nt"
         )
-        self.assertEqual(["tools/codex.exe"], native)
+        self.assertEqual([str(Path("tools/codex.exe"))], native)
         self.assertEqual("native", native_kind)
 
     def test_agent_prompt_uses_isolated_skill_and_hides_expectations(self):
@@ -513,8 +518,6 @@ class CodexRunnerTests(unittest.TestCase):
         terminate.assert_called_once_with(process)
 
     def test_timeout_terminates_descendant_process(self):
-        if os.name == "nt" and shutil.which("taskkill") is None:
-            self.skipTest("taskkill is unavailable")
         suite = behavioral_eval.load_suite(ROOT, "review-guidance-audit")
         case = behavioral_eval._case_by_id(suite, "json-consumer-output")
         with tempfile.TemporaryDirectory() as temporary:

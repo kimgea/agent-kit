@@ -17,6 +17,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 from typing import Any
 import uuid
@@ -1101,38 +1102,174 @@ def build_codex_command(
 
 
 def _terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
-    if os.name == "nt":
-        try:
-            completed = subprocess.run(
-                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=30,
-                check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            process.kill()
-            process.communicate()
-            raise EvalError(f"could not terminate the Codex process tree: {exc}") from exc
-        if completed.returncode != 0 and process.poll() is None:
-            process.kill()
-            process.communicate()
-            raise EvalError("could not terminate the Codex process tree")
-    else:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        except OSError as exc:
-            process.kill()
-            process.communicate()
-            raise EvalError(f"could not terminate the Codex process group: {exc}") from exc
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except OSError as exc:
+        process.kill()
+        process.communicate()
+        raise EvalError(f"could not terminate the Codex process group: {exc}") from exc
     try:
         process.communicate(timeout=30)
     except subprocess.TimeoutExpired as exc:
         process.kill()
         process.communicate()
         raise EvalError("Codex process tree did not exit after termination") from exc
+
+
+class _WindowsJob:
+    _KILL_ON_CLOSE = 0x00002000
+    _EXTENDED_LIMIT_INFORMATION = 9
+    _BASIC_ACCOUNTING_INFORMATION = 1
+
+    def __init__(self) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        class BasicLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ("PerProcessUserTimeLimit", ctypes.c_longlong),
+                ("PerJobUserTimeLimit", ctypes.c_longlong),
+                ("LimitFlags", wintypes.DWORD),
+                ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t),
+                ("ActiveProcessLimit", wintypes.DWORD),
+                ("Affinity", ctypes.c_size_t),
+                ("PriorityClass", wintypes.DWORD),
+                ("SchedulingClass", wintypes.DWORD),
+            ]
+
+        class IoCounters(ctypes.Structure):
+            _fields_ = [
+                ("ReadOperationCount", ctypes.c_ulonglong),
+                ("WriteOperationCount", ctypes.c_ulonglong),
+                ("OtherOperationCount", ctypes.c_ulonglong),
+                ("ReadTransferCount", ctypes.c_ulonglong),
+                ("WriteTransferCount", ctypes.c_ulonglong),
+                ("OtherTransferCount", ctypes.c_ulonglong),
+            ]
+
+        class ExtendedLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ("BasicLimitInformation", BasicLimitInformation),
+                ("IoInfo", IoCounters),
+                ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t),
+            ]
+
+        class BasicAccountingInformation(ctypes.Structure):
+            _fields_ = [
+                ("TotalUserTime", ctypes.c_longlong),
+                ("TotalKernelTime", ctypes.c_longlong),
+                ("ThisPeriodTotalUserTime", ctypes.c_longlong),
+                ("ThisPeriodTotalKernelTime", ctypes.c_longlong),
+                ("TotalPageFaultCount", wintypes.DWORD),
+                ("TotalProcesses", wintypes.DWORD),
+                ("ActiveProcesses", wintypes.DWORD),
+                ("TotalTerminatedProcesses", wintypes.DWORD),
+            ]
+
+        self._ctypes = ctypes
+        self._wintypes = wintypes
+        self._accounting_type = BasicAccountingInformation
+        self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self._kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+        self._kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        self._kernel32.SetInformationJobObject.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_int,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+        ]
+        self._kernel32.SetInformationJobObject.restype = wintypes.BOOL
+        self._kernel32.AssignProcessToJobObject.argtypes = [
+            wintypes.HANDLE,
+            wintypes.HANDLE,
+        ]
+        self._kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+        self._kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        self._kernel32.TerminateJobObject.restype = wintypes.BOOL
+        self._kernel32.QueryInformationJobObject.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_int,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+            wintypes.LPVOID,
+        ]
+        self._kernel32.QueryInformationJobObject.restype = wintypes.BOOL
+        self._kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        self._kernel32.CloseHandle.restype = wintypes.BOOL
+        self._handle = self._kernel32.CreateJobObjectW(None, None)
+        if not self._handle:
+            raise EvalError(f"cannot create Windows job: {ctypes.WinError(ctypes.get_last_error())}")
+        limits = ExtendedLimitInformation()
+        limits.BasicLimitInformation.LimitFlags = self._KILL_ON_CLOSE
+        if not self._kernel32.SetInformationJobObject(
+            self._handle,
+            self._EXTENDED_LIMIT_INFORMATION,
+            ctypes.byref(limits),
+            ctypes.sizeof(limits),
+        ):
+            error = ctypes.WinError(ctypes.get_last_error())
+            self.close()
+            raise EvalError(f"cannot configure Windows job: {error}")
+
+    def assign(self, process: subprocess.Popen[bytes]) -> None:
+        raw_handle = getattr(process, "_handle", None)
+        if raw_handle is None or not self._kernel32.AssignProcessToJobObject(
+            self._handle, self._wintypes.HANDLE(raw_handle)
+        ):
+            error = self._ctypes.WinError(self._ctypes.get_last_error())
+            raise EvalError(f"cannot assign Codex to Windows job: {error}")
+
+    def _active_processes(self) -> int:
+        accounting = self._accounting_type()
+        if not self._kernel32.QueryInformationJobObject(
+            self._handle,
+            self._BASIC_ACCOUNTING_INFORMATION,
+            self._ctypes.byref(accounting),
+            self._ctypes.sizeof(accounting),
+            None,
+        ):
+            raise EvalError(
+                "cannot query Windows job: "
+                f"{self._ctypes.WinError(self._ctypes.get_last_error())}"
+            )
+        return accounting.ActiveProcesses
+
+    def terminate_and_wait(self) -> None:
+        if not self._handle:
+            return
+        if self._active_processes() == 0:
+            return
+        if not self._kernel32.TerminateJobObject(self._handle, 1):
+            raise EvalError(
+                "cannot terminate Windows job: "
+                f"{self._ctypes.WinError(self._ctypes.get_last_error())}"
+            )
+        deadline = time.monotonic() + 30
+        while True:
+            if self._active_processes() == 0:
+                return
+            if time.monotonic() >= deadline:
+                raise EvalError("Windows job still has active processes after termination")
+            time.sleep(0.05)
+
+    def close(self) -> None:
+        if self._handle:
+            self._kernel32.CloseHandle(self._handle)
+            self._handle = None
+
+
+_WINDOWS_GATE = (
+    "import os,sys; "
+    "gate=os.read(0,3); "
+    "gate==b'GO\\n' or sys.exit(125); "
+    "os.execv(sys.argv[1],sys.argv[1:])"
+)
 
 
 def _run_codex(
@@ -1157,24 +1294,60 @@ def _run_codex(
     started = dt.datetime.now(dt.timezone.utc)
     timed_out = False
     with events.open("wb") as stdout_handle, errors.open("wb") as stderr_handle:
-        isolation = (
-            {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
-            if os.name == "nt"
-            else {"start_new_session": True}
-        )
-        process = subprocess.Popen(
-            command,
-            cwd=root,
-            stdin=subprocess.PIPE,
-            stdout=stdout_handle,
-            stderr=stderr_handle,
-            **isolation,
-        )
+        windows_job = _WindowsJob() if os.name == "nt" else None
+        if windows_job is not None:
+            launched_command = [sys.executable, "-c", _WINDOWS_GATE, *command]
+            input_bytes = b"GO\n" + prompt.encode("utf-8")
+            isolation = {
+                "creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            }
+        else:
+            launched_command = command
+            input_bytes = prompt.encode("utf-8")
+            isolation = {"start_new_session": True}
         try:
-            process.communicate(prompt.encode("utf-8"), timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            _terminate_process_tree(process)
+            process = subprocess.Popen(
+                launched_command,
+                cwd=root,
+                stdin=subprocess.PIPE,
+                stdout=stdout_handle,
+                stderr=stderr_handle,
+                **isolation,
+            )
+        except OSError:
+            if windows_job is not None:
+                windows_job.close()
+            raise
+        try:
+            if windows_job is not None:
+                try:
+                    windows_job.assign(process)
+                except EvalError:
+                    process.kill()
+                    process.communicate()
+                    raise
+            try:
+                process.communicate(input_bytes, timeout=timeout)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                if windows_job is not None:
+                    windows_job.terminate_and_wait()
+                    try:
+                        process.communicate(timeout=30)
+                    except subprocess.TimeoutExpired as exc:
+                        raise EvalError(
+                            "Codex process did not exit after Windows job termination"
+                        ) from exc
+                else:
+                    _terminate_process_tree(process)
+            else:
+                if windows_job is not None:
+                    windows_job.terminate_and_wait()
+                else:
+                    _terminate_process_tree(process)
+        finally:
+            if windows_job is not None:
+                windows_job.close()
     finished = dt.datetime.now(dt.timezone.utc)
     if events.stat().st_size > MAX_EVENT_BYTES:
         raise EvalError("Codex event stream exceeds the size limit")
