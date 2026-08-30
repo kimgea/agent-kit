@@ -1,0 +1,1 @@
+PUBLIC_MODULE_NAME = "example"

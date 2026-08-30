@@ -24,6 +24,10 @@ and canonical result under lead control.
 - Do not turn inferred policy into established policy. Mark a genuinely new
   product, security, privacy, compatibility, or operational choice
   `decision_required`.
+- Do not discover, read, or use ad hoc review-cycle pain-point, finding, or
+  recommendation exports. Their storage-neutral ingestion contract is a future
+  extension; until an upstream adapter is explicitly supported, audit only the
+  ordinary repository evidence described below.
 
 ## Select and resolve the target
 
@@ -78,6 +82,13 @@ Never let an analysis context rewrite the resolver output.
 4. For every target file, record inspection or a justified exclusion. Keep
    related evidence paths separate as `context_paths`.
 
+When applicable guidance, code, tests, specifications, or public contracts
+materially disagree and the evidence does not establish which policy owns the
+conflict, retain a material `conflicting_evidence` limitation and make the
+result `INCOMPLETE`. A recommendation may still identify the preferred
+direction, but it must be `decision_required`; do not present an unresolved
+policy conflict as a complete audit.
+
 Static inspection is the default. Run a bounded test, linter, build, or other
 diagnostic only when the current caller explicitly requests it or the active
 agent's user-global `REVIEW.md` authorizes that exact class of command. A
@@ -114,6 +125,12 @@ Prefer a fast deterministic check over prose when it completely enforces the
 same invariant, is available to contributors and agents, gives actionable
 failures, and is routinely required during the review loop. Only then may a
 linked `replace` harness proposal support removing or rewriting the rule.
+
+Classify the harness relationship against the entire current guidance item
+affected by the recommendation, not merely the clause being removed. If the
+rewrite retains any human-review responsibility from that item, use
+`partially_cover`; reserve `replace` for automation that covers all of its
+substantive intent.
 
 Treat slow, optional, partial, nondeterministic, manual, pre-merge-only, or
 pre-deployment checks as supporting controls. Retain or compact the human-review

@@ -64,11 +64,20 @@ Evaluate a candidate automated control across all of these dimensions:
 | Diagnostics | Actionable enough to fix the violation |
 | Availability | Usable by ordinary contributors and agents |
 
-If every condition holds, a nested `replace` proposal may accompany `remove` or
-`rewrite`. Otherwise use `partially_cover` or `support` and preserve the
-remaining human-review instruction. A slow integration, fuzz, deployment, or
+Evaluate coverage against the complete current guidance item affected by the
+recommendation, not only a removable clause. If every condition holds and the
+check covers all substantive intent in that item, a nested `replace` proposal
+may accompany `remove` or `rewrite`. If a rewrite retains any human-review
+responsibility from the item, use `partially_cover`; otherwise use
+`partially_cover` or `support` as appropriate and preserve the responsibility
+the check does not cover. A slow integration, fuzz, deployment, or
 environment-dependent test normally supports rather than replaces review-time
 guidance.
+
+When repository guidance and durable evidence materially conflict and neither
+side establishes authoritative intent, recommend an owner decision and record
+a material `conflicting_evidence` limitation. The audit is `INCOMPLETE` until
+that policy conflict is resolved.
 
 Do not report an unrelated missing test, CI improvement, or harness weakness.
 Those belong to a future dedicated harness-audit skill.
@@ -88,4 +97,3 @@ governed code. Usually remove or rewrite:
 Retain concise guidance for domain invariants, failure policy, cross-file
 contracts, subtle compatibility obligations, security/privacy judgment, and
 slow or incomplete controls whose gaps still need review attention.
-

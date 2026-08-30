@@ -110,11 +110,18 @@ fields, identifiers, fingerprints, counts, and status.
   are `replace`, `partially_cover`, or `support`.
 - `replace` is valid only for complete deterministic coverage that is required
   and fast in the review loop, ordinarily available, and actionably diagnosed;
-  it is valid only with a `remove` or `rewrite` action.
+  it is valid only with a `remove` or `rewrite` action and only when it covers
+  every substantive responsibility in the current guidance item. A rewrite
+  that retains any human-review responsibility uses `partially_cover`, even
+  when the check completely enforces the clause being removed.
 - Limitation codes are `scope_truncated`, `target_unreadable`,
   `part_unreadable`, `guidance_unreadable`, `guidance_budget`,
   `coverage_incomplete`, `context_unavailable`, `evidence_missing`,
   `conflicting_evidence`, or `other`.
+- An unresolved material conflict among applicable guidance, implementation,
+  tests, specifications, or public contracts requires a material
+  `conflicting_evidence` limitation, an `INCOMPLETE` result, and a
+  `decision_required` recommendation.
 
 Use [review-guidance-result.schema.json](review-guidance-result.schema.json) for
 the finalized canonical format. Never add `schema_version`, `context_sha256`,

@@ -1,0 +1,127 @@
+# Local behavioral evaluations
+
+Agent-kit separates deterministic repository validation from model-backed
+behavioral evidence. The normal gate checks executable suite manifests,
+fixtures, graders, fixed runner construction, and simulated outputs without
+invoking an agent:
+
+```bash
+python scripts/agent_kit.py check
+python scripts/behavioral_eval.py check --suite review-guidance-audit
+```
+
+GitHub Actions runs only that deterministic path. It does not invoke Codex,
+Claude, a local model, or a hosted evaluation service.
+
+## Run a real local evaluation
+
+Real behavioral execution is explicit:
+
+```bash
+python scripts/behavioral_eval.py run \
+  --suite review-guidance-audit \
+  --runner codex \
+  --model gpt-5.6-sol
+```
+
+Use one or more `--case ID` arguments for a focused run. An explicit
+`--model MODEL` is required so the evidence never hides a configured default.
+Reasoning effort defaults to the recorded `medium` setting and can be selected
+with `--reasoning-effort`. `--timeout SECONDS` is bounded to one hour per case.
+The runner prints only bounded per-case progress while it works; raw agent event
+and error streams remain temporary and are not retained as evaluation evidence.
+
+The Codex adapter starts a fresh ephemeral context for each synthetic
+repository, ignores unrelated user configuration, applies a workspace sandbox,
+and requests schema-constrained canonical JSON. The harness resolves the audit
+target before invoking the agent and keeps that context as lead-owned authority.
+Afterward it verifies canonical validity, exact target and guidance provenance,
+fixture content, hidden assertions, and prohibited command execution.
+
+Codex inference normally uses an external model service and may consume the
+user's allowance or API billing. The command is never run by the canonical gate,
+commit hooks, packaging, GitHub Actions, or release automation.
+
+## Evidence records
+
+Local runs create a new ignored directory under `.eval-results/` by default:
+
+```text
+.eval-results/review-guidance-audit-<time>-<id>/
+├── summary.json
+└── cases/
+    └── <case-id>/
+        ├── context.json
+        ├── result.json
+        └── score.json
+```
+
+The summary binds the observation to the suite digest, installed skill digest,
+harness digest, Codex version, explicit model, reasoning effort, and individual
+case outcomes. Case records preserve canonical context and output plus
+per-assertion grading. Raw
+event streams, stderr, prompts, and reasoning are not retained.
+
+Results are local evidence, not universal proof. A useful claim names the exact
+configuration, for example: "16 of 16 cases passed with this skill and suite
+digest using Codex version X and model Y." A later model, runner, skill revision,
+or repository shape requires a new observation.
+
+## Grade recorded output
+
+Another agent integration can produce canonical output and use the same
+provider-neutral grader:
+
+```bash
+python scripts/behavioral_eval.py grade \
+  --suite review-guidance-audit \
+  --case json-consumer-output \
+  --context /path/to/context.json \
+  --result /path/to/result.json
+```
+
+Both files are required. The context preserves the lead-owned target and
+provenance; accepting a result alone would let an evaluated agent redefine its
+own scope. The grader rematerializes the committed synthetic fixture, resolves
+the selected target again, normalizes only the temporary repository location,
+and rejects any other context drift.
+
+## Suite contract
+
+Executable suites are cataloged with `behavioral_evals` and use a versioned
+JSON manifest under `evals/<skill>/`. Each case provides:
+
+- a small synthetic repository under `fixtures/<case-id>/`;
+- one exact path or file-part target;
+- the user-like prompt shown to the agent;
+- hidden deterministic assertions over canonical JSON; and
+- bounded forbidden-command markers when execution authority is under test.
+
+Assertions use JSON-pointer paths with optional `*` array traversal. Supported
+operators are `equals`, `not_equals`, `any`, `none`, `count_equals`,
+`count_at_least`, and ordered `sequence`. Object values are partial structural
+matches so tests can require stable decisions, paths, provenance, and harness
+relationships without coupling to generated prose.
+
+Suite data cannot provide a command, validator executable, agent binary, schema
+path, or arbitrary adapter. The repository helper contains a fixed mapping from
+the versioned result contract to its resolver, validator, and schema. The v1
+direct runner is the locally discovered Codex CLI; other agents use recorded
+output until a separately reviewed fixed adapter exists.
+
+## Add another skill
+
+Adopt executable evaluation one skill at a time:
+
+1. Keep or update the existing descriptive `cases.json` forward-test catalog.
+2. Add a versioned `suite.json` and compact synthetic fixtures.
+3. Add a fixed result-contract mapping only when the skill has canonical JSON,
+   a deterministic validator, and lead-owned target provenance.
+4. Add `behavioral_evals` to the skill's `toolkit.toml` entry.
+5. Test success, malformed output, target drift, fixture mutation, timeouts, and
+   command authority without invoking a model.
+6. Run selected real cases locally and inspect the bounded evidence.
+
+Do not migrate every skill merely for format consistency. A descriptive suite
+remains valid until the skill has a stable machine-readable result contract and
+real behavior worth grading.

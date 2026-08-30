@@ -1,0 +1,1 @@
+PUBLIC_IDENTIFIER = "example.v1"
