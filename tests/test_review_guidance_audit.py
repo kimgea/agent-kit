@@ -849,6 +849,30 @@ class GuidanceResultTests(unittest.TestCase):
                     with self.assertRaisesRegex(guidance_result.ResultError, "replacement requires"):
                         guidance_result.finalize(context, draft_for(context, recommendation))
 
+    def test_aggregate_harness_summary_matches_recommendation_cardinality(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            context = self.make_context(root)
+            recommendations = []
+            for index in range(63):
+                recommendation = remove_recommendation(context)
+                recommendation["title"] = f"Remove redundant syntax rule {index}"
+                harness = recommendation["harness_changes"][0]
+                recommendation["harness_changes"] = [
+                    copy.deepcopy(harness)
+                    for _ in range(
+                        guidance_result.MAX_HARNESS_CHANGES_PER_RECOMMENDATION
+                    )
+                ]
+                recommendations.append(recommendation)
+
+            draft = draft_for(context)
+            draft["recommendations"] = recommendations
+            result = guidance_result.finalize(context, draft)
+
+            self.assertEqual(2016, result["summary"]["harness_changes"])
+            guidance_result._validate_result(result)
+
     def test_slow_check_can_support_but_not_replace_guidance(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

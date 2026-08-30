@@ -20,6 +20,8 @@ from typing import Any
 
 SCHEMA_VERSION = "1.0"
 MAX_JSON_BYTES = 16777216
+MAX_RECOMMENDATIONS = 2000
+MAX_HARNESS_CHANGES_PER_RECOMMENDATION = 32
 HEX64 = re.compile(r"[0-9a-f]{64}")
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 ACTIONS = ("keep", "rewrite", "move", "merge", "remove", "create")
@@ -661,7 +663,7 @@ def _validate_recommendations(
     guidance: list[dict[str, Any]],
     finalized: bool,
 ) -> list[dict[str, Any]]:
-    recommendations = _array(value, "recommendations", 2000)
+    recommendations = _array(value, "recommendations", MAX_RECOMMENDATIONS)
     source_map = _source_map(guidance)
     source_lines = {
         (source["source_kind"], source["path"], source["sha256"]): source["lines"]
@@ -823,7 +825,13 @@ def _validate_recommendations(
         _string(savings["basis"], f"{label}.estimated_savings.basis", 2000)
         harness = [
             _validate_harness(raw_harness, f"{label}.harness_changes[{harness_index}]")
-            for harness_index, raw_harness in enumerate(_array(item["harness_changes"], f"{label}.harness_changes", 32))
+            for harness_index, raw_harness in enumerate(
+                _array(
+                    item["harness_changes"],
+                    f"{label}.harness_changes",
+                    MAX_HARNESS_CHANGES_PER_RECOMMENDATION,
+                )
+            )
         ]
         if any(change["relationship"] == "replace" for change in harness) and action not in {"remove", "rewrite"}:
             raise ResultError(f"{label}: replacement harness changes require remove or rewrite guidance action")
@@ -1000,17 +1008,30 @@ def _validate_result(value: Any) -> dict[str, Any]:
     counts = _object(summary["recommendation_counts"], "summary.recommendation_counts", set(ACTIONS))
     for action in ACTIONS:
         actual = sum(item["action"] == action for item in recommendations)
-        if _integer(counts[action], f"summary.recommendation_counts.{action}", 0, 2000) != actual:
+        if _integer(
+            counts[action],
+            f"summary.recommendation_counts.{action}",
+            0,
+            MAX_RECOMMENDATIONS,
+        ) != actual:
             raise ResultError(f"summary.recommendation_counts.{action} must equal {actual}")
     ready = sum(item["decision"] == "ready" for item in recommendations)
     decisions = sum(item["decision"] == "decision_required" for item in recommendations)
     harness_count = sum(len(item["harness_changes"]) for item in recommendations)
-    ready_value = _integer(summary["ready"], "summary.ready", 0, 2000)
+    ready_value = _integer(
+        summary["ready"], "summary.ready", 0, MAX_RECOMMENDATIONS
+    )
     decision_value = _integer(
-        summary["decision_required"], "summary.decision_required", 0, 2000
+        summary["decision_required"],
+        "summary.decision_required",
+        0,
+        MAX_RECOMMENDATIONS,
     )
     harness_value = _integer(
-        summary["harness_changes"], "summary.harness_changes", 0, 2000
+        summary["harness_changes"],
+        "summary.harness_changes",
+        0,
+        MAX_RECOMMENDATIONS * MAX_HARNESS_CHANGES_PER_RECOMMENDATION,
     )
     if (
         ready_value != ready
