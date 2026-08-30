@@ -1039,6 +1039,7 @@ def _validate_result(value: Any) -> dict[str, Any]:
         or harness_value != harness_count
     ):
         raise ResultError("summary totals do not match recommendations")
+    _bounded_json_result_text(result)
     return result
 
 
@@ -1112,9 +1113,7 @@ def finalize(context_value: Any, draft_value: Any) -> dict[str, Any]:
         "recommendations": recommendations,
         "limitations": limitations,
     }
-    validated = _validate_result(result)
-    _bounded_json_result_text(validated)
-    return validated
+    return _validate_result(result)
 
 
 def _display(value: str) -> str:

@@ -617,6 +617,51 @@ class GuidanceResultTests(unittest.TestCase):
             finally:
                 guidance_result.MAX_JSON_BYTES = original_ceiling
 
+    def test_validation_accounts_for_safe_render_escaping(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "project"
+            root.mkdir()
+            context = self.make_context(root)
+            result = guidance_result.finalize(context, draft_for(context))
+            result["summary"]["conclusion"] = "<" * 3000
+            raw_text = json.dumps(
+                result,
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            escaped_text = guidance_result._json_result_text(result)
+            raw_bytes = len((raw_text + "\n").encode("utf-8"))
+            escaped_bytes = len((escaped_text + "\n").encode("utf-8"))
+            self.assertLess(raw_bytes, escaped_bytes)
+
+            input_path = Path(temporary) / "raw-result.json"
+            input_path.write_text(raw_text + "\n", encoding="utf-8")
+            output_path = Path(temporary) / "rendered-result.json"
+            original_ceiling = guidance_result.MAX_JSON_BYTES
+            try:
+                guidance_result.MAX_JSON_BYTES = raw_bytes
+                for arguments in (
+                    ["validate", "--input", str(input_path)],
+                    [
+                        "render",
+                        "--input",
+                        str(input_path),
+                        "--format",
+                        "json",
+                        "--output",
+                        str(output_path),
+                    ],
+                ):
+                    stderr = io.StringIO()
+                    with contextlib.redirect_stderr(stderr):
+                        exit_code = guidance_result.main(arguments)
+                    self.assertEqual(2, exit_code)
+                    self.assertIn("machine-readable size ceiling", stderr.getvalue())
+                self.assertFalse(output_path.exists())
+            finally:
+                guidance_result.MAX_JSON_BYTES = original_ceiling
+
     def test_canonical_result_cannot_claim_complete_with_unloaded_guidance(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
