@@ -1112,7 +1112,9 @@ def finalize(context_value: Any, draft_value: Any) -> dict[str, Any]:
         "recommendations": recommendations,
         "limitations": limitations,
     }
-    return _validate_result(result)
+    validated = _validate_result(result)
+    _bounded_json_result_text(validated)
+    return validated
 
 
 def _display(value: str) -> str:
@@ -1211,9 +1213,28 @@ def render_human(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _format_result(result: dict[str, Any], output_format: str) -> str:
-    json_text = json.dumps(result, indent=2, ensure_ascii=True, sort_keys=True)
+def _json_result_text(result: dict[str, Any]) -> str:
+    json_text = json.dumps(
+        result,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     json_text = json_text.replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e")
+    return json_text
+
+
+def _bounded_json_result_text(result: dict[str, Any]) -> str:
+    json_text = _json_result_text(result)
+    if len((json_text + "\n").encode("utf-8")) > MAX_JSON_BYTES:
+        raise ResultError(
+            "finalized canonical JSON exceeds the machine-readable size ceiling"
+        )
+    return json_text
+
+
+def _format_result(result: dict[str, Any], output_format: str) -> str:
+    json_text = _bounded_json_result_text(result)
     if output_format == "json":
         return json_text
     human = render_human(result)

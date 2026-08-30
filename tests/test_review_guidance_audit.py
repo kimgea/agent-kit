@@ -588,6 +588,35 @@ class GuidanceResultTests(unittest.TestCase):
             self.assertIn("Estimated savings: 4 words / 25 bytes.", rendered)
             guidance_result._validate_result(result)
 
+    def test_machine_json_round_trips_at_its_output_ceiling(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "project"
+            root.mkdir()
+            context = self.make_context(root)
+            draft = draft_for(context, remove_recommendation(context))
+            result = guidance_result.finalize(context, draft)
+            compact = guidance_result._json_result_text(result)
+            pretty = json.dumps(result, indent=2, ensure_ascii=True, sort_keys=True)
+            self.assertLess(len(compact), len(pretty))
+
+            original_ceiling = guidance_result.MAX_JSON_BYTES
+            try:
+                guidance_result.MAX_JSON_BYTES = len(
+                    (compact + "\n").encode("utf-8")
+                )
+                formatted = guidance_result._format_result(result, "json")
+                output = Path(temporary) / "result.json"
+                guidance_result._write_output(formatted, str(output), False)
+                self.assertEqual(result, guidance_result._read_json(str(output)))
+
+                guidance_result.MAX_JSON_BYTES -= 1
+                with self.assertRaisesRegex(
+                    guidance_result.ResultError, "machine-readable size ceiling"
+                ):
+                    guidance_result.finalize(context, draft)
+            finally:
+                guidance_result.MAX_JSON_BYTES = original_ceiling
+
     def test_canonical_result_cannot_claim_complete_with_unloaded_guidance(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
