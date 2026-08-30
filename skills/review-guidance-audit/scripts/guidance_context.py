@@ -20,12 +20,16 @@ SKILL_VERSION = "1.0.0"
 DEFAULT_MAX_FILES = 5000
 MAX_FILES = 10000
 MAX_REQUESTED_TARGETS = 1000
+MAX_REQUESTED_PATH_BYTES = 1048576
+MAX_TARGET_PATH_BYTES = 2097152
 MAX_GUIDANCE_SOURCES_PER_CHAIN = 256
 MAX_UNIQUE_GUIDANCE_SOURCES = 100000
+MAX_RETAINED_GUIDANCE_JSON_BYTES = 4194304
 MAX_LIMITATIONS = 128
 DEFAULT_MAX_GUIDANCE_BYTES = 131072
 MAX_GUIDANCE_SOURCE_BYTES = 1048576
 MAX_INSPECTION_FILE_BYTES = 16777216
+MAX_CONTEXT_JSON_BYTES = 16777216
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 
 
@@ -435,6 +439,12 @@ def _dedupe_limitations(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+def _serialized_context(result: dict[str, Any]) -> bytes:
+    return (
+        json.dumps(result, indent=2, ensure_ascii=True, sort_keys=True) + "\n"
+    ).encode("utf-8")
+
+
 def resolve(args: argparse.Namespace) -> dict[str, Any]:
     root_input = _filesystem_path(args.repo, "repository root", expand_user=True)
     _assert_no_link_components(root_input, include_final=True)
@@ -486,6 +496,13 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
         raise ContextError(
             f"requested target selection exceeds {MAX_REQUESTED_TARGETS} entries"
         )
+    requested_path_bytes = sum(
+        len(item["path"].encode("utf-8")) for item in unique_requested
+    )
+    if requested_path_bytes > MAX_REQUESTED_PATH_BYTES:
+        raise ContextError(
+            "requested target paths exceed the canonical context path budget"
+        )
     requested = [
         {"target_id": f"T{index:03d}", **item}
         for index, item in enumerate(unique_requested, 1)
@@ -510,14 +527,31 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
                     True,
                 )
             )
-    ordered_candidates = sorted(candidates)
-    if len(ordered_candidates) > args.max_files:
-        omitted = len(ordered_candidates) - args.max_files
-        ordered_candidates = ordered_candidates[: args.max_files]
+    explicit_paths = {
+        item["path"] for item in requested if item["kind"] in {"file", "part"}
+    }
+    if len(explicit_paths) > args.max_files:
+        raise ContextError("max-files is smaller than the explicit target selection")
+    selected_candidates = set(explicit_paths)
+    selected_path_bytes = sum(len(path.encode("utf-8")) for path in explicit_paths)
+    broad_candidates = sorted(candidates - explicit_paths)
+    omitted = 0
+    for index, relative in enumerate(broad_candidates):
+        relative_bytes = len(relative.encode("utf-8"))
+        if (
+            len(selected_candidates) >= args.max_files
+            or selected_path_bytes + relative_bytes > MAX_TARGET_PATH_BYTES
+        ):
+            omitted = len(broad_candidates) - index
+            break
+        selected_candidates.add(relative)
+        selected_path_bytes += relative_bytes
+    ordered_candidates = sorted(selected_candidates)
+    if omitted:
         limitations.append(
             _limitation(
                 "scope_truncated",
-                f"Target discovery exceeded the technical ceiling by {omitted} files.",
+                f"Target discovery exceeded the representable context ceiling by {omitted} files.",
                 [],
                 True,
             )
@@ -554,7 +588,11 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
             else:
                 data = _read_regular_bytes(root / item["path"], maximum=MAX_INSPECTION_FILE_BYTES)
                 line_count = len(_normalized_text(data, item["path"]).splitlines())
-                if item["end_line"] > max(1, line_count):
+                if line_count == 0:
+                    raise ContextError(
+                        f"part range cannot target an empty file: {item['path']}"
+                    )
+                if item["end_line"] > line_count:
                     raise ContextError(
                         f"part range exceeds the file length for {item['path']}"
                     )
@@ -573,14 +611,17 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
             )
         )
     repository_cache: dict[str, dict[str, Any] | None] = {}
+    repository_failures: dict[str, str] = {}
     chains: list[dict[str, Any]] = []
     chain_index: dict[str, dict[str, Any]] = {}
     per_source: dict[tuple[str, str, str], dict[str, Any]] = {}
+    retained_guidance_json_bytes = 0
     for relative in sorted(file_paths):
         sources = [dict(skill_source)]
         if global_source:
             sources.append(dict(global_source))
         guidance_omitted = False
+        guidance_failed = False
         for guidance_path in _guidance_paths(relative):
             if len(sources) >= MAX_GUIDANCE_SOURCES_PER_CHAIN:
                 guidance_omitted = True
@@ -590,9 +631,17 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
                     repository_cache[guidance_path] = _read_repository_source(root, guidance_path)
                 except ContextError as exc:
                     repository_cache[guidance_path] = None
-                    limitations.append(
-                        _limitation("guidance_unreadable", str(exc), [relative], True)
+                    repository_failures[guidance_path] = str(exc)
+            if guidance_path in repository_failures:
+                guidance_failed = True
+                limitations.append(
+                    _limitation(
+                        "guidance_unreadable",
+                        repository_failures[guidance_path],
+                        [relative],
+                        True,
                     )
+                )
             source = repository_cache[guidance_path]
             if source:
                 identity = (
@@ -618,12 +667,7 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
                 )
             )
         loaded_bytes = 0
-        chain_complete = not any(
-            limitation["material"]
-            and limitation["code"] == "guidance_unreadable"
-            and relative in limitation["affected_paths"]
-            for limitation in limitations
-        ) and not guidance_omitted
+        chain_complete = not guidance_failed and not guidance_omitted
         for source in sources:
             if source["source_kind"] == "skill":
                 continue
@@ -651,6 +695,43 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
             ],
             separators=(",", ":"),
         )
+        if identity not in chain_index:
+            proposed_bytes = len(
+                json.dumps(
+                    sources, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+                ).encode("utf-8")
+            )
+            if (
+                retained_guidance_json_bytes + proposed_bytes
+                > MAX_RETAINED_GUIDANCE_JSON_BYTES
+            ):
+                sources = [dict(skill_source)]
+                chain_complete = False
+                limitations.append(
+                    _limitation(
+                        "guidance_budget",
+                        f"Applicable guidance for {relative} was omitted to keep the context machine-readable.",
+                        [relative],
+                        True,
+                    )
+                )
+                identity = json.dumps(
+                    [
+                        chain_complete,
+                        *[
+                            (
+                                item["source_kind"],
+                                item["path"],
+                                item["sha256"],
+                                item["loaded"],
+                            )
+                            for item in sources
+                        ],
+                    ],
+                    separators=(",", ":"),
+                )
+            else:
+                retained_guidance_json_bytes += proposed_bytes
         if identity not in chain_index:
             chain = {
                 "chain_id": f"G{len(chains) + 1:03d}",
@@ -708,6 +789,20 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
         },
         "limitations": _dedupe_limitations(limitations),
     }
+    if len(_serialized_context(context)) > MAX_CONTEXT_JSON_BYTES:
+        has_broad_scope = any(
+            item["kind"] in {"directory", "project"} for item in requested
+        )
+        explicit_count = len(explicit_paths)
+        if has_broad_scope and len(files) > explicit_count:
+            retry_max_files = max(explicit_count, len(files) // 2)
+            if retry_max_files < len(files):
+                retry_args = argparse.Namespace(**vars(args))
+                retry_args.max_files = max(1, retry_max_files)
+                return resolve(retry_args)
+        raise ContextError(
+            "selected context cannot be represented within the canonical JSON ceiling"
+        )
     return context
 
 
@@ -724,9 +819,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _write_context(result: dict[str, Any], destination: str | None) -> None:
-    text = json.dumps(result, indent=2, ensure_ascii=True, sort_keys=True) + "\n"
+    data = _serialized_context(result)
+    if len(data) > MAX_CONTEXT_JSON_BYTES:
+        raise ContextError("context exceeds the canonical JSON ceiling")
     if destination is None:
-        sys.stdout.write(text)
+        sys.stdout.write(data.decode("utf-8"))
         return
     path = _filesystem_path(destination, "output path")
     _assert_no_link_components(path, include_final=False)
@@ -738,7 +835,7 @@ def _write_context(result: dict[str, Any], destination: str | None) -> None:
     except OSError as exc:
         raise ContextError(f"cannot create output {path}: {exc}") from exc
     with os.fdopen(descriptor, "wb") as handle:
-        handle.write(text.encode("utf-8"))
+        handle.write(data)
 
 
 def main(argv: list[str] | None = None) -> int:

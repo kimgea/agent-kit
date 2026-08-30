@@ -131,7 +131,7 @@ compilation, and unit tests. It snapshots Git status before and after execution 
 detect validation side effects.
 
 Release packaging uses fixed timestamps, sorted paths, stable permissions, and a
-single Linux release job. It emits standalone skill archives, per-skill plugin
+single Linux release job. It emits standalone skill archives, cataloged plugin
 archives, and one marketplace archive. Bundles include the repository license and
 third-party notices, and one `SHA256SUMS` covers every archive.
 

@@ -91,12 +91,14 @@ available unless that deployment is first removed and installed through
 
 ## Install Codex plugins
 
-Every installable skill is also released in a focused Codex plugin. Most plugins
-contain one skill; the coherent `artifacts` plugin contains the independently
-useful diagram producer and artifact host. The release
+Every installable skill is released both as a standalone skill archive and as
+part of a Codex plugin. Most plugins contain one skill. The coherent `artifacts`
+plugin groups the diagram producer with the artifact host, while the
+`project-review` plugin groups project review, review-and-fix, and review-guidance
+audit. The release
 includes an `agent-kit-marketplace-<version>.zip` catalog whose entries point to
-the bundled local plugin directories. This supports installing one selected
-skill without turning the toolkit into an all-or-nothing plugin.
+the bundled local plugin directories. Select a focused plugin when its grouped
+workflow is useful, or use a standalone archive to install one skill by itself.
 
 After extracting the marketplace archive, register its root (the directory that
 contains `.agents/plugins/marketplace.json`) with Codex and select the plugins

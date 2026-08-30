@@ -887,6 +887,26 @@ def _validate_result(value: Any) -> dict[str, Any]:
     if not HEX64.fullmatch(str(result["context_sha256"])):
         raise ResultError("context_sha256 must be a lowercase SHA-256")
     _enum(result["status"], "status", {"COMPLETE", "INCOMPLETE"})
+    result_guidance = _array(result["guidance"], "result.guidance", 100000)
+    for chain_index, chain in enumerate(result_guidance):
+        if not isinstance(chain, dict):
+            raise ResultError(f"result.guidance[{chain_index}] must be an object")
+        sources = chain.get("sources")
+        if not isinstance(sources, list):
+            raise ResultError(
+                f"result.guidance[{chain_index}].sources must be an array"
+            )
+        if any(not isinstance(source, dict) for source in sources):
+            raise ResultError(
+                f"result.guidance[{chain_index}].sources must contain objects"
+            )
+        if chain.get("complete") and any(
+            source.get("source_kind") != "skill" and not source.get("loaded")
+            for source in sources
+        ):
+            raise ResultError(
+                f"result.guidance[{chain_index}].complete cannot hide unloaded guidance"
+            )
     synthetic_context = {
         "schema_version": SCHEMA_VERSION,
         "target": result["target"],

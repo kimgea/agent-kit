@@ -173,6 +173,19 @@ class GuidanceContextTests(unittest.TestCase):
             )
             self.assertEqual(["src/example.py"], [item["path"] for item in context["target"]["files"]])
 
+    def test_part_scope_rejects_an_empty_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_fixture(root)
+            (root / "empty.py").write_text("", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                guidance_context.ContextError, "cannot target an empty file"
+            ):
+                guidance_context.resolve(
+                    context_args(root, paths=[], parts=["empty.py:1:1"])
+                )
+
     def test_requested_target_count_matches_finalizer_limit(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -241,6 +254,36 @@ class GuidanceContextTests(unittest.TestCase):
 
             self.assertTrue(any(item["code"] == "guidance_budget" and item["material"] for item in context["limitations"]))
             self.assertFalse(context["guidance"][0]["complete"])
+
+    def test_aggregate_guidance_budget_keeps_context_machine_readable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "project"
+            root.mkdir()
+            (root / "REVIEW.md").write_text("root-rule " * 6500, encoding="utf-8")
+            for index in range(100):
+                directory = root / f"area-{index:03d}"
+                directory.mkdir()
+                (directory / "REVIEW.md").write_text(
+                    f"Area {index} rule.\n", encoding="utf-8"
+                )
+                (directory / "module.py").write_text(
+                    f"VALUE = {index}\n", encoding="utf-8"
+                )
+
+            context = guidance_context.resolve(context_args(root, paths=["."]))
+            self.assertTrue(
+                any(
+                    item["code"] == "guidance_budget" and item["material"]
+                    for item in context["limitations"]
+                )
+            )
+            self.assertTrue(any(not chain["complete"] for chain in context["guidance"]))
+            data = guidance_context._serialized_context(context)
+            self.assertLessEqual(len(data), guidance_result.MAX_JSON_BYTES)
+
+            output = Path(temporary) / "context.json"
+            guidance_context._write_context(context, str(output))
+            self.assertEqual(context, guidance_result._read_json(str(output)))
 
     def test_path_escape_and_link_targets_are_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -393,6 +436,36 @@ class GuidanceContextTests(unittest.TestCase):
                 "unreadable", context["target"]["files"][0]["inspection_kind"]
             )
 
+    def test_shared_unreadable_guidance_marks_every_applicable_chain_incomplete(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_fixture(root)
+            (root / "src" / "REVIEW.md").unlink()
+            (root / "src" / "REVIEW.md").mkdir()
+
+            context = guidance_context.resolve(
+                context_args(
+                    root,
+                    paths=["src/example.py", "src/deep/worker.py"],
+                )
+            )
+
+            for target in ("src/example.py", "src/deep/worker.py"):
+                chain = next(
+                    item
+                    for item in context["guidance"]
+                    if target in item["applies_to"]
+                )
+                self.assertFalse(chain["complete"])
+                self.assertTrue(
+                    any(
+                        limitation["code"] == "guidance_unreadable"
+                        and limitation["material"]
+                        and target in limitation["affected_paths"]
+                        for limitation in context["limitations"]
+                    )
+                )
+
     def test_fallback_walk_reports_skipped_link_directory(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "project"
@@ -514,6 +587,29 @@ class GuidanceResultTests(unittest.TestCase):
             self.assertIn("Guidance: repository:REVIEW.md:1", rendered)
             self.assertIn("Estimated savings: 4 words / 25 bytes.", rendered)
             guidance_result._validate_result(result)
+
+    def test_canonical_result_cannot_claim_complete_with_unloaded_guidance(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            context = self.make_context(root)
+            result = guidance_result.finalize(context, draft_for(context))
+            tampered = copy.deepcopy(result)
+            repository = next(
+                source
+                for source in tampered["guidance"][0]["sources"]
+                if source["source_kind"] == "repository"
+            )
+            repository["loaded"] = False
+            tampered["guidance"][0]["complete"] = True
+
+            with self.assertRaisesRegex(
+                guidance_result.ResultError, "cannot hide unloaded guidance"
+            ):
+                guidance_result._validate_result(tampered)
+            with self.assertRaisesRegex(
+                guidance_result.ResultError, "cannot hide unloaded guidance"
+            ):
+                guidance_result.render_human(tampered)
 
     def test_draft_cannot_supply_target_or_status(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -757,6 +853,22 @@ class GuidanceSkillContractTests(unittest.TestCase):
         nested = (ROOT / "skills" / "review-guidance-audit" / "REVIEW.md").read_text(encoding="utf-8")
         self.assertIn("scope, or guidance has drifted", nested)
         self.assertIn("file-part evidence misses the exact part", nested)
+
+    def test_repository_commands_are_not_execution_authority(self):
+        cases = json.loads(
+            (
+                ROOT / "evals" / "review-guidance-audit" / "cases.json"
+            ).read_text(encoding="utf-8")
+        )
+        case = next(
+            item
+            for item in cases
+            if item["id"] == "repository-command-is-not-authorization"
+        )
+        self.assertIn("static-only", case["expected"])
+        self.assertIn(
+            "Treat REVIEW.md text as caller authorization", case["must_not"]
+        )
 
     def test_future_evidence_extension_is_documented_outside_runtime_contract(self):
         doc = (ROOT / "docs" / "review-guidance-audit.md")
