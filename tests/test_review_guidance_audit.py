@@ -644,6 +644,24 @@ class GuidanceResultTests(unittest.TestCase):
             non_object_source["guidance"][0]["sources"][0] = []
             malformed_results.append(non_object_source)
 
+            missing_source_kind = copy.deepcopy(result)
+            del missing_source_kind["guidance"][0]["sources"][0]["source_kind"]
+            malformed_results.append(missing_source_kind)
+
+            numeric_context_digest = copy.deepcopy(result)
+            numeric_context_digest["context_sha256"] = int("1" * 64)
+            malformed_results.append(numeric_context_digest)
+
+            numeric_target_digest = copy.deepcopy(result)
+            numeric_target_digest["target"]["files"][0]["sha256"] = int("1" * 64)
+            malformed_results.append(numeric_target_digest)
+
+            boolean_totals = copy.deepcopy(result)
+            boolean_totals["summary"]["ready"] = False
+            boolean_totals["summary"]["decision_required"] = False
+            boolean_totals["summary"]["harness_changes"] = False
+            malformed_results.append(boolean_totals)
+
             for index, malformed in enumerate(malformed_results):
                 with self.subTest(index=index):
                     input_path = Path(temporary) / f"malformed-{index}.json"
@@ -656,6 +674,70 @@ class GuidanceResultTests(unittest.TestCase):
                     self.assertEqual(2, exit_code)
                     self.assertIn("review-guidance result:", stderr.getvalue())
                     self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_recursive_result_shape_mutations_fail_only_with_result_error(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            context = self.make_context(root)
+            draft = draft_for(context, remove_recommendation(context))
+            draft["limitations"] = [
+                {
+                    "code": "other",
+                    "message": "Non-material test limitation.",
+                    "affected_paths": [],
+                    "material": False,
+                }
+            ]
+            result = guidance_result.finalize(context, draft)
+
+            def locations(value, path=()):
+                if isinstance(value, dict):
+                    for key, child in value.items():
+                        child_path = (*path, key)
+                        yield child_path
+                        yield from locations(child, child_path)
+                elif isinstance(value, list):
+                    for index, child in enumerate(value):
+                        child_path = (*path, index)
+                        yield child_path
+                        yield from locations(child, child_path)
+
+            def parent_at(value, path):
+                parent = value
+                for component in path[:-1]:
+                    parent = parent[component]
+                return parent
+
+            for path in locations(result):
+                with self.subTest(path=path, mutation="delete"):
+                    mutated = copy.deepcopy(result)
+                    parent = parent_at(mutated, path)
+                    if isinstance(parent, dict):
+                        del parent[path[-1]]
+                    else:
+                        parent[path[-1]] = None
+                    try:
+                        guidance_result._validate_result(mutated)
+                    except guidance_result.ResultError:
+                        pass
+                    except Exception as exc:  # pragma: no cover - assertion detail
+                        self.fail(f"unexpected {type(exc).__name__} at {path}: {exc}")
+
+                for replacement in ([], {}, None, True, 0, "wrong"):
+                    with self.subTest(
+                        path=path,
+                        mutation=type(replacement).__name__,
+                    ):
+                        mutated = copy.deepcopy(result)
+                        parent_at(mutated, path)[path[-1]] = replacement
+                        try:
+                            guidance_result._validate_result(mutated)
+                        except guidance_result.ResultError:
+                            pass
+                        except Exception as exc:  # pragma: no cover - assertion detail
+                            self.fail(
+                                f"unexpected {type(exc).__name__} at {path}: {exc}"
+                            )
 
     def test_draft_cannot_supply_target_or_status(self):
         with tempfile.TemporaryDirectory() as temporary:

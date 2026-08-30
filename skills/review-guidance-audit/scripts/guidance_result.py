@@ -312,8 +312,12 @@ def _validate_context(value: Any) -> dict[str, Any]:
             raise ResultError("context.target.files contains duplicate paths")
         seen_files.add(path)
         _integer(item["bytes"], f"{label}.bytes", 0, 1 << 50)
-        if item["sha256"] is not None and not HEX64.fullmatch(str(item["sha256"])):
-            raise ResultError(f"{label}.sha256 must be a lowercase SHA-256 or null")
+        if item["sha256"] is not None:
+            digest = _string(item["sha256"], f"{label}.sha256", 64)
+            if not HEX64.fullmatch(digest):
+                raise ResultError(
+                    f"{label}.sha256 must be a lowercase SHA-256 or null"
+                )
         _enum(item["inspection_kind"], f"{label}.inspection_kind", {"text", "binary", "non_utf8", "oversized", "unreadable"})
     for item in requested:
         if item["kind"] in {"file", "part"} and item["path"] not in seen_files:
@@ -468,7 +472,8 @@ def _validate_context(value: Any) -> dict[str, Any]:
         item = _object(raw, label, {"source_kind", "path", "sha256", "bytes", "words", "lines", "fanout"})
         _enum(item["source_kind"], f"{label}.source_kind", {"skill", "user_global", "repository"})
         _string(item["path"], f"{label}.path", 8192)
-        if not HEX64.fullmatch(str(item["sha256"])):
+        digest = _string(item["sha256"], f"{label}.sha256", 64)
+        if not HEX64.fullmatch(digest):
             raise ResultError(f"{label}.sha256 must be lowercase SHA-256")
         for key in ("bytes", "words", "lines", "fanout"):
             _integer(item[key], f"{label}.{key}", 0, 1 << 50)
@@ -596,7 +601,8 @@ def _validate_guidance_ref(value: Any, label: str) -> dict[str, Any]:
         _path(path, f"{label}.path")
     else:
         _absolute_authority_path(path, f"{label}.path")
-    if not HEX64.fullmatch(str(reference["sha256"])):
+    digest = _string(reference["sha256"], f"{label}.sha256", 64)
+    if not HEX64.fullmatch(digest):
         raise ResultError(f"{label}.sha256 must be lowercase SHA-256")
     start = reference["start_line"]
     end = reference["end_line"]
@@ -888,7 +894,8 @@ def _validate_result(value: Any) -> dict[str, Any]:
     )
     if result["schema_version"] != SCHEMA_VERSION:
         raise ResultError(f"schema_version must be {SCHEMA_VERSION}")
-    if not HEX64.fullmatch(str(result["context_sha256"])):
+    context_digest = _string(result["context_sha256"], "context_sha256", 64)
+    if not HEX64.fullmatch(context_digest):
         raise ResultError("context_sha256 must be a lowercase SHA-256")
     _enum(result["status"], "status", {"COMPLETE", "INCOMPLETE"})
     result_guidance = _array(result["guidance"], "result.guidance", 100000)
@@ -909,10 +916,30 @@ def _validate_result(value: Any) -> dict[str, Any]:
             raise ResultError(
                 f"result.guidance[{chain_index}].sources must contain objects"
             )
-        for source_index, source in enumerate(sources):
-            if not isinstance(source.get("loaded"), bool):
+        for source_index, raw_source in enumerate(sources):
+            source_label = f"result.guidance[{chain_index}].sources[{source_index}]"
+            source = _object(
+                raw_source,
+                source_label,
+                {
+                    "source_kind",
+                    "path",
+                    "revision",
+                    "sha256",
+                    "bytes",
+                    "words",
+                    "lines",
+                    "loaded",
+                },
+            )
+            _enum(
+                source["source_kind"],
+                f"{source_label}.source_kind",
+                {"skill", "user_global", "repository"},
+            )
+            if not isinstance(source["loaded"], bool):
                 raise ResultError(
-                    f"result.guidance[{chain_index}].sources[{source_index}].loaded must be boolean"
+                    f"{source_label}.loaded must be boolean"
                 )
         if complete and any(
             source.get("source_kind") != "skill" and not source["loaded"]
@@ -978,7 +1005,18 @@ def _validate_result(value: Any) -> dict[str, Any]:
     ready = sum(item["decision"] == "ready" for item in recommendations)
     decisions = sum(item["decision"] == "decision_required" for item in recommendations)
     harness_count = sum(len(item["harness_changes"]) for item in recommendations)
-    if summary["ready"] != ready or summary["decision_required"] != decisions or summary["harness_changes"] != harness_count:
+    ready_value = _integer(summary["ready"], "summary.ready", 0, 2000)
+    decision_value = _integer(
+        summary["decision_required"], "summary.decision_required", 0, 2000
+    )
+    harness_value = _integer(
+        summary["harness_changes"], "summary.harness_changes", 0, 2000
+    )
+    if (
+        ready_value != ready
+        or decision_value != decisions
+        or harness_value != harness_count
+    ):
         raise ResultError("summary totals do not match recommendations")
     return result
 
