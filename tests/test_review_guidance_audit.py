@@ -611,6 +611,23 @@ class GuidanceResultTests(unittest.TestCase):
             ):
                 guidance_result.render_human(tampered)
 
+            truthy_strings = copy.deepcopy(result)
+            repository = next(
+                source
+                for source in truthy_strings["guidance"][0]["sources"]
+                if source["source_kind"] == "repository"
+            )
+            repository["loaded"] = "yes"
+            truthy_strings["guidance"][0]["complete"] = "yes"
+            with self.assertRaisesRegex(
+                guidance_result.ResultError, "complete must be boolean"
+            ):
+                guidance_result._validate_result(truthy_strings)
+            with self.assertRaisesRegex(
+                guidance_result.ResultError, "complete must be boolean"
+            ):
+                guidance_result.render_human(truthy_strings)
+
     def test_draft_cannot_supply_target_or_status(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

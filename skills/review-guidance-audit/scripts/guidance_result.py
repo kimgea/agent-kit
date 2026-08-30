@@ -891,6 +891,11 @@ def _validate_result(value: Any) -> dict[str, Any]:
     for chain_index, chain in enumerate(result_guidance):
         if not isinstance(chain, dict):
             raise ResultError(f"result.guidance[{chain_index}] must be an object")
+        complete = chain.get("complete")
+        if not isinstance(complete, bool):
+            raise ResultError(
+                f"result.guidance[{chain_index}].complete must be boolean"
+            )
         sources = chain.get("sources")
         if not isinstance(sources, list):
             raise ResultError(
@@ -900,8 +905,13 @@ def _validate_result(value: Any) -> dict[str, Any]:
             raise ResultError(
                 f"result.guidance[{chain_index}].sources must contain objects"
             )
-        if chain.get("complete") and any(
-            source.get("source_kind") != "skill" and not source.get("loaded")
+        for source_index, source in enumerate(sources):
+            if not isinstance(source.get("loaded"), bool):
+                raise ResultError(
+                    f"result.guidance[{chain_index}].sources[{source_index}].loaded must be boolean"
+                )
+        if complete and any(
+            source.get("source_kind") != "skill" and not source["loaded"]
             for source in sources
         ):
             raise ResultError(
