@@ -1220,7 +1220,7 @@ class _WindowsJob:
     def assign(self, process: subprocess.Popen[bytes]) -> None:
         raw_handle = getattr(process, "_handle", None)
         if raw_handle is None or not self._kernel32.AssignProcessToJobObject(
-            self._handle, self._wintypes.HANDLE(raw_handle)
+            self._handle, self._wintypes.HANDLE(int(raw_handle))
         ):
             error = self._ctypes.WinError(self._ctypes.get_last_error())
             raise EvalError(f"cannot assign Codex to Windows job: {error}")
@@ -1265,10 +1265,11 @@ class _WindowsJob:
 
 
 _WINDOWS_GATE = (
-    "import os,sys; "
+    "import os,subprocess,sys; "
     "gate=os.read(0,3); "
     "gate==b'GO\\n' or sys.exit(125); "
-    "os.execv(sys.argv[1],sys.argv[1:])"
+    "completed=subprocess.run(sys.argv[1:]); "
+    "sys.exit(completed.returncode)"
 )
 
 

@@ -490,11 +490,21 @@ class CodexRunnerTests(unittest.TestCase):
             (b"", b""),
         ]
         process.returncode = -9
+        windows_job = mock.MagicMock()
+        windows_patch = (
+            mock.patch.object(
+                behavioral_eval, "_WindowsJob", return_value=windows_job
+            )
+            if os.name == "nt"
+            else contextlib.nullcontext()
+        )
         with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
             behavioral_eval, "build_codex_command", return_value=["codex", "exec"]
         ), mock.patch.object(
             behavioral_eval.subprocess, "Popen", return_value=process
-        ), mock.patch.object(behavioral_eval, "_terminate_process_tree") as terminate:
+        ), mock.patch.object(
+            behavioral_eval, "_terminate_process_tree"
+        ) as terminate, windows_patch:
             base = Path(temporary)
             fixture = base / "fixture"
             work = base / "work"
@@ -515,7 +525,13 @@ class CodexRunnerTests(unittest.TestCase):
                 1,
             )
         self.assertTrue(outcome["timed_out"])
-        terminate.assert_called_once_with(process)
+        if os.name == "nt":
+            windows_job.assign.assert_called_once_with(process)
+            windows_job.terminate_and_wait.assert_called_once_with()
+            windows_job.close.assert_called_once_with()
+            terminate.assert_not_called()
+        else:
+            terminate.assert_called_once_with(process)
 
     def test_timeout_terminates_descendant_process(self):
         suite = behavioral_eval.load_suite(ROOT, "review-guidance-audit")
