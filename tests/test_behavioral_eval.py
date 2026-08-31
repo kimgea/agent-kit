@@ -30,6 +30,14 @@ guidance_result = load_module(
     "behavioral_eval_guidance_result",
     ROOT / "skills" / "review-guidance-audit" / "scripts" / "guidance_result.py",
 )
+project_review_result = load_module(
+    "behavioral_eval_project_review_result",
+    ROOT / "skills" / "project-review" / "scripts" / "review_result.py",
+)
+review_workflow = load_module(
+    "behavioral_eval_review_workflow",
+    ROOT / "skills" / "review-and-fix" / "scripts" / "review_workflow.py",
+)
 
 
 def complete_result(context):
@@ -60,6 +68,183 @@ def complete_result(context):
             "recommendations": [],
             "limitations": [],
         },
+    )
+
+
+def complete_project_review_result(context):
+    guidance = behavioral_eval._project_review_guidance(context)
+    groups = [
+        {
+            "group_id": f"R{index:03d}",
+            "paths": list(chain["applies_to"]),
+            "guidance_chain_ids": [chain["chain_id"]],
+            "reviewer_mode": "lead",
+        }
+        for index, chain in enumerate(guidance, 1)
+    ]
+    return project_review_result.finalize_draft(
+        {
+            "target": context["target"],
+            "changes": context["changes"],
+            "summary": {"conclusion": "The selected snapshot is safe."},
+            "guidance": guidance,
+            "coverage": {
+                "complete": True,
+                "requested_paths": context["target"]["requested_paths"],
+                "reviewed_paths": context["target"]["requested_paths"],
+                "context_paths": [],
+                "groups": groups,
+                "residual_risk": [],
+            },
+            "verification": [],
+            "findings": [],
+            "limitations": [],
+        }
+    )
+
+
+def review_and_fix_batch(context, *, finding=None):
+    outcome = "changes_requested" if finding is not None else "pass"
+    envelope = {
+        "target": context["target"],
+        "source": {
+            "reviewer": "project-review",
+            "reviewer_version": "1.0.0",
+            "output_format": "project_review_json",
+            "output_sha256": "0" * 64,
+            "completed": True,
+            "verdict": "BLOCK" if finding is not None else "PASS",
+            "outcome": outcome,
+        },
+    }
+    return review_workflow.finalize_batch(
+        {
+            "normalization": {
+                "confidence": "high",
+                "notes": ["The fixed project-review adapter preserved canonical evidence."],
+            },
+            "findings": [] if finding is None else [finding],
+            "limitations": [],
+        },
+        envelope,
+    )
+
+
+def accepted_review_and_fix_result(context, before_sha256, after_sha256):
+    path = context["target"]["requested_paths"][0]
+    location = {"path": path, "start_line": 1, "end_line": 1}
+    initial = review_and_fix_batch(
+        context,
+        finding={
+            "source_id": "F001",
+            "source_fingerprint": "1" * 64,
+            "disposition": "blocker",
+            "severity": "low",
+            "confidence": "high",
+            "scope_relation": "pre_existing",
+            "actionability": "actionable",
+            "title": "Correct the heading",
+            "problem": "The heading does not use the required glossary spelling.",
+            "impact": "The touched documentation violates its review policy.",
+            "evidence": [
+                {
+                    "kind": "rule",
+                    "description": "The review policy requires the glossary spelling.",
+                    "location": location,
+                }
+            ],
+            "primary_location": location,
+            "related_locations": [],
+            "safe_direction": "Use the glossary spelling in the heading.",
+            "field_provenance": {
+                "disposition": "explicit",
+                "severity": "explicit",
+                "confidence": "explicit",
+                "scope_relation": "explicit",
+                "actionability": "explicit",
+                "safe_direction": "explicit",
+            },
+            "normalization_confidence": "high",
+            "normalization_notes": [],
+        },
+    )
+    selection = {
+        "finding_id": initial["findings"][0]["finding_id"],
+        "selection": {
+            "source_kind": "caller",
+            "basis": "caller_explicit",
+            "source": "The caller explicitly selected the bounded documentation blocker.",
+        },
+    }
+    plan = review_workflow.finalize_plan(
+        {
+            "assessment": {
+                "intent_status": "explicit",
+                "intent_source": "review_rule",
+                "behavior_effect": "restorative",
+                "change_kind": "text_only",
+                "remedy_shape": "singular",
+                "scope_size": "small",
+                "reversible": True,
+                "validation": "static_sufficient",
+                "plan_confidence": "high",
+                "risk_factors": [],
+            },
+            "proposal": {
+                "summary": "Correct the heading spelling.",
+                "rationale": "The glossary and review rule fix the exact intended text.",
+                "paths": [path],
+                "steps": ["Replace the misspelled heading with the glossary spelling."],
+                "alternatives": [],
+                "validation_steps": ["Inspect the corrected heading and glossary term."],
+            },
+        },
+        initial,
+        selection,
+    )
+    current = review_and_fix_batch(context)
+    assessment = review_workflow.assess_round(
+        {
+            "round": 1,
+            "expected_reviewers": [
+                {"reviewer": "project-review", "reviewer_version": "1.0.0"}
+            ],
+            "previous_batches": [initial],
+            "current_batches": [current],
+        }
+    )
+    return review_workflow.finalize_run(
+        {
+            "rounds": [
+                {"round": 0, "batches": [initial], "assessment": None},
+                {"round": 1, "batches": [current], "assessment": assessment},
+            ],
+            "plans": [{"context": selection, "plan": plan, "applied": True}],
+            "changes": [
+                {
+                    "path": path,
+                    "before_sha256": before_sha256,
+                    "after_sha256": after_sha256,
+                }
+            ],
+            "validation": [
+                {
+                    "method": "static",
+                    "description": "The heading now exactly matches the glossary term.",
+                    "status": "passed",
+                    "command": None,
+                    "authorization_source": "not_required",
+                    "plan_refs": [
+                        {
+                            "batch_sha256": plan["batch_sha256"],
+                            "finding_fingerprint": plan["finding"]["fingerprint"],
+                        }
+                    ],
+                }
+            ],
+            "summary": {"conclusion": "The bounded heading fix passed fresh review."},
+        },
+        context,
     )
 
 
@@ -187,6 +372,107 @@ class SuiteValidationTests(unittest.TestCase):
             )
 
 
+class MutationPolicyTests(unittest.TestCase):
+    def fixture_states(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        base = Path(temporary.name)
+        source = base / "source"
+        source.mkdir()
+        (source / "docs").mkdir()
+        (source / "docs" / "help.md").write_text("before\n", encoding="utf-8")
+        destination = base / "destination"
+        behavioral_eval.materialize_fixture(source, destination)
+        return destination, behavioral_eval.snapshot_fixture_state(destination)
+
+    def test_exact_declared_content_mutation_passes(self):
+        fixture, before = self.fixture_states()
+        path = fixture / "docs" / "help.md"
+        path.write_text("after\n", encoding="utf-8")
+        after = behavioral_eval.snapshot_fixture_state(fixture)
+        digest = after["docs/help.md"]["sha256"]
+
+        report = behavioral_eval.evaluate_fixture_mutations(
+            before,
+            after,
+            [{"path": "docs/help.md", "after_sha256": digest}],
+        )
+        self.assertTrue(report["passed"], report["message"])
+        self.assertEqual(["docs/help.md"], [item["path"] for item in report["changes"]])
+
+    def test_wrong_digest_mode_and_undeclared_file_fail(self):
+        fixture, before = self.fixture_states()
+        path = fixture / "docs" / "help.md"
+        path.write_bytes(b"after\n")
+        changed = behavioral_eval.snapshot_fixture_state(fixture)
+        report = behavioral_eval.evaluate_fixture_mutations(
+            before,
+            changed,
+            [{"path": "docs/help.md", "after_sha256": "f" * 64}],
+        )
+        self.assertFalse(report["passed"])
+        self.assertIn("digest", report["message"])
+
+        mode_changed = json.loads(json.dumps(changed))
+        mode_changed["docs/help.md"]["mode"] ^= 1
+        report = behavioral_eval.evaluate_fixture_mutations(
+            before,
+            mode_changed,
+            [{"path": "docs/help.md", "after_sha256": mode_changed["docs/help.md"]["sha256"]}],
+        )
+        self.assertFalse(report["passed"])
+        self.assertIn("mode", report["message"])
+
+        (fixture / "extra.txt").write_text("unexpected\n", encoding="utf-8")
+        added = behavioral_eval.snapshot_fixture_state(fixture)
+        report = behavioral_eval.evaluate_fixture_mutations(
+            before,
+            added,
+            [{"path": "docs/help.md", "after_sha256": added["docs/help.md"]["sha256"]}],
+        )
+        self.assertFalse(report["passed"])
+        self.assertIn("added or removed", report["message"])
+
+    def test_directory_addition_and_mode_change_fail(self):
+        fixture, before = self.fixture_states()
+        (fixture / "empty").mkdir()
+        added = behavioral_eval.snapshot_fixture_state(fixture)
+        report = behavioral_eval.evaluate_fixture_mutations(before, added, [])
+        self.assertFalse(report["passed"])
+        self.assertIn("added or removed", report["message"])
+
+        (fixture / "empty").rmdir()
+        mode_changed = json.loads(json.dumps(before))
+        mode_changed["docs"]["mode"] ^= 1
+        report = behavioral_eval.evaluate_fixture_mutations(before, mode_changed, [])
+        self.assertFalse(report["passed"])
+        self.assertIn("undeclared", report["message"])
+
+    def test_declared_mutation_requires_post_run_evidence(self):
+        _, before = self.fixture_states()
+        report = behavioral_eval.evaluate_fixture_mutations(
+            before,
+            None,
+            [{"path": "docs/help.md", "after_sha256": "0" * 64}],
+        )
+        self.assertFalse(report["passed"])
+        self.assertFalse(report["observed"])
+
+    def test_mutation_mode_uses_windows_readonly_attribute_when_present(self):
+        metadata = types.SimpleNamespace(st_mode=0o100644, st_file_attributes=0x21)
+        self.assertEqual(1, behavioral_eval._mutation_mode(metadata))
+
+    @unittest.skipUnless(os.name == "nt", "Windows read-only attributes are platform-specific")
+    def test_windows_readonly_mutation_is_observed(self):
+        fixture, before = self.fixture_states()
+        path = fixture / "docs" / "help.md"
+        os.chmod(path, 0o444)
+        after = behavioral_eval.snapshot_fixture_state(fixture)
+        report = behavioral_eval.evaluate_fixture_mutations(before, after, [])
+        self.assertFalse(report["passed"])
+        self.assertIn("undeclared", report["message"])
+
+
 class AssertionTests(unittest.TestCase):
     def assertion(self, operator, path, value):
         return {"id": "example", "operator": operator, "path": path, "value": value}
@@ -285,7 +571,7 @@ class RecordedGradingTests(unittest.TestCase):
             )
             result = complete_result(context)
             result["target"]["requested"][0]["path"] = "other"
-            bound, message = behavioral_eval._bind_result(context, result)
+            bound, message = behavioral_eval._bind_result(self.suite, context, result)
             self.assertFalse(bound)
             self.assertIn("target", message)
 
@@ -293,11 +579,210 @@ class RecordedGradingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "result.json"
             path.write_text('{"schema_version":"1.0"}', encoding="utf-8")
+            context_path = Path(temporary) / "context.json"
+            context_path.write_text("{}", encoding="utf-8")
             passed, message = behavioral_eval.validate_result_contract(
-                self.suite, path, ROOT
+                self.suite, path, context_path, ROOT
             )
             self.assertFalse(passed)
             self.assertIn("missing", message)
+
+
+class ProjectReviewContractTests(unittest.TestCase):
+    def setUp(self):
+        self.suite = behavioral_eval.load_suite(ROOT, "project-review")
+        self.case = behavioral_eval._case_by_id(
+            self.suite, "safe-compatibility-counterexample"
+        )
+        self.source = ROOT / "evals" / "project-review" / self.case["fixture"]
+
+    def test_context_result_validation_and_authority_binding(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "fixture"
+            behavioral_eval.materialize_fixture(self.source, fixture)
+            context_path = base / "context.json"
+            context = behavioral_eval.resolve_context(
+                self.suite, self.case, fixture, context_path, ROOT
+            )
+            result = complete_project_review_result(context)
+            result_path = base / "result.json"
+            result_path.write_text(json.dumps(result), encoding="utf-8")
+
+            valid, message = behavioral_eval.validate_result_contract(
+                self.suite, result_path, context_path, ROOT
+            )
+            self.assertTrue(valid, message)
+            bound, message = behavioral_eval._bind_result(
+                self.suite, context, result
+            )
+            self.assertTrue(bound, message)
+
+            result["target"]["requested_paths"] = ["events/other.py"]
+            bound, message = behavioral_eval._bind_result(
+                self.suite, context, result
+            )
+            self.assertFalse(bound)
+            self.assertIn("target", message)
+
+    def test_suite_has_pass_block_incomplete_nonblocking_and_command_boundary_cases(self):
+        self.assertEqual(6, len(self.suite["cases"]))
+        ids = {item["id"] for item in self.suite["cases"]}
+        self.assertIn("nested-tenant-rule", ids)
+        self.assertIn("non-blocking-maintainability", ids)
+        self.assertIn("ordinary-cross-file-defect", ids)
+        self.assertIn("conflicting-contract-incomplete", ids)
+        command_case = behavioral_eval._case_by_id(
+            self.suite, "repository-command-not-authority"
+        )
+        self.assertEqual(["scripts/expensive-check"], command_case["forbidden_commands"])
+
+
+class ReviewAndFixContractTests(unittest.TestCase):
+    def setUp(self):
+        self.suite = behavioral_eval.load_suite(ROOT, "review-and-fix")
+        self.case = behavioral_eval._case_by_id(self.suite, "routine-heading-fix")
+        self.source = ROOT / "evals" / "review-and-fix" / self.case["fixture"]
+
+    def test_context_result_validation_and_observed_change_binding(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "fixture"
+            behavioral_eval.materialize_fixture(self.source, fixture)
+            before = behavioral_eval.snapshot_fixture_state(fixture)
+            context_path = base / "context.json"
+            context = behavioral_eval.resolve_context(
+                self.suite, self.case, fixture, context_path, ROOT
+            )
+            expected = self.case["expected_mutations"][0]
+            change = {
+                "path": expected["path"],
+                "before_sha256": before[expected["path"]]["sha256"],
+                "after_sha256": expected["after_sha256"],
+            }
+            result = accepted_review_and_fix_result(
+                context, change["before_sha256"], change["after_sha256"]
+            )
+            result_path = base / "result.json"
+            result_path.write_text(json.dumps(result), encoding="utf-8")
+
+            valid, message = behavioral_eval.validate_result_contract(
+                self.suite, result_path, context_path, ROOT
+            )
+            self.assertTrue(valid, message)
+            bound, message = behavioral_eval._bind_result(
+                self.suite, context, result, [change]
+            )
+            self.assertTrue(bound, message)
+
+            forged = json.loads(json.dumps(result))
+            forged["changes"][0]["after_sha256"] = "f" * 64
+            bound, message = behavioral_eval._bind_result(
+                self.suite, context, forged, [change]
+            )
+            self.assertFalse(bound)
+            self.assertIn("changes", message)
+
+    def test_malformed_recorded_reviewer_context_is_a_binding_failure(self):
+        bound, message = behavioral_eval._bind_result(
+            self.suite,
+            {"reviewers": [1]},
+            {},
+        )
+        self.assertFalse(bound)
+        self.assertIn("reviewer 0", message)
+
+    def test_fixed_dependency_paths_and_prompt_are_isolated(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            (base / "skills").mkdir()
+            runtime_skills = {
+                "review-and-fix": base / "skills" / "review-and-fix",
+                "project-review": base / "skills" / "project-review",
+            }
+            for skill_id, destination in runtime_skills.items():
+                behavioral_eval.materialize_skill(ROOT / "skills" / skill_id, destination)
+            paths = behavioral_eval._contract(self.suite, ROOT, runtime_skills)
+            self.assertEqual(
+                runtime_skills["project-review"] / "scripts" / "review_context.py",
+                paths["context"],
+            )
+            self.assertEqual(
+                runtime_skills["review-and-fix"] / "scripts" / "review_workflow.py",
+                paths["validator"],
+            )
+            host_context = base / "host" / "context.json"
+            prompt = behavioral_eval._runner_prompt(
+                self.suite,
+                self.case,
+                base / "fixture",
+                base / "work",
+                runtime_skills,
+                host_context,
+            )
+            self.assertIn(str(runtime_skills["review-and-fix"] / "SKILL.md"), prompt)
+            self.assertIn(str(runtime_skills["project-review"] / "SKILL.md"), prompt)
+            self.assertNotIn(self.case["expected_mutations"][0]["after_sha256"], prompt)
+            self.assertNotIn("suite.json", prompt)
+            self.assertIn(str(host_context), prompt)
+            self.assertNotIn("do not write inside\nthe repository", prompt)
+
+    def test_recorded_accepted_fix_is_graded_against_actual_fixture(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "fixture-after"
+            behavioral_eval.materialize_fixture(self.source, fixture)
+            before = behavioral_eval.snapshot_fixture_state(fixture)
+            context_path = base / "context.json"
+            context = behavioral_eval.resolve_context(
+                self.suite, self.case, fixture, context_path, ROOT
+            )
+            target = self.case["expected_mutations"][0]
+            (fixture / target["path"]).write_bytes(
+                b"# Installation\n\nFollow these steps to install the application.\n"
+            )
+            result = accepted_review_and_fix_result(
+                context,
+                before[target["path"]]["sha256"],
+                target["after_sha256"],
+            )
+            result_path = base / "result.json"
+            result_path.write_text(json.dumps(result), encoding="utf-8")
+            output = base / "grade.json"
+
+            code = behavioral_eval.command_grade(
+                argparse.Namespace(
+                    suite="review-and-fix",
+                    case="routine-heading-fix",
+                    context=str(context_path),
+                    result=str(result_path),
+                    fixture_after=str(fixture),
+                    output=str(output),
+                )
+            )
+            self.assertEqual(0, code)
+            report = json.loads(output.read_text(encoding="utf-8"))
+            self.assertTrue(report["passed"])
+            self.assertEqual(
+                ["docs/help.md"],
+                [item["path"] for item in report["fixture_mutation"]["changes"]],
+            )
+
+    def test_suite_covers_fix_decision_authorization_and_scope_stops(self):
+        self.assertEqual(5, len(self.suite["cases"]))
+        ids = {item["id"] for item in self.suite["cases"]}
+        self.assertEqual(
+            {
+                "routine-heading-fix",
+                "product-choice-decision",
+                "security-policy-decision",
+                "remote-authorization",
+                "out-of-target-remedy",
+            },
+            ids,
+        )
+        remote = behavioral_eval._case_by_id(self.suite, "remote-authorization")
+        self.assertEqual(["scripts/deploy"], remote["forbidden_commands"])
 
 
 class CodexRunnerTests(unittest.TestCase):
@@ -332,12 +817,13 @@ class CodexRunnerTests(unittest.TestCase):
                 case,
                 base / "fixture",
                 base / "work",
-                skill,
+                {"review-guidance-audit": skill},
             )
         self.assertIn(str(skill / "SKILL.md"), prompt)
         self.assertNotIn("suite.json", prompt)
         self.assertNotIn("default_assertions", prompt)
         self.assertNotIn("support-only", prompt)
+        self.assertIn("do not perform repository mutations", prompt)
 
     def test_command_is_fixed_ephemeral_and_schema_constrained(self):
         suite = behavioral_eval.load_suite(ROOT, "review-guidance-audit")
@@ -524,7 +1010,11 @@ class CodexRunnerTests(unittest.TestCase):
                 work / "events.jsonl",
                 work / "stderr.txt",
                 ROOT,
-                ROOT / "skills" / "review-guidance-audit",
+                {
+                    "review-guidance-audit": ROOT
+                    / "skills"
+                    / "review-guidance-audit"
+                },
                 "gpt-5.6-luna",
                 "medium",
                 1,
@@ -573,7 +1063,11 @@ class CodexRunnerTests(unittest.TestCase):
                     work / "events.jsonl",
                     work / "stderr.txt",
                     ROOT,
-                    ROOT / "skills" / "review-guidance-audit",
+                    {
+                        "review-guidance-audit": ROOT
+                        / "skills"
+                        / "review-guidance-audit"
+                    },
                     "gpt-5.6-luna",
                     "medium",
                     1,
@@ -614,7 +1108,7 @@ class CodexRunnerTests(unittest.TestCase):
                 pass
             hostile_events.write_text("", encoding="utf-8")
             hostile_errors.write_text("concealed", encoding="utf-8")
-            context = json.loads((work / "context.json").read_text(encoding="utf-8"))
+            context = json.loads((result.parent / "context.json").read_text(encoding="utf-8"))
             result.write_text(
                 json.dumps({"result_json": json.dumps(complete_result(context))}),
                 encoding="utf-8",
@@ -766,7 +1260,7 @@ class CodexRunnerTests(unittest.TestCase):
             timeout,
             runner,
         ):
-            context = json.loads((work / "context.json").read_text(encoding="utf-8"))
+            context = json.loads((result.parent / "context.json").read_text(encoding="utf-8"))
             result.write_text(
                 json.dumps({"result_json": json.dumps(complete_result(context))}),
                 encoding="utf-8",
@@ -823,6 +1317,80 @@ class CodexRunnerTests(unittest.TestCase):
             )
             self.assertFalse(score["passed"])
             self.assertFalse(score["fixture_mutation_free"])
+
+    def test_simulated_host_context_mutation_fails_the_case(self):
+        def context_mutating_run(
+            suite,
+            case,
+            fixture,
+            work,
+            result,
+            events,
+            errors,
+            root,
+            runtime_skill,
+            model,
+            reasoning_effort,
+            timeout,
+            runner,
+        ):
+            context_path = result.parent / "context.json"
+            context = json.loads(context_path.read_text(encoding="utf-8"))
+            result.write_text(
+                json.dumps({"result_json": json.dumps(complete_result(context))}),
+                encoding="utf-8",
+            )
+            context_path.write_bytes(context_path.read_bytes() + b" ")
+            events.write_text("", encoding="utf-8")
+            errors.write_text("", encoding="utf-8")
+            return {
+                "exit_code": 0,
+                "timed_out": False,
+                "started_at": "2026-08-30T20:00:00+00:00",
+                "finished_at": "2026-08-30T20:00:01+00:00",
+                "duration_seconds": 1.0,
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            output = base / "results"
+            output.mkdir()
+            args = argparse.Namespace(
+                suite="review-guidance-audit",
+                runner="codex",
+                case=["json-consumer-output"],
+                model="gpt-5.6-luna",
+                reasoning_effort="medium",
+                timeout=30,
+                output_dir=str(output),
+            )
+            runner = {
+                "command": [str(base / "codex")],
+                "kind": "test",
+                "sha256": "1" * 64,
+                "version": "codex-cli test",
+            }
+            printed = io.StringIO()
+            progress = io.StringIO()
+            with mock.patch.object(
+                behavioral_eval, "_run_codex", side_effect=context_mutating_run
+            ), mock.patch.object(
+                behavioral_eval, "discover_codex_runner", return_value=runner
+            ), contextlib.redirect_stdout(printed), contextlib.redirect_stderr(progress):
+                code = behavioral_eval.command_run(args)
+            self.assertEqual(1, code)
+            summary = json.loads(printed.getvalue())
+            score = json.loads(
+                (
+                    Path(summary["output_directory"])
+                    / "cases"
+                    / "json-consumer-output"
+                    / "score.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertFalse(score["passed"])
+            self.assertFalse(score["context_unchanged"])
+            self.assertIn("lead-owned context changed during the run", score["isolation_errors"])
 
     def test_output_refuses_a_symlinked_parent(self):
         with tempfile.TemporaryDirectory() as temporary:

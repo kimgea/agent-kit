@@ -106,14 +106,19 @@ review target.
 
 ## Structured contracts
 
-The installed skill contains three dependency-free interfaces:
+The installed skill contains four dependency-free interfaces:
 
 - `references/review-finding-batch.schema.json` records exact target and source
   provenance, field-level inference provenance, findings, and limitations.
 - `references/fix-plan.schema.json` records planner facts and proposal plus the
   canonical batch digest and mechanically derived decision.
-- `scripts/review_workflow.py` finalizes and validates both contracts, converts
-  validated target-bound project-review JSON, and assesses fresh review rounds.
+- `references/review-fix-result.schema.json` records the complete bounded run:
+  reviewer contexts, rounds, plans, exact changed-file digests, validation,
+  derived status, and stop reason.
+- `scripts/review_workflow.py` finalizes and validates these contracts, converts
+  validated target-bound project-review JSON, assesses fresh review rounds, and
+  finalizes or validates the complete workflow result against a separate
+  lead-owned run context.
 
 The batch finalizer accepts target/source only from a separate lead-owned
 envelope and rejects drafts that try to supply those fields or normalization
@@ -137,6 +142,21 @@ requires high-confidence normalization plus canonical source outcome `pass`; a
 non-pass verdict cannot be inferred away from an empty blocker list. The
 installed `references/round-assessment.md` gives the exact JSON input and output
 shape.
+
+`finalize-run` and `validate-run` accept the run context separately from the
+agent-produced draft or result. The helper derives the exact target, context
+digest, reviewer identities, changes-to-applied-plan relationship, validation
+coverage, status, and stop reason. Validation records bind to exact applied
+plans through batch and finding fingerprints. Code and configuration plans need
+a successful command check whose exact command and caller or user-global source
+were recorded in the separate lead-owned run context before execution; the
+agent-produced draft cannot claim that authority. Static checks can satisfy only
+plans that declared static inspection sufficient. Partial
+reviewer evidence takes precedence over pending decisions. Only an applied
+`auto` plan may explain a change, and acceptance requires a later fresh review
+round. Inputs and emitted JSON are bounded to 16
+MiB and 100 container levels; duplicate members, unsafe paths, malformed
+digests, and forged derived fields fail closed.
 
 ## Installation and operation
 
@@ -162,3 +182,13 @@ reviewer drift, no-progress detection, and the round limit. Behavioral
 evaluations cover unfamiliar reviewer output, malicious authority forgery,
 out-of-target plans, routine fixes, consequential decisions, opt-in findings,
 conflicts, and implementation drift.
+
+The executable `evals/review-and-fix/suite.json` adds five local end-to-end
+cases. One performs an exact routine heading correction and must pass a fresh
+`project-review`; product and security changes stop for a decision, a reversible
+remote-draft synchronization stops for separate authorization, and a generated-file remedy
+outside the selected target stops incomplete. The host freezes both skills,
+keeps its resolver context private from agent writes, compares the actual
+disposable fixture against hidden exact digests, and rejects every undeclared
+file or directory mutation. GitHub Actions validate this machinery with
+simulated results only and never invoke a model.

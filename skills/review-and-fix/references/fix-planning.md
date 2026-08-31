@@ -35,6 +35,37 @@ Return a plan draft containing only `assessment` and `proposal`. Do not emit the
 finding, selection authority, `schema_version`, `batch_sha256`, `decision`, or
 `decision_reasons`. State facts conservatively:
 
+Use this exact outer shape. Replace every placeholder with a contract value and
+keep arrays as arrays even when `alternatives` is empty:
+
+```json
+{
+  "assessment": {
+    "intent_status": "explicit|inferred|uncertain",
+    "intent_source": "user|test|specification|review_rule|public_contract|existing_behavior|none",
+    "behavior_effect": "none|restorative|new_or_changed|uncertain",
+    "change_kind": "text_only|mechanical|code|configuration|other",
+    "remedy_shape": "singular|multiple|unknown",
+    "scope_size": "small|medium|large|unknown",
+    "reversible": true,
+    "validation": "available|static_sufficient|unavailable|uncertain",
+    "plan_confidence": "high|medium|low",
+    "risk_factors": []
+  },
+  "proposal": {
+    "summary": "Smallest outcome-focused proposal.",
+    "rationale": "Why this is the bounded safe direction.",
+    "paths": ["exact/reviewed/path"],
+    "steps": ["One concrete step."],
+    "alternatives": [],
+    "validation_steps": ["One existing or static validation step."]
+  }
+}
+```
+
+The pipe-separated strings above enumerate alternatives; choose exactly one
+value and never return the pipe characters. `reversible` is a JSON Boolean.
+
 - `intent_status`: use `explicit` only when a user statement, test,
   specification, review rule, public contract, or demonstrable existing behavior
   fixes the desired outcome.
@@ -50,7 +81,13 @@ finding, selection authority, `schema_version`, `batch_sha256`, `decision`, or
   `static_sufficient` only when static inspection fully proves a non-runtime or
   mechanical result.
 - `risk_factors`: include every applicable consequential or separately
-  authorized surface. Unknown risk is not an empty risk list.
+  authorized surface. Prefer the most specific factor for one risk boundary;
+  do not add `external_service` merely because a predetermined operation uses
+  an already-integrated remote system when `remote_state` fully describes the
+  unresolved authorization boundary. Use `external_service` as an additional
+  factor when the plan introduces or changes that integration, its contract, or
+  another consequential service dependency. Unknown risk is not an empty risk
+  list.
 - `plan_confidence`: lower confidence for unstated intent, incomplete evidence,
   multiple callers, generated files, unfamiliar frameworks, or unresolved
   assumptions.

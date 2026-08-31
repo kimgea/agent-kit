@@ -18,6 +18,9 @@ from typing import Any
 
 BATCH_SCHEMA_VERSION = "1.0.0"
 PLAN_SCHEMA_VERSION = "1.0.0"
+RUN_SCHEMA_VERSION = "1.0.0"
+MAX_JSON_BYTES = 16 * 1024 * 1024
+MAX_JSON_DEPTH = 100
 HEX_DIGEST = re.compile(r"^[0-9a-f]{64}$")
 FINDING_ID = re.compile(r"^RF[0-9]{3,6}$")
 
@@ -101,6 +104,27 @@ AUTHORIZATION_RISKS = {
     "persistent_service",
 }
 DECISIONS = {"auto", "user_decision_required", "authorization_required"}
+RUN_STATUSES = {
+    "completed",
+    "decision_required",
+    "authorization_required",
+    "incomplete",
+    "stopped",
+}
+RUN_STOP_REASONS = {
+    "reviewer_pass",
+    "user_decision_required",
+    "authorization_required",
+    "reviewer_incomplete",
+    "reviewer_not_passed",
+    "reviewer_set_drift",
+    "target_drift",
+    "ref_range_review_only",
+    "no_material_progress",
+    "maximum_rounds_reached",
+    "validation_failed",
+    "workflow_incomplete",
+}
 SEMANTIC_FIELDS = (
     "disposition",
     "severity",
@@ -176,7 +200,11 @@ def _text(
 
 
 def _enum(value: Any, allowed: set[Any], label: str) -> Any:
-    if value not in allowed:
+    try:
+        accepted = value in allowed
+    except TypeError:
+        accepted = False
+    if not accepted:
         rendered = ", ".join(repr(item) for item in sorted(allowed, key=lambda item: str(item)))
         raise WorkflowError(f"{label} must be one of: {rendered}")
     return value
@@ -677,10 +705,48 @@ def _project_review_digest(value: Any) -> str:
 
 
 def _canonical_digest(value: Any) -> str:
-    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
-        "utf-8"
-    )
+    encoded = _bounded_json_bytes(value, "canonical value", compact=True)
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _assert_bounded_json(value: Any, label: str) -> None:
+    pending: list[tuple[Any, int, bool]] = [(value, 0, False)]
+    active: set[int] = set()
+    while pending:
+        current, depth, leaving = pending.pop()
+        if not isinstance(current, (dict, list)):
+            continue
+        identity = id(current)
+        if leaving:
+            active.remove(identity)
+            continue
+        if identity in active:
+            raise WorkflowError(f"{label} contains a circular value")
+        if depth >= MAX_JSON_DEPTH:
+            raise WorkflowError(
+                f"{label} exceeds the {MAX_JSON_DEPTH}-level nesting limit"
+            )
+        active.add(identity)
+        pending.append((current, depth, True))
+        children = current.values() if isinstance(current, dict) else current
+        pending.extend((child, depth + 1, False) for child in children)
+
+
+def _bounded_json_bytes(value: Any, label: str, *, compact: bool) -> bytes:
+    _assert_bounded_json(value, label)
+    try:
+        if compact:
+            rendered = json.dumps(
+                value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            )
+        else:
+            rendered = json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+        encoded = rendered.encode("utf-8")
+    except (RecursionError, UnicodeEncodeError, ValueError) as exc:
+        raise WorkflowError(f"{label} is not bounded UTF-8 JSON: {exc}") from exc
+    if len(encoded) > MAX_JSON_BYTES:
+        raise WorkflowError(f"{label} exceeds the {MAX_JSON_BYTES}-byte limit")
+    return encoded
 
 
 def convert_project_review(
@@ -1209,6 +1275,499 @@ def assess_round(value: Any) -> dict[str, Any]:
     }
 
 
+def _run_context(value: Any) -> dict[str, Any]:
+    item = _object(
+        value,
+        "run context",
+        {"schema_version", "target", "reviewers", "command_authorities"},
+    )
+    if item["schema_version"] != RUN_SCHEMA_VERSION:
+        raise WorkflowError(f"run context schema_version must be {RUN_SCHEMA_VERSION}")
+    reviewers: list[dict[str, Any]] = []
+    identities: set[tuple[str, str]] = set()
+    for index, raw in enumerate(
+        _sequence(item["reviewers"], "run context.reviewers", 32, minimum=1)
+    ):
+        reviewer = _object(
+            raw,
+            f"run context.reviewers[{index}]",
+            {"reviewer", "reviewer_version", "context_sha256", "context"},
+        )
+        identity = _reviewer_identity(
+            {
+                "reviewer": reviewer["reviewer"],
+                "reviewer_version": reviewer["reviewer_version"],
+            },
+            f"run context.reviewers[{index}]",
+        )
+        key = _identity_key(identity)
+        if key in identities:
+            raise WorkflowError("run context reviewers must not contain duplicates")
+        identities.add(key)
+        digest = _text(
+            reviewer["context_sha256"],
+            f"run context.reviewers[{index}].context_sha256",
+            64,
+            single_line=True,
+        )
+        if digest is None or not HEX_DIGEST.fullmatch(digest):
+            raise WorkflowError("run context reviewer context_sha256 is invalid")
+        if not isinstance(reviewer["context"], dict):
+            raise WorkflowError("run context reviewer context must be an object")
+        if digest != _canonical_digest(reviewer["context"]):
+            raise WorkflowError("run context reviewer context digest does not match")
+        reviewers.append(
+            {
+                **identity,
+                "context_sha256": digest,
+                "context": reviewer["context"],
+            }
+        )
+    command_authorities: list[dict[str, str]] = []
+    seen_authorities: set[tuple[str, str]] = set()
+    for index, raw in enumerate(
+        _sequence(item["command_authorities"], "run context.command_authorities", 128)
+    ):
+        authority = _object(
+            raw,
+            f"run context.command_authorities[{index}]",
+            {"command", "source"},
+        )
+        command = _text(
+            authority["command"],
+            f"run context.command_authorities[{index}].command",
+            4000,
+            single_line=True,
+        )
+        source = _enum(
+            authority["source"],
+            {"caller", "user_global"},
+            f"run context.command_authorities[{index}].source",
+        )
+        identity = (command, source)
+        if identity in seen_authorities:
+            raise WorkflowError("run context command authorities must not contain duplicates")
+        seen_authorities.add(identity)
+        command_authorities.append({"command": command, "source": source})
+    return {
+        "schema_version": RUN_SCHEMA_VERSION,
+        "target": _target(item["target"], "run context.target"),
+        "reviewers": reviewers,
+        "command_authorities": command_authorities,
+    }
+
+
+def _run_reviewer_summaries(context: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "reviewer": item["reviewer"],
+            "reviewer_version": item["reviewer_version"],
+            "context_sha256": item["context_sha256"],
+        }
+        for item in context["reviewers"]
+    ]
+
+
+def _run_rounds(
+    value: Any, context: dict[str, Any]
+) -> tuple[
+    list[dict[str, Any]],
+    dict[str, dict[str, Any]],
+    dict[str, int],
+]:
+    raw_rounds = _sequence(value, "run rounds", 4, minimum=1)
+    rounds: list[dict[str, Any]] = []
+    batches_by_digest: dict[str, dict[str, Any]] = {}
+    batch_first_round: dict[str, int] = {}
+    expected_reviewers = [
+        {
+            "reviewer": item["reviewer"],
+            "reviewer_version": item["reviewer_version"],
+        }
+        for item in context["reviewers"]
+    ]
+    expected_keys = sorted(_identity_key(item) for item in expected_reviewers)
+    previous_batches: list[dict[str, Any]] | None = None
+    for index, raw_round in enumerate(raw_rounds):
+        item = _object(raw_round, f"rounds[{index}]", {"round", "batches", "assessment"})
+        round_number = item["round"]
+        if not isinstance(round_number, int) or isinstance(round_number, bool) or round_number != index:
+            raise WorkflowError("run rounds must be contiguous from round 0")
+        batches = _batch_set(item["batches"], f"rounds[{index}].batches")
+        if _batch_identities(batches) != expected_keys:
+            raise WorkflowError(f"rounds[{index}] reviewer set does not match run context")
+        if any(batch["target"] != context["target"] for batch in batches):
+            raise WorkflowError(f"rounds[{index}] target does not match run context")
+        for batch in batches:
+            digest = _canonical_digest(batch)
+            existing = batches_by_digest.get(digest)
+            if existing is not None and existing != batch:
+                raise WorkflowError("a run batch digest identifies different content")
+            batches_by_digest[digest] = batch
+            batch_first_round.setdefault(digest, index)
+        if index == 0:
+            if item["assessment"] is not None:
+                raise WorkflowError("initial round assessment must be null")
+            assessment = None
+        else:
+            if previous_batches is None:  # pragma: no cover - loop invariant
+                raise WorkflowError("previous round is missing")
+            expected_assessment = assess_round(
+                {
+                    "round": index,
+                    "expected_reviewers": expected_reviewers,
+                    "previous_batches": previous_batches,
+                    "current_batches": batches,
+                }
+            )
+            if item["assessment"] != expected_assessment:
+                raise WorkflowError(f"rounds[{index}].assessment is not canonical")
+            assessment = expected_assessment
+            previous_assessment = rounds[-1]["assessment"]
+            if previous_assessment is not None and previous_assessment["action"] != "continue":
+                raise WorkflowError("a run cannot continue after an accepting or stopping round")
+        rounds.append(
+            {"round": round_number, "batches": batches, "assessment": assessment}
+        )
+        previous_batches = batches
+    return rounds, batches_by_digest, batch_first_round
+
+
+def _run_plans(
+    value: Any, batches_by_digest: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    plans: list[dict[str, Any]] = []
+    identities: set[tuple[str, str]] = set()
+    for index, raw in enumerate(_sequence(value, "run plans", 128)):
+        item = _object(raw, f"plans[{index}]", {"context", "plan", "applied"})
+        if not isinstance(item["plan"], dict):
+            raise WorkflowError(f"plans[{index}].plan must be an object")
+        digest = item["plan"].get("batch_sha256")
+        if not isinstance(digest, str) or digest not in batches_by_digest:
+            raise WorkflowError(f"plans[{index}] does not identify a run batch")
+        plan = validate_plan(item["plan"], batches_by_digest[digest], item["context"])
+        applied = _boolean(item["applied"], f"plans[{index}].applied")
+        if applied and plan["decision"] != "auto":
+            raise WorkflowError("only an auto plan may be recorded as applied")
+        identity = (plan["batch_sha256"], plan["finding"]["fingerprint"])
+        if identity in identities:
+            raise WorkflowError("run plans must not repeat a finding from the same batch")
+        identities.add(identity)
+        plans.append({"context": item["context"], "plan": plan, "applied": applied})
+    return plans
+
+
+def _run_changes(value: Any, target: dict[str, Any]) -> list[dict[str, str]]:
+    changes: list[dict[str, str]] = []
+    seen: set[str] = set()
+    allowed = set(target["requested_paths"])
+    for index, raw in enumerate(_sequence(value, "run changes", 5000)):
+        item = _object(raw, f"changes[{index}]", {"path", "before_sha256", "after_sha256"})
+        path = _repo_path(item["path"], f"changes[{index}].path")
+        if path not in allowed:
+            raise WorkflowError(f"changes[{index}].path must be an exact reviewed target path")
+        if path in seen:
+            raise WorkflowError("run changes must not repeat a path")
+        seen.add(path)
+        digests: list[str] = []
+        for key in ("before_sha256", "after_sha256"):
+            digest = _text(item[key], f"changes[{index}].{key}", 64, single_line=True)
+            if digest is None or not HEX_DIGEST.fullmatch(digest):
+                raise WorkflowError(f"changes[{index}].{key} is invalid")
+            digests.append(digest)
+        if digests[0] == digests[1]:
+            raise WorkflowError("a run change must alter file content")
+        changes.append(
+            {"path": path, "before_sha256": digests[0], "after_sha256": digests[1]}
+        )
+    return sorted(changes, key=lambda item: item["path"])
+
+
+def _run_validation(
+    value: Any,
+    plans: list[dict[str, Any]],
+    command_authorities: list[dict[str, str]],
+) -> list[dict[str, Any]]:
+    applied = {
+        (
+            item["plan"]["batch_sha256"],
+            item["plan"]["finding"]["fingerprint"],
+        )
+        for item in plans
+        if item["applied"]
+    }
+    records: list[dict[str, Any]] = []
+    for index, raw in enumerate(_sequence(value, "run validation", 128)):
+        item = _object(
+            raw,
+            f"validation[{index}]",
+            {
+                "method",
+                "description",
+                "status",
+                "command",
+                "authorization_source",
+                "plan_refs",
+            },
+        )
+        method = _enum(item["method"], {"static", "command"}, f"validation[{index}].method")
+        status = _enum(
+            item["status"],
+            {"passed", "failed", "not_run"},
+            f"validation[{index}].status",
+        )
+        command = _text(
+            item["command"],
+            f"validation[{index}].command",
+            4000,
+            nullable=True,
+            single_line=True,
+        )
+        authority = _enum(
+            item["authorization_source"],
+            {"caller", "user_global", "not_required", None},
+            f"validation[{index}].authorization_source",
+        )
+        if method == "static" and (command is not None or authority != "not_required"):
+            raise WorkflowError("static validation must have no command and use not_required authority")
+        if method == "command" and command is None:
+            raise WorkflowError("command validation requires a bounded command summary")
+        if method == "command":
+            if authority == "not_required":
+                raise WorkflowError("command validation always requires explicit authority")
+            authorized = any(
+                item["command"] == command and item["source"] == authority
+                for item in command_authorities
+            )
+            if authority is not None and not authorized:
+                raise WorkflowError(
+                    "command validation authority is not present in the lead-owned run context"
+                )
+            if status != "not_run" and not authorized:
+                raise WorkflowError(
+                    "executed command validation requires lead-owned caller or user-global authority"
+                )
+        refs: list[dict[str, str]] = []
+        seen_refs: set[tuple[str, str]] = set()
+        for ref_index, raw_ref in enumerate(
+            _sequence(
+                item["plan_refs"],
+                f"validation[{index}].plan_refs",
+                128,
+                minimum=1,
+            )
+        ):
+            ref = _object(
+                raw_ref,
+                f"validation[{index}].plan_refs[{ref_index}]",
+                {"batch_sha256", "finding_fingerprint"},
+            )
+            pair: list[str] = []
+            for key in ("batch_sha256", "finding_fingerprint"):
+                digest = _text(
+                    ref[key],
+                    f"validation[{index}].plan_refs[{ref_index}].{key}",
+                    64,
+                    single_line=True,
+                )
+                if digest is None or not HEX_DIGEST.fullmatch(digest):
+                    raise WorkflowError(
+                        f"validation[{index}].plan_refs[{ref_index}].{key} is invalid"
+                    )
+                pair.append(digest)
+            identity = (pair[0], pair[1])
+            if identity not in applied:
+                raise WorkflowError(
+                    f"validation[{index}].plan_refs[{ref_index}] must identify an applied plan"
+                )
+            if identity in seen_refs:
+                raise WorkflowError("validation plan_refs must not contain duplicates")
+            seen_refs.add(identity)
+            refs.append(
+                {"batch_sha256": pair[0], "finding_fingerprint": pair[1]}
+            )
+        records.append(
+            {
+                "method": method,
+                "description": _text(item["description"], f"validation[{index}].description", 2000),
+                "status": status,
+                "command": command,
+                "authorization_source": authority,
+                "plan_refs": refs,
+            }
+        )
+    return records
+
+
+def _derive_run_outcome(
+    rounds: list[dict[str, Any]],
+    plans: list[dict[str, Any]],
+    changes: list[dict[str, str]],
+    validation: list[dict[str, Any]],
+) -> tuple[str, str]:
+    changed_paths = {item["path"] for item in changes}
+    applied_paths = {
+        path
+        for item in plans
+        if item["applied"]
+        for path in item["plan"]["proposal"]["paths"]
+    }
+    if changed_paths != applied_paths:
+        raise WorkflowError("run changes must exactly match the paths of applied auto plans")
+
+    if any(
+        batch["status"] != "complete"
+        or not batch["source"]["completed"]
+        or batch["normalization"]["confidence"] != "high"
+        for round_record in rounds
+        for batch in round_record["batches"]
+    ):
+        return "incomplete", "reviewer_incomplete"
+
+    if changes:
+        if not validation or any(item["status"] != "passed" for item in validation):
+            return "incomplete", "validation_failed"
+        for item in plans:
+            if not item["applied"]:
+                continue
+            plan = item["plan"]
+            identity = (
+                plan["batch_sha256"],
+                plan["finding"]["fingerprint"],
+            )
+            matching = [
+                record
+                for record in validation
+                if any(
+                    (ref["batch_sha256"], ref["finding_fingerprint"]) == identity
+                    for ref in record["plan_refs"]
+                )
+            ]
+            if not matching:
+                return "incomplete", "validation_failed"
+            assessment = plan["assessment"]
+            command_required = assessment["validation"] == "available" or assessment[
+                "change_kind"
+            ] in {"code", "configuration"}
+            if command_required and not any(
+                record["method"] == "command" and record["status"] == "passed"
+                for record in matching
+            ):
+                return "incomplete", "validation_failed"
+
+    final_assessment = rounds[-1]["assessment"]
+    if final_assessment is not None:
+        if final_assessment["action"] == "accept":
+            if _remaining_blockers(rounds[0]["batches"]) and not changes:
+                raise WorkflowError("a fixed blocker cannot be accepted without a recorded change")
+            return "completed", "reviewer_pass"
+        if final_assessment["action"] == "stop":
+            mapping = {
+                "incomplete_review": ("incomplete", "reviewer_incomplete"),
+                "reviewer_not_passed": ("stopped", "reviewer_not_passed"),
+                "reviewer_set_drift": ("incomplete", "reviewer_set_drift"),
+                "target_drift": ("incomplete", "target_drift"),
+                "ref_range_review_only": ("incomplete", "ref_range_review_only"),
+                "no_material_progress": ("stopped", "no_material_progress"),
+                "maximum_rounds_reached": ("stopped", "maximum_rounds_reached"),
+            }
+            if final_assessment["reason"] not in mapping:
+                raise WorkflowError("run round has an unsupported stop reason")
+            return mapping[final_assessment["reason"]]
+
+    un_applied = [item["plan"] for item in plans if not item["applied"]]
+    if any(plan["decision"] == "authorization_required" for plan in un_applied):
+        return "authorization_required", "authorization_required"
+    if any(plan["decision"] == "user_decision_required" for plan in un_applied):
+        return "decision_required", "user_decision_required"
+
+    initial = rounds[0]["batches"]
+    if not _remaining_blockers(initial) and all(
+        batch["source"]["outcome"] == "pass" for batch in initial
+    ):
+        if changes:
+            raise WorkflowError("a passing initial review cannot claim applied changes")
+        return "completed", "reviewer_pass"
+    return "incomplete", "workflow_incomplete"
+
+
+def finalize_run(draft: Any, context_value: Any) -> dict[str, Any]:
+    _assert_bounded_json(draft, "run draft")
+    _assert_bounded_json(context_value, "run context")
+    item = _object(draft, "run draft", {"rounds", "plans", "changes", "validation", "summary"})
+    context = _run_context(context_value)
+    rounds, batches_by_digest, batch_first_round = _run_rounds(item["rounds"], context)
+    plans = _run_plans(item["plans"], batches_by_digest)
+    changes = _run_changes(item["changes"], context["target"])
+    if rounds[-1]["assessment"] is not None and rounds[-1]["assessment"]["action"] == "accept":
+        final_round = rounds[-1]["round"]
+        for plan_record in plans:
+            if (
+                plan_record["applied"]
+                and batch_first_round[plan_record["plan"]["batch_sha256"]] >= final_round
+            ):
+                raise WorkflowError(
+                    "an accepted applied plan must be followed by a fresh review round"
+                )
+    validation = _run_validation(
+        item["validation"], plans, context["command_authorities"]
+    )
+    status, stop_reason = _derive_run_outcome(rounds, plans, changes, validation)
+    summary = _object(item["summary"], "summary", {"conclusion"})
+    return {
+        "schema_version": RUN_SCHEMA_VERSION,
+        "context_sha256": _canonical_digest(context),
+        "target": context["target"],
+        "reviewers": _run_reviewer_summaries(context),
+        "rounds": rounds,
+        "plans": plans,
+        "changes": changes,
+        "validation": validation,
+        "status": status,
+        "stop_reason": stop_reason,
+        "summary": {"conclusion": _text(summary["conclusion"], "summary.conclusion", 2000)},
+    }
+
+
+def validate_run(value: Any, context_value: Any) -> dict[str, Any]:
+    _assert_bounded_json(value, "run result")
+    _assert_bounded_json(context_value, "run context")
+    item = _object(
+        value,
+        "run result",
+        {
+            "schema_version",
+            "context_sha256",
+            "target",
+            "reviewers",
+            "rounds",
+            "plans",
+            "changes",
+            "validation",
+            "status",
+            "stop_reason",
+            "summary",
+        },
+    )
+    if item["schema_version"] != RUN_SCHEMA_VERSION:
+        raise WorkflowError(f"run result schema_version must be {RUN_SCHEMA_VERSION}")
+    _enum(item["status"], RUN_STATUSES, "run result.status")
+    _enum(item["stop_reason"], RUN_STOP_REASONS, "run result.stop_reason")
+    expected = finalize_run(
+        {
+            "rounds": copy.deepcopy(item["rounds"]),
+            "plans": copy.deepcopy(item["plans"]),
+            "changes": copy.deepcopy(item["changes"]),
+            "validation": copy.deepcopy(item["validation"]),
+            "summary": copy.deepcopy(item["summary"]),
+        },
+        context_value,
+    )
+    if item != expected:
+        raise WorkflowError("run result is not in canonical finalized form")
+    return expected
+
+
 def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -1227,6 +1786,8 @@ def _read_regular_bytes(path: Path) -> bytes:
         raise WorkflowError(f"cannot inspect input: {exc}") from exc
     if _is_link_like(before) or not stat.S_ISREG(before.st_mode):
         raise WorkflowError("input path must identify a regular file")
+    if before.st_size > MAX_JSON_BYTES:
+        raise WorkflowError(f"input JSON exceeds the {MAX_JSON_BYTES}-byte limit")
     flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = os.open(path, flags)
@@ -1236,7 +1797,12 @@ def _read_regular_bytes(path: Path) -> bytes:
                 raise WorkflowError("input path must identify a regular file")
             if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
                 raise WorkflowError("input path changed while it was being opened")
-            return handle.read()
+            data = handle.read(MAX_JSON_BYTES + 1)
+            if len(data) > MAX_JSON_BYTES:
+                raise WorkflowError(
+                    f"input JSON exceeds the {MAX_JSON_BYTES}-byte limit"
+                )
+            return data
     except WorkflowError:
         raise
     except OSError as exc:
@@ -1246,7 +1812,11 @@ def _read_regular_bytes(path: Path) -> bytes:
 def _read_json(path_value: str) -> tuple[Any, bytes]:
     try:
         if path_value == "-":
-            raw = sys.stdin.buffer.read()
+            raw = sys.stdin.buffer.read(MAX_JSON_BYTES + 1)
+            if len(raw) > MAX_JSON_BYTES:
+                raise WorkflowError(
+                    f"input JSON exceeds the {MAX_JSON_BYTES}-byte limit"
+                )
         else:
             raw = _read_regular_bytes(Path(path_value))
     except WorkflowError:
@@ -1254,8 +1824,10 @@ def _read_json(path_value: str) -> tuple[Any, bytes]:
     except OSError as exc:
         raise WorkflowError(f"cannot read input: {exc}") from exc
     try:
-        return json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_json_object), raw
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_json_object)
+        _assert_bounded_json(value, "input JSON")
+        return value, raw
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
         raise WorkflowError(f"input is not valid UTF-8 JSON: {exc}") from exc
 
 
@@ -1282,7 +1854,7 @@ def _has_symlink_component(path: Path) -> bool:
 
 
 def _emit(value: Any, output: str | None, replace: bool) -> None:
-    rendered = json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    rendered = _bounded_json_bytes(value, "output JSON", compact=False).decode("utf-8")
     if output is None:
         sys.stdout.write(rendered)
         return
@@ -1347,6 +1919,8 @@ def _parser() -> argparse.ArgumentParser:
         "finalize-plan",
         "validate-plan",
         "assess-round",
+        "finalize-run",
+        "validate-run",
     ):
         command = subparsers.add_parser(name)
         command.add_argument("--input", required=True, help="UTF-8 JSON input path or - for stdin")
@@ -1372,6 +1946,12 @@ def _parser() -> argparse.ArgumentParser:
                 "--context",
                 required=True,
                 help="lead-owned finding selection context JSON path",
+            )
+        if name in {"finalize-run", "validate-run"}:
+            command.add_argument(
+                "--context",
+                required=True,
+                help="lead-owned review-and-fix run context JSON path",
             )
         command.add_argument("--output", help="explicit JSON output path; stdout when omitted")
         command.add_argument(
@@ -1408,6 +1988,12 @@ def main(argv: list[str] | None = None) -> int:
             result = validate_plan(value, batch, context)
         elif args.command == "assess-round":
             result = assess_round(value)
+        elif args.command == "finalize-run":
+            context, _ = _read_json(args.context)
+            result = finalize_run(value, context)
+        elif args.command == "validate-run":
+            context, _ = _read_json(args.context)
+            result = validate_run(value, context)
         else:  # pragma: no cover - argparse owns this boundary
             raise WorkflowError(f"unknown command: {args.command}")
         _emit(result, args.output, args.replace)

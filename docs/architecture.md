@@ -24,10 +24,13 @@ Non-skill resources stay organized by asset type:
 
 Executable behavioral evaluation remains repository-maintainer infrastructure.
 The provider-neutral core materializes synthetic repositories, resolves
-lead-owned target context, grades canonical JSON, detects fixture mutation, and
-records bounded local evidence. Fixed runner adapters are separate from suite
-data; v1 invokes Codex only through an explicit local command. Descriptive suites
-remain valid for skills that have not adopted a stable executable contract.
+lead-owned target context in host-private storage, grades canonical JSON,
+detects exact file and directory mutation, and records bounded local evidence.
+Fixed runner adapters and skill dependencies are selected in trusted harness
+code rather than suite data; every dependency is frozen and separately
+digested. V1 invokes Codex only through an explicit local command. Descriptive
+suites remain valid for skills that have not adopted a stable executable
+contract.
 
 ## Context layering
 
@@ -98,6 +101,12 @@ context, with stable fingerprints, target/reviewer drift detection, no-progress
 stopping, an explicit pass outcome, and a three-round limit. Ref ranges are
 immutable review-only snapshots; remediation uses a freshly reviewed
 working-tree or path target.
+The optional canonical workflow result binds the run to a separate lead-owned
+context, derives status from embedded canonical batches and plans, matches exact
+changed-file digests to applied automatic plans, and requires a review round
+after the last accepted change. Local behavioral fixtures independently enforce
+the same mutation boundary; the workflow result cannot authorize or conceal an
+undeclared edit.
 
 `review-guidance-audit` maintains the policy layer rather than reviewing or
 fixing a change. Its current-filesystem resolver maps a caller-selected file
