@@ -31,11 +31,13 @@ in `toolkit.toml`.
   duplicate JSON, target/provenance drift, forbidden command execution, and
   audited-fixture mutation.
 - Freeze and digest exact run inputs before case execution, reject symlinked
-  ancestors and Windows reparse inputs, use a Windows-aware Codex launcher, and
-  terminate the complete agent process tree on timeout.
+  ancestors and Windows reparse inputs, require a native Windows Codex
+  executable, and terminate the complete agent process tree on timeout.
 - Keep host-side result, event, and error capture outside every agent-writable
   root and disable implicit temporary-directory writes to prevent
   link-redirection and evidence-concealment attacks.
+- Record excessive result nesting and invalid Unicode as bounded case failures
+  instead of allowing malformed agent output to abort a suite.
 
 ## 1.6.0 - 2026-08-30
 

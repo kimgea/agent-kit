@@ -301,26 +301,25 @@ class RecordedGradingTests(unittest.TestCase):
 
 
 class CodexRunnerTests(unittest.TestCase):
-    def test_windows_batch_launcher_uses_fixed_command_processor_prefix(self):
-        command, kind = behavioral_eval._codex_command_prefix(
-            Path("tools/codex.cmd"), "nt", Path("system/cmd.exe")
+    def test_windows_batch_launcher_is_rejected_and_native_path_is_preserved(self):
+        with self.assertRaisesRegex(behavioral_eval.EvalError, "batch"):
+            behavioral_eval._codex_command_prefix(
+                Path("Program Files & Tools") / "codex.cmd", "nt"
+            )
+        native, native_kind = behavioral_eval._codex_command_prefix(
+            Path("Program Files & Tools") / "codex.exe", "nt"
         )
         self.assertEqual(
-            [
-                str(Path("system/cmd.exe")),
-                "/d",
-                "/s",
-                "/c",
-                str(Path("tools/codex.cmd")),
-            ],
-            command,
+            [str(Path("Program Files & Tools") / "codex.exe")], native
         )
-        self.assertEqual("windows-batch", kind)
-        native, native_kind = behavioral_eval._codex_command_prefix(
-            Path("tools/codex.exe"), "nt"
-        )
-        self.assertEqual([str(Path("tools/codex.exe"))], native)
         self.assertEqual("native", native_kind)
+
+    def test_agent_result_text_rejects_depth_and_invalid_unicode(self):
+        nested = "[" * 2000 + "0" + "]" * 2000
+        with self.assertRaisesRegex(behavioral_eval.EvalError, "nesting"):
+            behavioral_eval._parse_agent_result_text(nested)
+        with self.assertRaisesRegex(behavioral_eval.EvalError, "Unicode"):
+            behavioral_eval._parse_agent_result_text('{"value":"\ud800"}')
 
     def test_agent_prompt_uses_isolated_skill_and_hides_expectations(self):
         suite = behavioral_eval.load_suite(ROOT, "review-guidance-audit")
@@ -678,6 +677,78 @@ class CodexRunnerTests(unittest.TestCase):
             run_directory = Path(summary["output_directory"])
             self.assertTrue((run_directory / "summary.json").is_file())
             self.assertFalse((run_directory / "cases" / "json-consumer-output" / "events.jsonl").exists())
+
+    def test_malformed_agent_output_is_recorded_as_failed_case(self):
+        nested = "[" * 2000 + "0" + "]" * 2000
+
+        def malformed_run(
+            suite,
+            case,
+            fixture,
+            work,
+            result,
+            events,
+            errors,
+            root,
+            runtime_skill,
+            model,
+            reasoning_effort,
+            timeout,
+            runner,
+        ):
+            result.write_text(
+                json.dumps({"result_json": nested}), encoding="utf-8"
+            )
+            events.write_text("", encoding="utf-8")
+            errors.write_text("", encoding="utf-8")
+            return {
+                "exit_code": 0,
+                "timed_out": False,
+                "started_at": "2026-08-30T20:00:00+00:00",
+                "finished_at": "2026-08-30T20:00:01+00:00",
+                "duration_seconds": 1.0,
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            output = base / "results"
+            output.mkdir()
+            args = argparse.Namespace(
+                suite="review-guidance-audit",
+                runner="codex",
+                case=["json-consumer-output"],
+                model="gpt-5.6-luna",
+                reasoning_effort="medium",
+                timeout=30,
+                output_dir=str(output),
+            )
+            runner = {
+                "command": [str(base / "codex")],
+                "kind": "test",
+                "sha256": "1" * 64,
+                "version": "codex-cli test",
+            }
+            printed = io.StringIO()
+            progress = io.StringIO()
+            with mock.patch.object(
+                behavioral_eval, "_run_codex", side_effect=malformed_run
+            ), mock.patch.object(
+                behavioral_eval, "discover_codex_runner", return_value=runner
+            ), contextlib.redirect_stdout(printed), contextlib.redirect_stderr(progress):
+                code = behavioral_eval.command_run(args)
+            self.assertEqual(1, code)
+            summary = json.loads(printed.getvalue())
+            self.assertEqual(1, summary["failed"])
+            score = json.loads(
+                (
+                    Path(summary["output_directory"])
+                    / "cases"
+                    / "json-consumer-output"
+                    / "score.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertFalse(score["passed"])
+            self.assertIn("nesting", score["runner_error"])
 
     def test_simulated_agent_mutation_fails_the_case(self):
         def mutating_run(

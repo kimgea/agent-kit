@@ -30,6 +30,8 @@ Reasoning effort defaults to the recorded `medium` setting and can be selected
 with `--reasoning-effort`. `--timeout SECONDS` is bounded to one hour per case.
 The runner prints only bounded per-case progress while it works; raw agent event
 and error streams remain temporary and are not retained as evaluation evidence.
+Windows direct runs require a native `codex.exe` on `PATH`; batch launchers are
+rejected because `cmd.exe` cannot preserve arbitrary generated paths safely.
 
 The Codex adapter starts a fresh ephemeral context for each synthetic
 repository, ignores unrelated user configuration, applies a workspace sandbox,
@@ -40,6 +42,8 @@ temporary-directory access is disabled, and host-side result, event, and error
 capture stay in a separate non-agent-writable directory.
 Afterward it verifies canonical validity, exact target and guidance provenance,
 fixture content, hidden assertions, and prohibited command execution.
+Malformed output, including excessive JSON nesting or invalid Unicode, becomes
+bounded failed-case evidence instead of aborting the suite.
 
 Before the first case, the harness freezes the parsed suite, every selected
 fixture, the complete evaluated skill, the fixed output envelope, its own source

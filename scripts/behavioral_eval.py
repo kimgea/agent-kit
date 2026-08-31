@@ -32,6 +32,7 @@ MAX_RESULT_BYTES = 16 * 1024 * 1024
 MAX_ENVELOPE_BYTES = 32 * 1024 * 1024
 MAX_EVENT_BYTES = 32 * 1024 * 1024
 MAX_RUNNER_BYTES = 512 * 1024 * 1024
+MAX_JSON_DEPTH = 100
 MAX_FIXTURE_FILES = 1000
 MAX_FIXTURE_FILE_BYTES = 2 * 1024 * 1024
 MAX_FIXTURE_BYTES = 16 * 1024 * 1024
@@ -90,12 +91,26 @@ def _read_bytes(path: Path, label: str, ceiling: int) -> bytes:
     return data
 
 
+def _assert_bounded_json(value: Any, label: str) -> None:
+    pending = [(value, 0)]
+    while pending:
+        current, depth = pending.pop()
+        if not isinstance(current, (dict, list)):
+            continue
+        if depth >= MAX_JSON_DEPTH:
+            raise EvalError(f"{label} exceeds the {MAX_JSON_DEPTH}-level nesting limit")
+        children = current.values() if isinstance(current, dict) else current
+        pending.extend((child, depth + 1) for child in children)
+
+
 def _load_json(path: Path, label: str, ceiling: int = MAX_RESULT_BYTES) -> Any:
     data = _read_bytes(path, label, ceiling)
     try:
-        return json.loads(data.decode("utf-8"), object_pairs_hook=_reject_duplicates)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        value = json.loads(data.decode("utf-8"), object_pairs_hook=_reject_duplicates)
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, ValueError) as exc:
         raise EvalError(f"invalid UTF-8 JSON in {label}: {exc}") from exc
+    _assert_bounded_json(value, label)
+    return value
 
 
 def _sha256_file(path: Path, label: str, ceiling: int) -> str:
@@ -127,9 +142,13 @@ def _sha256_file(path: Path, label: str, ceiling: int) -> str:
 
 
 def _canonical_json(value: Any) -> bytes:
-    return json.dumps(
-        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
+    _assert_bounded_json(value, "canonical JSON value")
+    try:
+        return json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    except (RecursionError, UnicodeEncodeError) as exc:
+        raise EvalError(f"value cannot be represented as bounded UTF-8 JSON: {exc}") from exc
 
 
 def _sha256_json(value: Any) -> str:
@@ -246,6 +265,27 @@ def _validate_agent_envelope_schema(root: Path) -> Path:
     return _validate_agent_envelope_schema_path(
         root / "evals" / "behavioral-agent-result.schema.json"
     )
+
+
+def _parse_agent_result_text(value: Any) -> Any:
+    if not isinstance(value, str) or not value:
+        raise EvalError("Codex result envelope must contain non-empty JSON text")
+    try:
+        encoded = value.encode("utf-8", "strict")
+    except UnicodeEncodeError as exc:
+        raise EvalError("Codex result envelope contains invalid Unicode") from exc
+    if len(encoded) > MAX_RESULT_BYTES:
+        raise EvalError("canonical result exceeds the result size limit")
+    try:
+        result = json.loads(value, object_pairs_hook=_reject_duplicates)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise EvalError(
+            f"Codex result envelope contains invalid canonical JSON: {exc}"
+        ) from exc
+    except RecursionError as exc:
+        raise EvalError("Codex result envelope exceeds the nesting limit") from exc
+    _assert_bounded_json(result, "Codex result envelope")
+    return result
 
 
 def _suite_path(root: Path, suite_id: str) -> Path:
@@ -799,7 +839,14 @@ def grade_case(
 
 
 def _write_new_json(path: Path, value: Any) -> None:
-    data = json.dumps(value, ensure_ascii=True, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+    _assert_bounded_json(value, "evaluation evidence")
+    try:
+        data = (
+            json.dumps(value, ensure_ascii=True, indent=2, sort_keys=True).encode("utf-8")
+            + b"\n"
+        )
+    except (RecursionError, UnicodeEncodeError) as exc:
+        raise EvalError(f"evaluation evidence is not bounded UTF-8 JSON: {exc}") from exc
     if len(data) > MAX_RESULT_BYTES:
         raise EvalError("evaluation evidence exceeds the result size limit")
     _assert_no_link_components(path, include_final=False)
@@ -846,9 +893,14 @@ def _parse_event_commands(path: Path) -> list[str]:
             continue
         try:
             event = json.loads(line.decode("utf-8"), object_pairs_hook=_reject_duplicates)
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
             raise EvalError(f"invalid Codex JSONL event at line {line_number}: {exc}") from exc
-        commands.extend(_command_strings(event))
+        try:
+            commands.extend(_command_strings(event))
+        except RecursionError as exc:
+            raise EvalError(
+                f"Codex JSONL event at line {line_number} exceeds the nesting limit"
+            ) from exc
     return commands
 
 
@@ -912,24 +964,26 @@ def _event_error_summary(path: Path) -> str:
     messages: list[str] = []
 
     def collect(value: Any) -> None:
-        if isinstance(value, dict):
-            for key, nested in value.items():
-                if key in {"message", "error", "detail", "reason"} and isinstance(
-                    nested, str
-                ):
-                    messages.append(nested)
-                else:
-                    collect(nested)
-        elif isinstance(value, list):
-            for nested in value:
-                collect(nested)
+        pending = [value]
+        while pending:
+            current = pending.pop()
+            if isinstance(current, dict):
+                for key, nested in current.items():
+                    if key in {"message", "error", "detail", "reason"} and isinstance(
+                        nested, str
+                    ):
+                        messages.append(nested)
+                    else:
+                        pending.append(nested)
+            elif isinstance(current, list):
+                pending.extend(current)
 
     for line in data.splitlines():
         if not line.strip():
             continue
         try:
             event = json.loads(line.decode("utf-8"), object_pairs_hook=_reject_duplicates)
-        except (UnicodeDecodeError, json.JSONDecodeError):
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
             continue
         event_type = event.get("type") if isinstance(event, dict) else None
         if isinstance(event_type, str) and any(
@@ -967,20 +1021,12 @@ Request:
 
 
 def _codex_command_prefix(
-    launcher: Path, platform: str, command_processor: Path | None = None
+    launcher: Path, platform: str
 ) -> tuple[list[str], str]:
     if platform == "nt" and launcher.suffix.casefold() in {".bat", ".cmd"}:
-        if command_processor is None:
-            raise EvalError("Windows batch launch requires a command processor")
-        return (
-            [
-                str(command_processor),
-                "/d",
-                "/s",
-                "/c",
-                str(launcher),
-            ],
-            "windows-batch",
+        raise EvalError(
+            "Windows batch Codex launchers are unsupported; install or expose "
+            "a native codex.exe"
         )
     return [str(launcher)], "native"
 
@@ -997,35 +1043,18 @@ def discover_codex_runner() -> dict[str, Any]:
     candidate = Path(discovered).absolute()
     suffix = candidate.suffix.casefold()
     if os.name == "nt" and suffix in {".bat", ".cmd"}:
-        _assert_no_link_components(candidate, include_final=True)
-        launcher = candidate
-        raw_executor = os.environ.get("COMSPEC") or shutil.which("cmd.exe")
-        if not raw_executor:
-            raise EvalError("Windows command processor is unavailable")
-        try:
-            executor = Path(raw_executor).resolve(strict=True)
-        except OSError as exc:
-            raise EvalError(f"cannot resolve Windows command processor: {exc}") from exc
-        command, kind = _codex_command_prefix(launcher, os.name, executor)
-    else:
-        try:
-            launcher = candidate.resolve(strict=True)
-        except OSError as exc:
-            raise EvalError(f"cannot resolve Codex launcher: {exc}") from exc
-        _assert_no_link_components(launcher, include_final=True)
-        if os.name == "nt" and launcher.suffix.casefold() not in {".com", ".exe"}:
-            raise EvalError("Codex launcher must be a Windows executable or batch file")
-        command, kind = _codex_command_prefix(launcher, os.name)
+        _codex_command_prefix(candidate, os.name)
+    try:
+        launcher = candidate.resolve(strict=True)
+    except OSError as exc:
+        raise EvalError(f"cannot resolve Codex launcher: {exc}") from exc
+    _assert_no_link_components(launcher, include_final=True)
+    if os.name == "nt" and launcher.suffix.casefold() not in {".com", ".exe"}:
+        raise EvalError("Codex launcher must be a native Windows executable")
+    command, kind = _codex_command_prefix(launcher, os.name)
     components = [
         ("launcher", _sha256_file(launcher, "Codex launcher", MAX_RUNNER_BYTES))
     ]
-    if os.name == "nt" and suffix in {".bat", ".cmd"}:
-        components.append(
-            (
-                "command-processor",
-                _sha256_file(executor, "Windows command processor", MAX_RUNNER_BYTES),
-            )
-        )
     runner_sha256 = _sha256_json(components)
     try:
         completed = subprocess.run(
@@ -1531,19 +1560,7 @@ def command_run(args: argparse.Namespace) -> int:
                         result_path, "Codex result envelope", MAX_ENVELOPE_BYTES
                     )
                     envelope = _object(envelope, "Codex result envelope", {"result_json"})
-                    result_text = envelope["result_json"]
-                    if not isinstance(result_text, str) or not result_text:
-                        raise EvalError("Codex result envelope must contain non-empty JSON text")
-                    if len(result_text.encode("utf-8")) > MAX_RESULT_BYTES:
-                        raise EvalError("canonical result exceeds the result size limit")
-                    try:
-                        result = json.loads(
-                            result_text, object_pairs_hook=_reject_duplicates
-                        )
-                    except json.JSONDecodeError as exc:
-                        raise EvalError(
-                            f"Codex result envelope contains invalid canonical JSON: {exc}"
-                        ) from exc
+                    result = _parse_agent_result_text(envelope["result_json"])
                     canonical_path = work / "canonical-result.json"
                     _write_new_json(canonical_path, result)
                     report = grade_case(
