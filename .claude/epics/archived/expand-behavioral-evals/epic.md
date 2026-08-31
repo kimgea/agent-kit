@@ -1,9 +1,9 @@
 ---
 name: expand-behavioral-evals
-status: in-progress
+status: completed
 created: 2026-08-31T06:59:14Z
-updated: 2026-08-31T19:18:48Z
-progress: 75%
+updated: 2026-08-31T19:36:13Z
+progress: 100%
 prd: .claude/prds/expand-behavioral-evals.md
 github: (not synced)
 ---
@@ -72,7 +72,7 @@ the fixed-adapter and mutation-policy implementation.
 - [x] 001.md - Add project-review behavioral adapter and suite (parallel: false)
 - [x] 002.md - Add review-and-fix workflow result contract (parallel: false)
 - [x] 003.md - Add review-and-fix end-to-end suite (parallel: false)
-- [ ] 004.md - Integrate, validate, and deliver (parallel: false)
+- [x] 004.md - Integrate, validate, and deliver (parallel: false)
 
 Total tasks: 4
 Parallel tasks: 0

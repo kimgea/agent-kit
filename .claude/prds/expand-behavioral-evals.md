@@ -1,7 +1,7 @@
 ---
 name: expand-behavioral-evals
 description: Add executable local behavioral suites for project-review and review-and-fix.
-status: active
+status: completed
 created: 2026-08-31T06:59:14Z
 ---
 
