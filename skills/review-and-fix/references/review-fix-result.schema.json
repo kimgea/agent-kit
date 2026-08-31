@@ -196,13 +196,28 @@
     "validation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["method", "description", "status", "command", "authorization_source"],
+      "required": ["method", "description", "status", "command", "authorization_source", "plan_refs"],
       "properties": {
         "method": { "enum": ["static", "command"] },
         "description": { "type": "string", "minLength": 1, "maxLength": 2000 },
         "status": { "enum": ["passed", "failed", "not_run"] },
         "command": { "type": ["string", "null"], "minLength": 1, "maxLength": 4000 },
-        "authorization_source": { "enum": ["caller", "user_global", "not_required", null] }
+        "authorization_source": { "enum": ["caller", "user_global", "not_required", null] },
+        "plan_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": { "$ref": "#/$defs/plan_ref" }
+        }
+      }
+    },
+    "plan_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["batch_sha256", "finding_fingerprint"],
+      "properties": {
+        "batch_sha256": { "$ref": "#/$defs/digest" },
+        "finding_fingerprint": { "$ref": "#/$defs/digest" }
       }
     }
   }

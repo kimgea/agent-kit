@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 RESOURCE_ID = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_RESULT_BYTES = 16 * 1024 * 1024
 MAX_ENVELOPE_BYTES = 32 * 1024 * 1024
@@ -606,6 +607,15 @@ def _snapshot_identity(snapshot: dict[str, dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _mutation_mode(metadata: os.stat_result) -> int:
+    """Return permission metadata that has stable mutation meaning per platform."""
+    attributes = getattr(metadata, "st_file_attributes", None)
+    if attributes is not None:
+        readonly = getattr(stat, "FILE_ATTRIBUTE_READONLY", 0x1)
+        return int(attributes) & readonly
+    return stat.S_IMODE(metadata.st_mode)
+
+
 def snapshot_fixture_state(root: Path) -> dict[str, dict[str, Any]]:
     files = snapshot_fixture(root)
     state = {
@@ -613,7 +623,7 @@ def snapshot_fixture_state(root: Path) -> dict[str, dict[str, Any]]:
             "kind": "file",
             "sha256": item["sha256"],
             "bytes": item["bytes"],
-            "mode": item["mode"],
+            "mode": _mutation_mode(root.joinpath(*PurePosixPath(path).parts).lstat()),
         }
         for path, item in files.items()
     }
@@ -637,7 +647,7 @@ def snapshot_fixture_state(root: Path) -> dict[str, dict[str, Any]]:
             if stat.S_ISDIR(info.st_mode):
                 state[relative] = {
                     "kind": "directory",
-                    "mode": stat.S_IMODE(info.st_mode),
+                    "mode": _mutation_mode(info),
                 }
                 pending.append(path)
     return state
@@ -850,6 +860,7 @@ def resolve_context(
         context = {
             "schema_version": "1.0.0",
             "target": review_context.get("target"),
+            "command_authorities": [],
             "reviewers": [
                 {
                     **identity,
@@ -947,7 +958,7 @@ def _project_review_guidance(context: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _bind_result(
+def _bind_result_unchecked(
     suite: dict[str, Any],
     context: Any,
     result: Any,
@@ -975,17 +986,44 @@ def _bind_result(
             else None,
         }
     elif contract["binding_kind"] == "review-and-fix":
-        expected = {
-            "context_sha256": _sha256_json(context),
-            "target": context.get("target"),
-            "reviewers": [
+        reviewers = context.get("reviewers")
+        if not isinstance(reviewers, list):
+            return False, "lead-owned context reviewers must be an array"
+        reviewer_summaries: list[dict[str, Any]] = []
+        for index, reviewer in enumerate(reviewers):
+            if not isinstance(reviewer, dict):
+                return False, f"lead-owned context reviewer {index} must be an object"
+            if set(reviewer) != {
+                "reviewer",
+                "reviewer_version",
+                "context_sha256",
+                "context",
+            }:
+                return False, f"lead-owned context reviewer {index} has invalid fields"
+            if not isinstance(reviewer.get("reviewer"), str) or not reviewer["reviewer"]:
+                return False, f"lead-owned context reviewer {index} has an invalid identity"
+            if reviewer.get("reviewer_version") is not None and not isinstance(
+                reviewer["reviewer_version"], str
+            ):
+                return False, f"lead-owned context reviewer {index} has an invalid version"
+            digest = reviewer.get("context_sha256")
+            if not isinstance(digest, str) or not SHA256.fullmatch(digest):
+                return False, f"lead-owned context reviewer {index} has an invalid digest"
+            if not isinstance(reviewer.get("context"), dict):
+                return False, f"lead-owned context reviewer {index} has invalid context"
+            if digest != _sha256_json(reviewer["context"]):
+                return False, f"lead-owned context reviewer {index} digest does not match"
+            reviewer_summaries.append(
                 {
                     "reviewer": reviewer["reviewer"],
                     "reviewer_version": reviewer["reviewer_version"],
-                    "context_sha256": reviewer["context_sha256"],
+                    "context_sha256": digest,
                 }
-                for reviewer in context.get("reviewers", [])
-            ],
+            )
+        expected = {
+            "context_sha256": _sha256_json(context),
+            "target": context.get("target"),
+            "reviewers": reviewer_summaries,
         }
         if observed_changes is not None:
             expected["changes"] = observed_changes
@@ -995,6 +1033,26 @@ def _bind_result(
         if result.get(key) != value:
             return False, f"result {key} does not match the lead-owned context"
     return True, "result authority fields match the lead-owned context"
+
+
+def _bind_result(
+    suite: dict[str, Any],
+    context: Any,
+    result: Any,
+    observed_changes: list[dict[str, str]] | None = None,
+) -> tuple[bool, str]:
+    try:
+        return _bind_result_unchecked(suite, context, result, observed_changes)
+    except (
+        AttributeError,
+        EvalError,
+        KeyError,
+        RecursionError,
+        TypeError,
+        UnicodeEncodeError,
+        ValueError,
+    ) as exc:
+        return False, f"lead-owned context is malformed: {exc}"
 
 
 def _normalize_context_root(context: dict[str, Any]) -> dict[str, Any]:
@@ -1906,6 +1964,8 @@ def command_run(args: argparse.Namespace) -> int:
                 context_unchanged = original_context_digest == hashlib.sha256(
                     _read_bytes(context_path, "lead-owned context", MAX_RESULT_BYTES)
                 ).hexdigest()
+                if not context_unchanged:
+                    isolation_errors.append("lead-owned context changed during the run")
             except EvalError as exc:
                 context_unchanged = False
                 isolation_errors.append(str(exc))
@@ -1980,6 +2040,7 @@ def command_run(args: argparse.Namespace) -> int:
             if isolation_errors:
                 report["isolation_errors"] = isolation_errors
                 report["passed"] = False
+            report["context_unchanged"] = context_unchanged
             report["fixture_sha256"] = _snapshot_digest(frozen_before)
             report["execution"] = execution
             _write_new_json(case_directory / "score.json", report)

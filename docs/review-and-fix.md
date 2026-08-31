@@ -145,9 +145,16 @@ shape.
 
 `finalize-run` and `validate-run` accept the run context separately from the
 agent-produced draft or result. The helper derives the exact target, context
-digest, reviewer identities, changes-to-applied-plan relationship, status, and
-stop reason. Only an applied `auto` plan may explain a change, and acceptance
-requires a later fresh review round. Inputs and emitted JSON are bounded to 16
+digest, reviewer identities, changes-to-applied-plan relationship, validation
+coverage, status, and stop reason. Validation records bind to exact applied
+plans through batch and finding fingerprints. Code and configuration plans need
+a successful command check whose exact command and caller or user-global source
+were recorded in the separate lead-owned run context before execution; the
+agent-produced draft cannot claim that authority. Static checks can satisfy only
+plans that declared static inspection sufficient. Partial
+reviewer evidence takes precedence over pending decisions. Only an applied
+`auto` plan may explain a change, and acceptance requires a later fresh review
+round. Inputs and emitted JSON are bounded to 16
 MiB and 100 container levels; duplicate members, unsafe paths, malformed
 digests, and forged derived fields fail closed.
 

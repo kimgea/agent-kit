@@ -104,6 +104,57 @@
       "forbidden_commands": []
     },
     {
+      "id": "non-blocking-maintainability",
+      "fixture": "fixtures/non-blocking-maintainability",
+      "target": {
+        "kind": "path",
+        "path": "formatters/report.py",
+        "start_line": null,
+        "end_line": null
+      },
+      "prompt": "Review formatters/report.py under the applicable repository guidance. Preserve the distinction between non-blocking maintainability advice and must-not-ship findings. Return canonical JSON only.",
+      "assertions": [
+        {
+          "id": "pass-with-suggestion",
+          "path": "/verdict",
+          "operator": "equals",
+          "value": "PASS"
+        },
+        {
+          "id": "one-suggestion",
+          "path": "/findings/*",
+          "operator": "count_equals",
+          "value": 1
+        },
+        {
+          "id": "maintainability-suggestion",
+          "path": "/findings/*",
+          "operator": "any",
+          "value": {
+            "disposition": "suggestion",
+            "category": "maintainability",
+            "blocking_basis": null,
+            "primary_location": {
+              "path": "formatters/report.py"
+            },
+            "governing_rule": {
+              "source_kind": "repository",
+              "path": "REVIEW.md"
+            }
+          }
+        },
+        {
+          "id": "no-blockers",
+          "path": "/findings/*",
+          "operator": "none",
+          "value": {
+            "disposition": "blocker"
+          }
+        }
+      ],
+      "forbidden_commands": []
+    },
+    {
       "id": "ordinary-cross-file-defect",
       "fixture": "fixtures/ordinary-cross-file-defect",
       "target": {
@@ -112,7 +163,7 @@
         "start_line": null,
         "end_line": null
       },
-      "prompt": "Review queue/producer.py. Follow the timeout value into the unchanged consumer and schema even though REVIEW.md does not mention time units. Treat this explicitly scoped snapshot as touched code and return canonical JSON only.",
+      "prompt": "Review queue/producer.py. Follow the timeout value into the unchanged consumer and schema, apply the repository's must-not-ship queue contract, and treat this explicitly scoped snapshot as touched code. Return canonical JSON only.",
       "assertions": [
         {
           "id": "blocked",
@@ -133,8 +184,13 @@
           "value": {
             "disposition": "blocker",
             "category": "correctness",
+            "blocking_basis": "touched_code_policy",
             "primary_location": {
               "path": "queue/producer.py"
+            },
+            "governing_rule": {
+              "source_kind": "repository",
+              "path": "REVIEW.md"
             }
           }
         },

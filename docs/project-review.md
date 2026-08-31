@@ -216,11 +216,12 @@ network access, or agent-specific dependency.
 ## Executable behavioral evidence
 
 The cataloged `evals/project-review/suite.json` exercises the installed resolver
-and canonical result helper over five disposable synthetic repositories. It
-covers nested touched-code policy, a compatibility counterexample, an ordinary
-cross-file defect, inconclusive conflicting contracts, and repository text that
-claims command authority. The host binds target, changes, and guidance to its
-own resolved context and rejects every fixture mutation.
+and canonical result helper over six disposable synthetic repositories. It
+covers nested touched-code policy, a compatibility counterexample, a distinct
+non-blocking maintainability suggestion, an ordinary cross-file defect with an
+explicit must-not-ship basis, inconclusive conflicting contracts, and repository
+text that claims command authority. The host binds target, changes, and guidance
+to its own resolved context and rejects every fixture mutation.
 
 Run the deterministic suite check through the canonical gate or explicitly:
 

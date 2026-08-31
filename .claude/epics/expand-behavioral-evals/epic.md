@@ -2,7 +2,7 @@
 name: expand-behavioral-evals
 status: in-progress
 created: 2026-08-31T06:59:14Z
-updated: 2026-08-31T16:09:36Z
+updated: 2026-08-31T19:18:48Z
 progress: 75%
 prd: .claude/prds/expand-behavioral-evals.md
 github: (not synced)

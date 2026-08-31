@@ -1276,7 +1276,11 @@ def assess_round(value: Any) -> dict[str, Any]:
 
 
 def _run_context(value: Any) -> dict[str, Any]:
-    item = _object(value, "run context", {"schema_version", "target", "reviewers"})
+    item = _object(
+        value,
+        "run context",
+        {"schema_version", "target", "reviewers", "command_authorities"},
+    )
     if item["schema_version"] != RUN_SCHEMA_VERSION:
         raise WorkflowError(f"run context schema_version must be {RUN_SCHEMA_VERSION}")
     reviewers: list[dict[str, Any]] = []
@@ -1319,10 +1323,37 @@ def _run_context(value: Any) -> dict[str, Any]:
                 "context": reviewer["context"],
             }
         )
+    command_authorities: list[dict[str, str]] = []
+    seen_authorities: set[tuple[str, str]] = set()
+    for index, raw in enumerate(
+        _sequence(item["command_authorities"], "run context.command_authorities", 128)
+    ):
+        authority = _object(
+            raw,
+            f"run context.command_authorities[{index}]",
+            {"command", "source"},
+        )
+        command = _text(
+            authority["command"],
+            f"run context.command_authorities[{index}].command",
+            4000,
+            single_line=True,
+        )
+        source = _enum(
+            authority["source"],
+            {"caller", "user_global"},
+            f"run context.command_authorities[{index}].source",
+        )
+        identity = (command, source)
+        if identity in seen_authorities:
+            raise WorkflowError("run context command authorities must not contain duplicates")
+        seen_authorities.add(identity)
+        command_authorities.append({"command": command, "source": source})
     return {
         "schema_version": RUN_SCHEMA_VERSION,
         "target": _target(item["target"], "run context.target"),
         "reviewers": reviewers,
+        "command_authorities": command_authorities,
     }
 
 
@@ -1452,15 +1483,39 @@ def _run_changes(value: Any, target: dict[str, Any]) -> list[dict[str, str]]:
     return sorted(changes, key=lambda item: item["path"])
 
 
-def _run_validation(value: Any) -> list[dict[str, Any]]:
+def _run_validation(
+    value: Any,
+    plans: list[dict[str, Any]],
+    command_authorities: list[dict[str, str]],
+) -> list[dict[str, Any]]:
+    applied = {
+        (
+            item["plan"]["batch_sha256"],
+            item["plan"]["finding"]["fingerprint"],
+        )
+        for item in plans
+        if item["applied"]
+    }
     records: list[dict[str, Any]] = []
     for index, raw in enumerate(_sequence(value, "run validation", 128)):
         item = _object(
             raw,
             f"validation[{index}]",
-            {"method", "description", "status", "command", "authorization_source"},
+            {
+                "method",
+                "description",
+                "status",
+                "command",
+                "authorization_source",
+                "plan_refs",
+            },
         )
         method = _enum(item["method"], {"static", "command"}, f"validation[{index}].method")
+        status = _enum(
+            item["status"],
+            {"passed", "failed", "not_run"},
+            f"validation[{index}].status",
+        )
         command = _text(
             item["command"],
             f"validation[{index}].command",
@@ -1477,15 +1532,68 @@ def _run_validation(value: Any) -> list[dict[str, Any]]:
             raise WorkflowError("static validation must have no command and use not_required authority")
         if method == "command" and command is None:
             raise WorkflowError("command validation requires a bounded command summary")
+        if method == "command":
+            if authority == "not_required":
+                raise WorkflowError("command validation always requires explicit authority")
+            authorized = any(
+                item["command"] == command and item["source"] == authority
+                for item in command_authorities
+            )
+            if authority is not None and not authorized:
+                raise WorkflowError(
+                    "command validation authority is not present in the lead-owned run context"
+                )
+            if status != "not_run" and not authorized:
+                raise WorkflowError(
+                    "executed command validation requires lead-owned caller or user-global authority"
+                )
+        refs: list[dict[str, str]] = []
+        seen_refs: set[tuple[str, str]] = set()
+        for ref_index, raw_ref in enumerate(
+            _sequence(
+                item["plan_refs"],
+                f"validation[{index}].plan_refs",
+                128,
+                minimum=1,
+            )
+        ):
+            ref = _object(
+                raw_ref,
+                f"validation[{index}].plan_refs[{ref_index}]",
+                {"batch_sha256", "finding_fingerprint"},
+            )
+            pair: list[str] = []
+            for key in ("batch_sha256", "finding_fingerprint"):
+                digest = _text(
+                    ref[key],
+                    f"validation[{index}].plan_refs[{ref_index}].{key}",
+                    64,
+                    single_line=True,
+                )
+                if digest is None or not HEX_DIGEST.fullmatch(digest):
+                    raise WorkflowError(
+                        f"validation[{index}].plan_refs[{ref_index}].{key} is invalid"
+                    )
+                pair.append(digest)
+            identity = (pair[0], pair[1])
+            if identity not in applied:
+                raise WorkflowError(
+                    f"validation[{index}].plan_refs[{ref_index}] must identify an applied plan"
+                )
+            if identity in seen_refs:
+                raise WorkflowError("validation plan_refs must not contain duplicates")
+            seen_refs.add(identity)
+            refs.append(
+                {"batch_sha256": pair[0], "finding_fingerprint": pair[1]}
+            )
         records.append(
             {
                 "method": method,
                 "description": _text(item["description"], f"validation[{index}].description", 2000),
-                "status": _enum(
-                    item["status"], {"passed", "failed", "not_run"}, f"validation[{index}].status"
-                ),
+                "status": status,
                 "command": command,
                 "authorization_source": authority,
+                "plan_refs": refs,
             }
         )
     return records
@@ -1506,8 +1614,46 @@ def _derive_run_outcome(
     }
     if changed_paths != applied_paths:
         raise WorkflowError("run changes must exactly match the paths of applied auto plans")
-    if changes and (not validation or any(item["status"] != "passed" for item in validation)):
-        return "incomplete", "validation_failed"
+
+    if any(
+        batch["status"] != "complete"
+        or not batch["source"]["completed"]
+        or batch["normalization"]["confidence"] != "high"
+        for round_record in rounds
+        for batch in round_record["batches"]
+    ):
+        return "incomplete", "reviewer_incomplete"
+
+    if changes:
+        if not validation or any(item["status"] != "passed" for item in validation):
+            return "incomplete", "validation_failed"
+        for item in plans:
+            if not item["applied"]:
+                continue
+            plan = item["plan"]
+            identity = (
+                plan["batch_sha256"],
+                plan["finding"]["fingerprint"],
+            )
+            matching = [
+                record
+                for record in validation
+                if any(
+                    (ref["batch_sha256"], ref["finding_fingerprint"]) == identity
+                    for ref in record["plan_refs"]
+                )
+            ]
+            if not matching:
+                return "incomplete", "validation_failed"
+            assessment = plan["assessment"]
+            command_required = assessment["validation"] == "available" or assessment[
+                "change_kind"
+            ] in {"code", "configuration"}
+            if command_required and not any(
+                record["method"] == "command" and record["status"] == "passed"
+                for record in matching
+            ):
+                return "incomplete", "validation_failed"
 
     final_assessment = rounds[-1]["assessment"]
     if final_assessment is not None:
@@ -1536,13 +1682,6 @@ def _derive_run_outcome(
         return "decision_required", "user_decision_required"
 
     initial = rounds[0]["batches"]
-    if any(
-        batch["status"] != "complete"
-        or not batch["source"]["completed"]
-        or batch["normalization"]["confidence"] != "high"
-        for batch in initial
-    ):
-        return "incomplete", "reviewer_incomplete"
     if not _remaining_blockers(initial) and all(
         batch["source"]["outcome"] == "pass" for batch in initial
     ):
@@ -1560,9 +1699,7 @@ def finalize_run(draft: Any, context_value: Any) -> dict[str, Any]:
     rounds, batches_by_digest, batch_first_round = _run_rounds(item["rounds"], context)
     plans = _run_plans(item["plans"], batches_by_digest)
     changes = _run_changes(item["changes"], context["target"])
-    validation = _run_validation(item["validation"])
-    status, stop_reason = _derive_run_outcome(rounds, plans, changes, validation)
-    if status == "completed" and rounds[-1]["assessment"] is not None:
+    if rounds[-1]["assessment"] is not None and rounds[-1]["assessment"]["action"] == "accept":
         final_round = rounds[-1]["round"]
         for plan_record in plans:
             if (
@@ -1572,6 +1709,10 @@ def finalize_run(draft: Any, context_value: Any) -> dict[str, Any]:
                 raise WorkflowError(
                     "an accepted applied plan must be followed by a fresh review round"
                 )
+    validation = _run_validation(
+        item["validation"], plans, context["command_authorities"]
+    )
+    status, stop_reason = _derive_run_outcome(rounds, plans, changes, validation)
     summary = _object(item["summary"], "summary", {"conclusion"})
     return {
         "schema_version": RUN_SCHEMA_VERSION,

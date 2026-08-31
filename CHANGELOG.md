@@ -26,6 +26,8 @@ in `toolkit.toml`.
   execution explicit, local, and outside GitHub Actions.
 - Add an exact independent-planner draft template and use a 30-minute local
   per-case default for complete multi-role review-and-fix evaluations.
+- Add distinct non-blocking-finding coverage and give the ordinary cross-file
+  defect fixture an explicit repository must-not-ship basis.
 
 ### Security
 
@@ -35,6 +37,10 @@ in `toolkit.toml`.
   later fresh acceptance review.
 - Bound review-and-fix JSON input, canonical hashing, and output by size and
   nesting while retaining duplicate-member and no-link file handling.
+- Fail closed on lead-owned context drift, malformed recorded reviewer context,
+  incomplete reviewer evidence, unbound validation, and executed validation
+  commands without exact caller or user-global authority in the lead-owned run
+  context.
 
 ## 1.7.0 - 2026-08-30
 

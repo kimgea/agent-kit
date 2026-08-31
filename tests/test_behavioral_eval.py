@@ -234,6 +234,12 @@ def accepted_review_and_fix_result(context, before_sha256, after_sha256):
                     "status": "passed",
                     "command": None,
                     "authorization_source": "not_required",
+                    "plan_refs": [
+                        {
+                            "batch_sha256": plan["batch_sha256"],
+                            "finding_fingerprint": plan["finding"]["fingerprint"],
+                        }
+                    ],
                 }
             ],
             "summary": {"conclusion": "The bounded heading fix passed fresh review."},
@@ -397,7 +403,7 @@ class MutationPolicyTests(unittest.TestCase):
     def test_wrong_digest_mode_and_undeclared_file_fail(self):
         fixture, before = self.fixture_states()
         path = fixture / "docs" / "help.md"
-        path.write_text("after\n", encoding="utf-8")
+        path.write_bytes(b"after\n")
         changed = behavioral_eval.snapshot_fixture_state(fixture)
         report = behavioral_eval.evaluate_fixture_mutations(
             before,
@@ -407,8 +413,8 @@ class MutationPolicyTests(unittest.TestCase):
         self.assertFalse(report["passed"])
         self.assertIn("digest", report["message"])
 
-        os.chmod(path, 0o700)
-        mode_changed = behavioral_eval.snapshot_fixture_state(fixture)
+        mode_changed = json.loads(json.dumps(changed))
+        mode_changed["docs/help.md"]["mode"] ^= 1
         report = behavioral_eval.evaluate_fixture_mutations(
             before,
             mode_changed,
@@ -417,7 +423,6 @@ class MutationPolicyTests(unittest.TestCase):
         self.assertFalse(report["passed"])
         self.assertIn("mode", report["message"])
 
-        os.chmod(path, 0o644)
         (fixture / "extra.txt").write_text("unexpected\n", encoding="utf-8")
         added = behavioral_eval.snapshot_fixture_state(fixture)
         report = behavioral_eval.evaluate_fixture_mutations(
@@ -437,8 +442,8 @@ class MutationPolicyTests(unittest.TestCase):
         self.assertIn("added or removed", report["message"])
 
         (fixture / "empty").rmdir()
-        os.chmod(fixture / "docs", 0o700)
-        mode_changed = behavioral_eval.snapshot_fixture_state(fixture)
+        mode_changed = json.loads(json.dumps(before))
+        mode_changed["docs"]["mode"] ^= 1
         report = behavioral_eval.evaluate_fixture_mutations(before, mode_changed, [])
         self.assertFalse(report["passed"])
         self.assertIn("undeclared", report["message"])
@@ -452,6 +457,20 @@ class MutationPolicyTests(unittest.TestCase):
         )
         self.assertFalse(report["passed"])
         self.assertFalse(report["observed"])
+
+    def test_mutation_mode_uses_windows_readonly_attribute_when_present(self):
+        metadata = types.SimpleNamespace(st_mode=0o100644, st_file_attributes=0x21)
+        self.assertEqual(1, behavioral_eval._mutation_mode(metadata))
+
+    @unittest.skipUnless(os.name == "nt", "Windows read-only attributes are platform-specific")
+    def test_windows_readonly_mutation_is_observed(self):
+        fixture, before = self.fixture_states()
+        path = fixture / "docs" / "help.md"
+        os.chmod(path, 0o444)
+        after = behavioral_eval.snapshot_fixture_state(fixture)
+        report = behavioral_eval.evaluate_fixture_mutations(before, after, [])
+        self.assertFalse(report["passed"])
+        self.assertIn("undeclared", report["message"])
 
 
 class AssertionTests(unittest.TestCase):
@@ -606,10 +625,12 @@ class ProjectReviewContractTests(unittest.TestCase):
             self.assertFalse(bound)
             self.assertIn("target", message)
 
-    def test_suite_has_pass_block_incomplete_and_command_boundary_cases(self):
-        self.assertEqual(5, len(self.suite["cases"]))
+    def test_suite_has_pass_block_incomplete_nonblocking_and_command_boundary_cases(self):
+        self.assertEqual(6, len(self.suite["cases"]))
         ids = {item["id"] for item in self.suite["cases"]}
         self.assertIn("nested-tenant-rule", ids)
+        self.assertIn("non-blocking-maintainability", ids)
+        self.assertIn("ordinary-cross-file-defect", ids)
         self.assertIn("conflicting-contract-incomplete", ids)
         command_case = behavioral_eval._case_by_id(
             self.suite, "repository-command-not-authority"
@@ -662,6 +683,15 @@ class ReviewAndFixContractTests(unittest.TestCase):
             self.assertFalse(bound)
             self.assertIn("changes", message)
 
+    def test_malformed_recorded_reviewer_context_is_a_binding_failure(self):
+        bound, message = behavioral_eval._bind_result(
+            self.suite,
+            {"reviewers": [1]},
+            {},
+        )
+        self.assertFalse(bound)
+        self.assertIn("reviewer 0", message)
+
     def test_fixed_dependency_paths_and_prompt_are_isolated(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
@@ -708,9 +738,8 @@ class ReviewAndFixContractTests(unittest.TestCase):
                 self.suite, self.case, fixture, context_path, ROOT
             )
             target = self.case["expected_mutations"][0]
-            (fixture / target["path"]).write_text(
-                "# Installation\n\nFollow these steps to install the application.\n",
-                encoding="utf-8",
+            (fixture / target["path"]).write_bytes(
+                b"# Installation\n\nFollow these steps to install the application.\n"
             )
             result = accepted_review_and_fix_result(
                 context,
@@ -1288,6 +1317,80 @@ class CodexRunnerTests(unittest.TestCase):
             )
             self.assertFalse(score["passed"])
             self.assertFalse(score["fixture_mutation_free"])
+
+    def test_simulated_host_context_mutation_fails_the_case(self):
+        def context_mutating_run(
+            suite,
+            case,
+            fixture,
+            work,
+            result,
+            events,
+            errors,
+            root,
+            runtime_skill,
+            model,
+            reasoning_effort,
+            timeout,
+            runner,
+        ):
+            context_path = result.parent / "context.json"
+            context = json.loads(context_path.read_text(encoding="utf-8"))
+            result.write_text(
+                json.dumps({"result_json": json.dumps(complete_result(context))}),
+                encoding="utf-8",
+            )
+            context_path.write_bytes(context_path.read_bytes() + b" ")
+            events.write_text("", encoding="utf-8")
+            errors.write_text("", encoding="utf-8")
+            return {
+                "exit_code": 0,
+                "timed_out": False,
+                "started_at": "2026-08-30T20:00:00+00:00",
+                "finished_at": "2026-08-30T20:00:01+00:00",
+                "duration_seconds": 1.0,
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            output = base / "results"
+            output.mkdir()
+            args = argparse.Namespace(
+                suite="review-guidance-audit",
+                runner="codex",
+                case=["json-consumer-output"],
+                model="gpt-5.6-luna",
+                reasoning_effort="medium",
+                timeout=30,
+                output_dir=str(output),
+            )
+            runner = {
+                "command": [str(base / "codex")],
+                "kind": "test",
+                "sha256": "1" * 64,
+                "version": "codex-cli test",
+            }
+            printed = io.StringIO()
+            progress = io.StringIO()
+            with mock.patch.object(
+                behavioral_eval, "_run_codex", side_effect=context_mutating_run
+            ), mock.patch.object(
+                behavioral_eval, "discover_codex_runner", return_value=runner
+            ), contextlib.redirect_stdout(printed), contextlib.redirect_stderr(progress):
+                code = behavioral_eval.command_run(args)
+            self.assertEqual(1, code)
+            summary = json.loads(printed.getvalue())
+            score = json.loads(
+                (
+                    Path(summary["output_directory"])
+                    / "cases"
+                    / "json-consumer-output"
+                    / "score.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertFalse(score["passed"])
+            self.assertFalse(score["context_unchanged"])
+            self.assertIn("lead-owned context changed during the run", score["isolation_errors"])
 
     def test_output_refuses_a_symlinked_parent(self):
         with tempfile.TemporaryDirectory() as temporary:

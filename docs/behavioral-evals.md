@@ -61,7 +61,8 @@ Windows process tree before mutation checks continue.
 `review-and-fix` may change only existing regular files declared by the host's
 hidden `expected_mutations` policy. The harness compares exact before/after
 digests and rejects additions, removals, type changes, links, file or directory
-mode changes, undeclared edits, and wrong contents. Its successful fix case also
+permission changes (POSIX mode bits or the Windows read-only attribute),
+undeclared edits, and wrong contents. Its successful fix case also
 requires a canonical applied `auto` plan, validation, and a later fresh
 `project-review` acceptance round. Consequential and authorization cases must
 remain mutation-free.

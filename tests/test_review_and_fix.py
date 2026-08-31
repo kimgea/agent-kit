@@ -229,6 +229,12 @@ def run_context(target_value=None):
     return {
         "schema_version": workflow.RUN_SCHEMA_VERSION,
         "target": selected_target,
+        "command_authorities": [
+            {
+                "command": "python -m unittest tests.test_example",
+                "source": "caller",
+            }
+        ],
         "reviewers": [
             {
                 "reviewer": "example-review",
@@ -277,11 +283,17 @@ def accepted_run_draft():
         ],
         "validation": [
             {
-                "method": "static",
-                "description": "The exact documented value is present.",
+                "method": "command",
+                "description": "The focused unit test passes with the restored value.",
                 "status": "passed",
-                "command": None,
-                "authorization_source": "not_required",
+                "command": "python -m unittest tests.test_example",
+                "authorization_source": "caller",
+                "plan_refs": [
+                    {
+                        "batch_sha256": plan["batch_sha256"],
+                        "finding_fingerprint": plan["finding"]["fingerprint"],
+                    }
+                ],
             }
         ],
         "summary": {"conclusion": "The bounded fix passed fresh review."},
@@ -358,6 +370,7 @@ class FindingBatchTests(unittest.TestCase):
         self.assertIn("outcome", batch_schema["$defs"]["source"]["required"])
         self.assertIn("basis", plan_schema["$defs"]["selection"]["required"])
         self.assertIn("confidence", plan_schema["$defs"]["finding_ref"]["required"])
+        self.assertIn("plan_refs", run_schema["$defs"]["validation"]["required"])
 
     def test_finalize_batch_is_deterministic_and_validates(self):
         draft = batch_draft(
@@ -900,6 +913,7 @@ class WorkflowResultTests(unittest.TestCase):
 
         draft = accepted_run_draft()
         draft["plans"][0]["applied"] = False
+        draft["validation"] = []
         with self.assertRaisesRegex(workflow.WorkflowError, "exactly match"):
             workflow.finalize_run(draft, context)
 
@@ -954,6 +968,98 @@ class WorkflowResultTests(unittest.TestCase):
         result = workflow.finalize_run(failed, run_context())
         self.assertEqual("incomplete", result["status"])
         self.assertEqual("validation_failed", result["stop_reason"])
+
+    def test_run_validation_is_bound_to_plan_requirements_and_command_authority(self):
+        static_only = accepted_run_draft()
+        plan = static_only["plans"][0]["plan"]
+        static_only["validation"] = [
+            {
+                "method": "static",
+                "description": "The edited source has the expected literal.",
+                "status": "passed",
+                "command": None,
+                "authorization_source": "not_required",
+                "plan_refs": [
+                    {
+                        "batch_sha256": plan["batch_sha256"],
+                        "finding_fingerprint": plan["finding"]["fingerprint"],
+                    }
+                ],
+            }
+        ]
+        result = workflow.finalize_run(static_only, run_context())
+        self.assertEqual(("incomplete", "validation_failed"), (result["status"], result["stop_reason"]))
+
+        unauthorized = accepted_run_draft()
+        unauthorized["validation"][0]["authorization_source"] = None
+        with self.assertRaisesRegex(workflow.WorkflowError, "command validation requires"):
+            workflow.finalize_run(unauthorized, run_context())
+
+        forged_authority = accepted_run_draft()
+        forged_authority["validation"][0]["authorization_source"] = "user_global"
+        with self.assertRaisesRegex(workflow.WorkflowError, "lead-owned run context"):
+            workflow.finalize_run(forged_authority, run_context())
+
+        unbound = accepted_run_draft()
+        unbound["validation"][0]["plan_refs"][0]["finding_fingerprint"] = "f" * 64
+        with self.assertRaisesRegex(workflow.WorkflowError, "applied plan"):
+            workflow.finalize_run(unbound, run_context())
+
+    def test_partial_reviewer_evidence_precedes_pending_decisions(self):
+        context = run_context()
+        other_context = {"target": context["target"], "scope": "second reviewer"}
+        context["reviewers"].append(
+            {
+                "reviewer": "other-review",
+                "reviewer_version": None,
+                "context_sha256": workflow._canonical_digest(other_context),
+                "context": other_context,
+            }
+        )
+        partial = finalize_test_batch(
+            batch_draft(
+                findings=[],
+                limitations=[
+                    {
+                        "code": "source_incomplete",
+                        "message": "The first reviewer did not finish.",
+                        "source_ids": [],
+                        "material": True,
+                    }
+                ],
+            ),
+            batch_envelope(completed=False),
+        )
+        consequential = finalize_test_batch(
+            batch_draft(), batch_envelope(reviewer="other-review")
+        )
+        selection = plan_context(consequential)
+        plan = finalize_test_plan(
+            consequential,
+            plan_draft(
+                consequential,
+                behavior_effect="new_or_changed",
+                risk_factors=["product_behavior"],
+            ),
+            selection,
+        )
+        result = workflow.finalize_run(
+            {
+                "rounds": [
+                    {
+                        "round": 0,
+                        "batches": [partial, consequential],
+                        "assessment": None,
+                    }
+                ],
+                "plans": [{"context": selection, "plan": plan, "applied": False}],
+                "changes": [],
+                "validation": [],
+                "summary": {"conclusion": "One reviewer did not complete."},
+            },
+            context,
+        )
+        self.assertEqual(("incomplete", "reviewer_incomplete"), (result["status"], result["stop_reason"]))
 
     def test_applied_plan_in_accepting_round_requires_another_fresh_review(self):
         draft = accepted_run_draft()
