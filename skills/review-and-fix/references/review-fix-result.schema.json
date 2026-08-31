@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kimgea/agent-kit/schemas/review-and-fix/review-fix-result-1.0.0.json",
+  "title": "Review and fix workflow result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "context_sha256",
+    "target",
+    "reviewers",
+    "rounds",
+    "plans",
+    "changes",
+    "validation",
+    "status",
+    "stop_reason",
+    "summary"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "context_sha256": { "$ref": "#/$defs/digest" },
+    "target": { "$ref": "review-finding-batch.schema.json#/$defs/target" },
+    "reviewers": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/reviewer" }
+    },
+    "rounds": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "items": { "$ref": "#/$defs/round" }
+    },
+    "plans": {
+      "type": "array",
+      "maxItems": 128,
+      "items": { "$ref": "#/$defs/plan_record" }
+    },
+    "changes": {
+      "type": "array",
+      "maxItems": 5000,
+      "items": { "$ref": "#/$defs/change" }
+    },
+    "validation": {
+      "type": "array",
+      "maxItems": 128,
+      "items": { "$ref": "#/$defs/validation" }
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "decision_required",
+        "authorization_required",
+        "incomplete",
+        "stopped"
+      ]
+    },
+    "stop_reason": {
+      "enum": [
+        "reviewer_pass",
+        "user_decision_required",
+        "authorization_required",
+        "reviewer_incomplete",
+        "reviewer_not_passed",
+        "reviewer_set_drift",
+        "target_drift",
+        "ref_range_review_only",
+        "no_material_progress",
+        "maximum_rounds_reached",
+        "validation_failed",
+        "workflow_incomplete"
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conclusion"],
+      "properties": {
+        "conclusion": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "reviewer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer", "reviewer_version", "context_sha256"],
+      "properties": {
+        "reviewer": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "reviewer_version": { "type": ["string", "null"], "minLength": 1, "maxLength": 128 },
+        "context_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "round_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "round",
+        "action",
+        "reason",
+        "previous_blocker_fingerprints",
+        "current_blocker_fingerprints"
+      ],
+      "properties": {
+        "round": { "type": "integer", "minimum": 1, "maximum": 3 },
+        "action": { "enum": ["continue", "accept", "stop"] },
+        "reason": {
+          "enum": [
+            "actionable_blockers_remain",
+            "reviewer_set_drift",
+            "target_drift",
+            "ref_range_review_only",
+            "incomplete_review",
+            "reviewer_pass",
+            "reviewer_not_passed",
+            "no_material_progress",
+            "maximum_rounds_reached"
+          ]
+        },
+        "previous_blocker_fingerprints": {
+          "type": "array",
+          "maxItems": 32000,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/digest" }
+        },
+        "current_blocker_fingerprints": {
+          "type": "array",
+          "maxItems": 32000,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/digest" }
+        }
+      }
+    },
+    "round": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["round", "batches", "assessment"],
+      "properties": {
+        "round": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "batches": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": { "$ref": "review-finding-batch.schema.json" }
+        },
+        "assessment": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/round_assessment" }
+          ]
+        }
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_kind", "basis", "source"],
+      "properties": {
+        "source_kind": { "enum": ["default", "caller"] },
+        "basis": { "enum": ["default_policy", "caller_explicit", "path_snapshot_request"] },
+        "source": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      }
+    },
+    "plan_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["finding_id", "selection"],
+      "properties": {
+        "finding_id": { "type": "string", "pattern": "^RF[0-9]{3,6}$" },
+        "selection": { "$ref": "#/$defs/selection" }
+      }
+    },
+    "plan_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context", "plan", "applied"],
+      "properties": {
+        "context": { "$ref": "#/$defs/plan_context" },
+        "plan": { "$ref": "fix-plan.schema.json" },
+        "applied": { "type": "boolean" }
+      }
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "before_sha256", "after_sha256"],
+      "properties": {
+        "path": { "$ref": "review-finding-batch.schema.json#/$defs/path" },
+        "before_sha256": { "$ref": "#/$defs/digest" },
+        "after_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "description", "status", "command", "authorization_source"],
+      "properties": {
+        "method": { "enum": ["static", "command"] },
+        "description": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "status": { "enum": ["passed", "failed", "not_run"] },
+        "command": { "type": ["string", "null"], "minLength": 1, "maxLength": 4000 },
+        "authorization_source": { "enum": ["caller", "user_global", "not_required", null] }
+      }
+    }
+  }
+}

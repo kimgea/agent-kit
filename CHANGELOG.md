@@ -4,6 +4,38 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
+## 1.8.0 - 2026-08-31
+
+### Added
+
+- Add executable local behavioral suites for `project-review` and the complete
+  `review-and-fix` workflow, including PASS, BLOCK, INCOMPLETE, decision,
+  authorization, scope, command-authority, and fresh-review cases.
+- Add a lead-bound canonical `review-and-fix` workflow-result schema and helper
+  commands for reviewer contexts, rounds, plans, exact changes, validation,
+  derived status, and stop reason.
+- Add provider-neutral recorded grading for mutation-aware cases and freeze the
+  fixed `project-review` dependency beside `review-and-fix` during local runs.
+
+### Changed
+
+- Permit behavioral fixtures to change only host-declared existing regular
+  files and verify exact before/after digests; retain mutation-free defaults for
+  analysis-only skills.
+- Record fixed dependency digests in local evidence and keep all real model
+  execution explicit, local, and outside GitHub Actions.
+- Add an exact independent-planner draft template and use a 30-minute local
+  per-case default for complete multi-role review-and-fix evaluations.
+
+### Security
+
+- Keep lead-owned resolver context outside agent-writable directories; reject
+  undeclared file and directory additions, removals, type or mode changes,
+  links, wrong contents, forged reported changes, and applied plans without a
+  later fresh acceptance review.
+- Bound review-and-fix JSON input, canonical hashing, and output by size and
+  nesting while retaining duplicate-member and no-link file handling.
+
 ## 1.7.0 - 2026-08-30
 
 ### Added

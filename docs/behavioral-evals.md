@@ -8,6 +8,8 @@ invoking an agent:
 ```bash
 python scripts/agent_kit.py check
 python scripts/behavioral_eval.py check --suite review-guidance-audit
+python scripts/behavioral_eval.py check --suite project-review
+python scripts/behavioral_eval.py check --suite review-and-fix
 ```
 
 GitHub Actions runs only that deterministic path. It does not invoke Codex,
@@ -19,7 +21,7 @@ Real behavioral execution is explicit:
 
 ```bash
 python scripts/behavioral_eval.py run \
-  --suite review-guidance-audit \
+  --suite project-review \
   --runner codex \
   --model gpt-5.6-sol
 ```
@@ -27,7 +29,9 @@ python scripts/behavioral_eval.py run \
 Use one or more `--case ID` arguments for a focused run. An explicit
 `--model MODEL` is required so the evidence never hides a configured default.
 Reasoning effort defaults to the recorded `medium` setting and can be selected
-with `--reasoning-effort`. `--timeout SECONDS` is bounded to one hour per case.
+with `--reasoning-effort`. The default is 30 minutes per case because a complete
+multi-role review-and-fix round can exceed 15 minutes; `--timeout SECONDS` is
+bounded to one hour per case.
 The runner prints only bounded per-case progress while it works; raw agent event
 and error streams remain temporary and are not retained as evaluation evidence.
 Windows direct runs require a native `codex.exe` on `PATH`; batch launchers are
@@ -36,21 +40,31 @@ rejected because `cmd.exe` cannot preserve arbitrary generated paths safely.
 The Codex adapter starts a fresh ephemeral context for each synthetic
 repository, ignores unrelated user configuration, applies a workspace sandbox,
 and requests schema-constrained canonical JSON. The harness resolves the audit
-target before invoking the agent and keeps that context as lead-owned authority.
-Only the fixture and a dedicated agent-work directory are writable: implicit
-temporary-directory access is disabled, and host-side result, event, and error
-capture stay in a separate non-agent-writable directory.
+target before invoking the agent and keeps that context as lead-owned authority
+in a non-agent-writable host directory. Only the fixture and a dedicated
+agent-work directory are writable: implicit temporary-directory access is
+disabled, and host-side context, result, event, and error capture stay separate.
 Afterward it verifies canonical validity, exact target and guidance provenance,
 fixture content, hidden assertions, and prohibited command execution.
 Malformed output, including excessive JSON nesting or invalid Unicode, becomes
 bounded failed-case evidence instead of aborting the suite.
 
 Before the first case, the harness freezes the parsed suite, every selected
-fixture, the complete evaluated skill, the fixed output envelope, its own source
-digest, and one discovered Codex launcher/version descriptor. Every case is
-materialized only from those snapshots. Input traversal rejects symlinked
-ancestors and Windows reparse points. A timeout terminates and reaps the complete
-POSIX process group or Windows process tree before mutation checks continue.
+fixture, the complete evaluated skill and any fixed skill dependencies, the
+fixed output envelope, its own source digest, and one discovered Codex
+launcher/version descriptor. Every case is materialized only from those
+snapshots. Input traversal rejects symlinked ancestors and Windows reparse
+points. A timeout terminates and reaps the complete POSIX process group or
+Windows process tree before mutation checks continue.
+
+`project-review` is analysis-only, so every fixture must remain unchanged.
+`review-and-fix` may change only existing regular files declared by the host's
+hidden `expected_mutations` policy. The harness compares exact before/after
+digests and rejects additions, removals, type changes, links, file or directory
+mode changes, undeclared edits, and wrong contents. Its successful fix case also
+requires a canonical applied `auto` plan, validation, and a later fresh
+`project-review` acceptance round. Consequential and authorization cases must
+remain mutation-free.
 
 Codex inference normally uses an external model service and may consume the
 user's allowance or API billing. The command is never run by the canonical gate,
@@ -70,10 +84,11 @@ Local runs create a new ignored directory under `.eval-results/` by default:
         └── score.json
 ```
 
-The summary binds the observation to the frozen suite, skill, harness, runner,
-Codex version, explicit model, reasoning effort, and each fixture digest. Case
-records preserve canonical context and output plus per-assertion grading. Raw
-event streams, stderr, prompts, and reasoning are not retained.
+The summary binds the observation to the frozen suite, skill, fixed dependency
+digests, harness, runner, Codex version, explicit model, reasoning effort, and
+each fixture digest. Case records preserve canonical context and output plus
+per-assertion and mutation grading. Raw event streams, stderr, prompts, and
+reasoning are not retained.
 
 Results are local evidence, not universal proof. A useful claim names the exact
 configuration, for example: "16 of 16 cases passed with this skill and suite
@@ -99,6 +114,18 @@ own scope. The grader rematerializes the committed synthetic fixture, resolves
 the selected target again, normalizes only the temporary repository location,
 and rejects any other context drift.
 
+For a case that declares a mutation, also supply the resulting disposable
+fixture. Without independently observed post-run files, a claimed change fails:
+
+```bash
+python scripts/behavioral_eval.py grade \
+  --suite review-and-fix \
+  --case routine-heading-fix \
+  --context /path/to/context.json \
+  --result /path/to/result.json \
+  --fixture-after /path/to/disposable-fixture-after
+```
+
 ## Suite contract
 
 Executable suites are cataloged with `behavioral_evals` and use a versioned
@@ -108,7 +135,8 @@ JSON manifest under `evals/<skill>/`. Each case provides:
 - one exact path or file-part target;
 - the user-like prompt shown to the agent;
 - hidden deterministic assertions over canonical JSON; and
-- bounded forbidden-command markers when execution authority is under test.
+- bounded forbidden-command markers when execution authority is under test; and
+- optional host-owned exact after-content digests for permitted file mutations.
 
 Assertions use JSON-pointer paths with optional `*` array traversal. Supported
 operators are `equals`, `not_equals`, `any`, `none`, `count_equals`,
@@ -121,6 +149,19 @@ path, or arbitrary adapter. The repository helper contains a fixed mapping from
 the versioned result contract to its resolver, validator, and schema. The v1
 direct runner is the locally discovered Codex CLI; other agents use recorded
 output until a separately reviewed fixed adapter exists.
+
+The executable suites currently cover:
+
+| Suite | Canonical result | Mutation policy |
+| --- | --- | --- |
+| `review-guidance-audit` | Guidance-audit result | No mutations |
+| `project-review` | Project-review result | No mutations |
+| `review-and-fix` | Review-and-fix workflow result | Exact declared existing files only |
+
+`review-and-fix` fixes its reviewer set to `project-review` v1 and freezes that
+complete dependency beside the evaluated skill. Its cases can use multiple
+fresh agent contexts and are therefore slower and more allowance-intensive than
+single-pass review cases.
 
 ## Add another skill
 

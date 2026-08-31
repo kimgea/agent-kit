@@ -8,6 +8,7 @@ import stat
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -222,6 +223,71 @@ def validate_test_plan(plan, batch, context=None):
     )
 
 
+def run_context(target_value=None):
+    selected_target = target() if target_value is None else target_value
+    reviewer_context = {"target": selected_target, "scope": "synthetic fixture"}
+    return {
+        "schema_version": workflow.RUN_SCHEMA_VERSION,
+        "target": selected_target,
+        "reviewers": [
+            {
+                "reviewer": "example-review",
+                "reviewer_version": None,
+                "context_sha256": workflow._canonical_digest(reviewer_context),
+                "context": reviewer_context,
+            }
+        ],
+    }
+
+
+def passing_batch():
+    return finalize_test_batch(
+        batch_draft(findings=[]),
+        batch_envelope(outcome="pass"),
+    )
+
+
+def accepted_run_draft():
+    initial = finalize_test_batch()
+    selection = plan_context(initial)
+    plan = finalize_test_plan(initial, context=selection)
+    current = passing_batch()
+    assessment = workflow.assess_round(
+        {
+            "round": 1,
+            "expected_reviewers": [
+                {"reviewer": "example-review", "reviewer_version": None}
+            ],
+            "previous_batches": [initial],
+            "current_batches": [current],
+        }
+    )
+    return {
+        "rounds": [
+            {"round": 0, "batches": [initial], "assessment": None},
+            {"round": 1, "batches": [current], "assessment": assessment},
+        ],
+        "plans": [{"context": selection, "plan": plan, "applied": True}],
+        "changes": [
+            {
+                "path": "src/example.py",
+                "before_sha256": "1" * 64,
+                "after_sha256": "2" * 64,
+            }
+        ],
+        "validation": [
+            {
+                "method": "static",
+                "description": "The exact documented value is present.",
+                "status": "passed",
+                "command": None,
+                "authorization_source": "not_required",
+            }
+        ],
+        "summary": {"conclusion": "The bounded fix passed fresh review."},
+    }
+
+
 def project_review_result():
     location = {"path": "src/example.py", "start_line": 10, "end_line": 10}
     return {
@@ -280,8 +346,14 @@ class FindingBatchTests(unittest.TestCase):
                 encoding="utf-8"
             )
         )
+        run_schema = json.loads(
+            (ROOT / "skills/review-and-fix/references/review-fix-result.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
         self.assertEqual(workflow.BATCH_SCHEMA_VERSION, batch_schema["properties"]["schema_version"]["const"])
         self.assertEqual(workflow.PLAN_SCHEMA_VERSION, plan_schema["properties"]["schema_version"]["const"])
+        self.assertEqual(workflow.RUN_SCHEMA_VERSION, run_schema["properties"]["schema_version"]["const"])
         self.assertIn("batch_sha256", plan_schema["required"])
         self.assertIn("outcome", batch_schema["$defs"]["source"]["required"])
         self.assertIn("basis", plan_schema["$defs"]["selection"]["required"])
@@ -784,7 +856,148 @@ class RoundAssessmentTests(unittest.TestCase):
         )
 
 
+class WorkflowResultTests(unittest.TestCase):
+    def test_accepted_run_binds_context_plans_changes_and_fresh_review(self):
+        context = run_context()
+        result = workflow.finalize_run(accepted_run_draft(), context)
+
+        self.assertEqual("completed", result["status"])
+        self.assertEqual("reviewer_pass", result["stop_reason"])
+        self.assertEqual(context["target"], result["target"])
+        self.assertEqual(workflow._canonical_digest(workflow._run_context(context)), result["context_sha256"])
+        self.assertEqual(result, workflow.validate_run(result, context))
+
+    def test_consequential_and_authorization_plans_stop_without_changes(self):
+        for risk, behavior_effect, status, reason in (
+            (["product_behavior"], "new_or_changed", "decision_required", "user_decision_required"),
+            (["remote_state"], "restorative", "authorization_required", "authorization_required"),
+        ):
+            with self.subTest(risk=risk):
+                batch = finalize_test_batch()
+                selection = plan_context(batch)
+                plan = finalize_test_plan(
+                    batch,
+                    plan_draft(batch, behavior_effect=behavior_effect, risk_factors=risk),
+                    selection,
+                )
+                draft = {
+                    "rounds": [{"round": 0, "batches": [batch], "assessment": None}],
+                    "plans": [{"context": selection, "plan": plan, "applied": False}],
+                    "changes": [],
+                    "validation": [],
+                    "summary": {"conclusion": "The workflow stopped before mutation."},
+                }
+                result = workflow.finalize_run(draft, run_context())
+                self.assertEqual(status, result["status"])
+                self.assertEqual(reason, result["stop_reason"])
+
+    def test_run_rejects_forged_authority_and_out_of_target_changes(self):
+        context = run_context()
+        draft = accepted_run_draft()
+        draft["changes"][0]["path"] = "src/other.py"
+        with self.assertRaisesRegex(workflow.WorkflowError, "exact reviewed target"):
+            workflow.finalize_run(draft, context)
+
+        draft = accepted_run_draft()
+        draft["plans"][0]["applied"] = False
+        with self.assertRaisesRegex(workflow.WorkflowError, "exactly match"):
+            workflow.finalize_run(draft, context)
+
+        result = workflow.finalize_run(accepted_run_draft(), context)
+        result["status"] = "decision_required"
+        with self.assertRaisesRegex(workflow.WorkflowError, "not in canonical"):
+            workflow.validate_run(result, context)
+
+    def test_run_rejects_unhashable_enum_values_with_controlled_errors(self):
+        context = run_context()
+        result = workflow.finalize_run(accepted_run_draft(), context)
+        result["status"] = []
+        with self.assertRaisesRegex(workflow.WorkflowError, "run result.status"):
+            workflow.validate_run(result, context)
+
+        malformed_context = copy.deepcopy(context)
+        malformed_context["target"]["kind"] = {}
+        malformed_context["reviewers"][0]["context_sha256"] = workflow._canonical_digest(
+            malformed_context["reviewers"][0]["context"]
+        )
+        with self.assertRaisesRegex(workflow.WorkflowError, "run context.target.kind"):
+            workflow.finalize_run(accepted_run_draft(), malformed_context)
+
+    def test_no_progress_and_failed_validation_are_not_acceptance(self):
+        initial = finalize_test_batch()
+        assessment = workflow.assess_round(
+            {
+                "round": 1,
+                "expected_reviewers": [
+                    {"reviewer": "example-review", "reviewer_version": None}
+                ],
+                "previous_batches": [initial],
+                "current_batches": [initial],
+            }
+        )
+        no_progress = {
+            "rounds": [
+                {"round": 0, "batches": [initial], "assessment": None},
+                {"round": 1, "batches": [initial], "assessment": assessment},
+            ],
+            "plans": [],
+            "changes": [],
+            "validation": [],
+            "summary": {"conclusion": "The same blocker remains."},
+        }
+        result = workflow.finalize_run(no_progress, run_context())
+        self.assertEqual("stopped", result["status"])
+        self.assertEqual("no_material_progress", result["stop_reason"])
+
+        failed = accepted_run_draft()
+        failed["validation"][0]["status"] = "failed"
+        result = workflow.finalize_run(failed, run_context())
+        self.assertEqual("incomplete", result["status"])
+        self.assertEqual("validation_failed", result["stop_reason"])
+
+    def test_applied_plan_in_accepting_round_requires_another_fresh_review(self):
+        draft = accepted_run_draft()
+        suggestion = finalize_test_batch(
+            batch_draft(findings=[finding_draft(disposition="suggestion")]),
+            batch_envelope(outcome="pass"),
+        )
+        draft["rounds"][1]["batches"] = [suggestion]
+        draft["rounds"][1]["assessment"] = workflow.assess_round(
+            {
+                "round": 1,
+                "expected_reviewers": [
+                    {"reviewer": "example-review", "reviewer_version": None}
+                ],
+                "previous_batches": draft["rounds"][0]["batches"],
+                "current_batches": [suggestion],
+            }
+        )
+        selection = plan_context(suggestion, selection="caller")
+        plan = finalize_test_plan(suggestion, context=selection)
+        draft["plans"].append(
+            {"context": selection, "plan": plan, "applied": True}
+        )
+        with self.assertRaisesRegex(workflow.WorkflowError, "fresh review round"):
+            workflow.finalize_run(draft, run_context())
+
+
 class CommandLineTests(unittest.TestCase):
+    def test_json_boundaries_reject_oversized_deep_and_oversized_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "large.json"
+            path.write_bytes(b" " * 65)
+            with mock.patch.object(workflow, "MAX_JSON_BYTES", 64):
+                with self.assertRaisesRegex(workflow.WorkflowError, "exceeds"):
+                    workflow._read_json(str(path))
+                with self.assertRaisesRegex(workflow.WorkflowError, "exceeds"):
+                    workflow._emit({"value": "x" * 100}, None, False)
+
+        value = []
+        for _ in range(workflow.MAX_JSON_DEPTH):
+            value = [value]
+        with self.assertRaisesRegex(workflow.WorkflowError, "nesting"):
+            workflow._assert_bounded_json(value, "deep value")
+
     def test_link_like_detection_includes_windows_reparse_points(self):
         metadata = type(
             "Metadata",
@@ -946,6 +1159,45 @@ class CommandLineTests(unittest.TestCase):
             plan = json.loads(stdout.getvalue())
             self.assertEqual("auto", plan["decision"])
             self.assertEqual("default_policy", plan["finding"]["selection"]["basis"])
+
+    def test_cli_finalizes_and_validates_a_run_with_separate_context(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            draft_path = root / "run-draft.json"
+            context_path = root / "run-context.json"
+            result_path = root / "run-result.json"
+            draft_path.write_text(json.dumps(accepted_run_draft()), encoding="utf-8")
+            context_path.write_text(json.dumps(run_context()), encoding="utf-8")
+
+            code = workflow.main(
+                [
+                    "finalize-run",
+                    "--input",
+                    str(draft_path),
+                    "--context",
+                    str(context_path),
+                    "--output",
+                    str(result_path),
+                ]
+            )
+            self.assertEqual(0, code)
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            self.assertEqual("completed", result["status"])
+            self.assertEqual("reviewer_pass", result["stop_reason"])
+
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                code = workflow.main(
+                    [
+                        "validate-run",
+                        "--input",
+                        str(result_path),
+                        "--context",
+                        str(context_path),
+                    ]
+                )
+            self.assertEqual(0, code)
+            self.assertEqual(result, json.loads(stdout.getvalue()))
 
     def test_cli_from_project_review_hashes_exact_input_bytes(self):
         with tempfile.TemporaryDirectory() as temporary:

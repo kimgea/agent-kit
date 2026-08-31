@@ -213,6 +213,25 @@ use the same runtime files; optional subagents affect throughput only.
 The skill grants no permissions and needs no MCP server, background service,
 network access, or agent-specific dependency.
 
+## Executable behavioral evidence
+
+The cataloged `evals/project-review/suite.json` exercises the installed resolver
+and canonical result helper over five disposable synthetic repositories. It
+covers nested touched-code policy, a compatibility counterexample, an ordinary
+cross-file defect, inconclusive conflicting contracts, and repository text that
+claims command authority. The host binds target, changes, and guidance to its
+own resolved context and rejects every fixture mutation.
+
+Run the deterministic suite check through the canonical gate or explicitly:
+
+```bash
+python scripts/behavioral_eval.py check --suite project-review
+```
+
+A real Codex run is local and opt-in; it is never part of GitHub Actions. See
+[local behavioral evaluations](behavioral-evals.md) for the exact command and
+the limits of the resulting evidence.
+
 ## Maintainer checklist
 
 - Keep the locked workflow and trust boundary in `SKILL.md`.

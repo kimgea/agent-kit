@@ -40,18 +40,49 @@ MAX_CASES = 256
 MAX_ASSERTIONS = 128
 MAX_PROMPT_BYTES = 64 * 1024
 MAX_TIMEOUT_SECONDS = 3600
-DEFAULT_TIMEOUT_SECONDS = 900
-RESULT_KEYS = ("target", "guidance", "context_metrics")
-
-
+DEFAULT_TIMEOUT_SECONDS = 1800
 CONTRACTS = {
     "review-guidance-audit/v1": {
         "skill": "review-guidance-audit",
         "context": "skills/review-guidance-audit/scripts/guidance_context.py",
         "validator": "skills/review-guidance-audit/scripts/guidance_result.py",
         "schema": "skills/review-guidance-audit/references/review-guidance-result.schema.json",
-    }
+        "context_kind": "review-guidance-audit",
+        "validator_kind": "simple",
+        "binding_kind": "review-guidance-audit",
+        "target_kinds": {"path", "part"},
+        "dependencies": [],
+        "reviewers": [],
+    },
+    "project-review/v1": {
+        "skill": "project-review",
+        "context": "skills/project-review/scripts/review_context.py",
+        "validator": "skills/project-review/scripts/review_result.py",
+        "schema": "skills/project-review/references/review-result.schema.json",
+        "context_kind": "project-review",
+        "validator_kind": "simple",
+        "binding_kind": "project-review",
+        "target_kinds": {"path"},
+        "dependencies": [],
+        "reviewers": [],
+    },
+    "review-and-fix/v1": {
+        "skill": "review-and-fix",
+        "context": "skills/project-review/scripts/review_context.py",
+        "validator": "skills/review-and-fix/scripts/review_workflow.py",
+        "schema": "skills/review-and-fix/references/review-fix-result.schema.json",
+        "context_kind": "review-and-fix",
+        "validator_kind": "review-and-fix",
+        "binding_kind": "review-and-fix",
+        "target_kinds": {"path"},
+        "dependencies": ["project-review"],
+        "reviewers": [
+            {"reviewer": "project-review", "reviewer_version": "1.0.0"}
+        ],
+    },
 }
+
+CONTRACT_PATH_KEYS = ("context", "validator", "schema")
 
 
 class EvalError(ValueError):
@@ -164,6 +195,20 @@ def _object(value: Any, label: str, keys: set[str]) -> dict[str, Any]:
         raise EvalError(f"{label} is missing fields: {sorted(missing)}")
     if extra:
         raise EvalError(f"{label} has unknown fields: {sorted(extra)}")
+    return value
+
+
+def _object_with_optional(
+    value: Any, label: str, required: set[str], optional: set[str]
+) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise EvalError(f"{label} must be an object")
+    missing = required - set(value)
+    extra = set(value) - required - optional
+    if missing:
+        raise EvalError(f"{label} is missing: {', '.join(sorted(missing))}")
+    if extra:
+        raise EvalError(f"{label} has unexpected fields: {', '.join(sorted(extra))}")
     return value
 
 
@@ -331,6 +376,29 @@ def _validate_target(value: Any, label: str) -> dict[str, Any]:
     return target
 
 
+def _validate_expected_mutations(
+    value: Any, target: dict[str, Any], label: str
+) -> list[dict[str, str]]:
+    if not isinstance(value, list) or len(value) > MAX_FIXTURE_FILES:
+        raise EvalError(f"{label} must be a bounded array")
+    mutations: list[dict[str, str]] = []
+    seen: set[str] = set()
+    target_path = target["path"]
+    for index, raw in enumerate(value):
+        item = _object(raw, f"{label}[{index}]", {"path", "after_sha256"})
+        path = _relative_path(item["path"], f"{label}[{index}].path")
+        if path in seen:
+            raise EvalError(f"{label} must not repeat a path")
+        seen.add(path)
+        if target_path != "." and path != target_path and not path.startswith(f"{target_path}/"):
+            raise EvalError(f"{label}[{index}].path is outside the requested target")
+        digest = _string(item["after_sha256"], f"{label}[{index}].after_sha256", 64)
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise EvalError(f"{label}[{index}].after_sha256 must be a lowercase SHA-256 digest")
+        mutations.append({"path": path, "after_sha256": digest})
+    return sorted(mutations, key=lambda item: item["path"])
+
+
 def _validate_assertion(value: Any, label: str) -> dict[str, Any]:
     item = _object(value, label, {"id", "path", "operator", "value"})
     _resource_id(item["id"], f"{label}.id")
@@ -394,6 +462,10 @@ def _load_suite_bundle(
     contract = CONTRACTS.get(contract_id)
     if contract is None or contract["skill"] != skill:
         raise EvalError("suite selects an unsupported result contract")
+    for dependency in contract["dependencies"]:
+        _resource_id(dependency, "result contract dependency")
+        dependency_path = _safe_repository_path(root, f"skills/{dependency}", "skill dependency")
+        snapshot_fixture(dependency_path)
     for label, contract_path in _contract(suite, root).items():
         _read_bytes(contract_path, f"result contract {label}", MAX_RESULT_BYTES)
     defaults = suite["default_assertions"]
@@ -412,10 +484,11 @@ def _load_suite_bundle(
     manifest_root = path.parent
     fixture_root = manifest_root / "fixtures"
     for index, raw_case in enumerate(cases):
-        case = _object(
+        case = _object_with_optional(
             raw_case,
             f"cases[{index}]",
             {"id", "fixture", "target", "prompt", "assertions", "forbidden_commands"},
+            {"expected_mutations"},
         )
         case_id = _resource_id(case["id"], f"cases[{index}].id")
         if case_id in case_ids:
@@ -427,7 +500,17 @@ def _load_suite_bundle(
             raise EvalError(
                 f"cases[{index}].fixture must be {expected_fixture!r}"
             )
-        _validate_target(case["target"], f"cases[{index}].target")
+        target = _validate_target(case["target"], f"cases[{index}].target")
+        if target["kind"] not in contract["target_kinds"]:
+            raise EvalError(
+                f"cases[{index}].target kind is unsupported by {contract_id}"
+            )
+        case["target"] = target
+        case["expected_mutations"] = _validate_expected_mutations(
+            case.get("expected_mutations", []),
+            target,
+            f"cases[{index}].expected_mutations",
+        )
         _string(case["prompt"], f"cases[{index}].prompt", MAX_PROMPT_BYTES)
         assertions = case["assertions"]
         if not isinstance(assertions, list) or len(assertions) > MAX_ASSERTIONS:
@@ -453,7 +536,12 @@ def _load_suite_bundle(
         fixture_path = _safe_repository_path(manifest_root, fixture, "fixture")
         if fixture_root not in fixture_path.parents:
             raise EvalError(f"fixture is outside the suite fixture root: {fixture}")
-        snapshot_fixture(fixture_path)
+        fixture_snapshot = snapshot_fixture(fixture_path)
+        for mutation in case["expected_mutations"]:
+            if mutation["path"] not in fixture_snapshot:
+                raise EvalError(
+                    f"cases[{index}].expected_mutations path must identify an existing regular fixture file"
+                )
     return suite, path, source_bytes
 
 
@@ -518,6 +606,110 @@ def _snapshot_identity(snapshot: dict[str, dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def snapshot_fixture_state(root: Path) -> dict[str, dict[str, Any]]:
+    files = snapshot_fixture(root)
+    state = {
+        path: {
+            "kind": "file",
+            "sha256": item["sha256"],
+            "bytes": item["bytes"],
+            "mode": item["mode"],
+        }
+        for path, item in files.items()
+    }
+    pending = [root]
+    while pending:
+        directory = pending.pop()
+        try:
+            with os.scandir(directory) as iterator:
+                entries = sorted(iterator, key=lambda entry: entry.name)
+        except OSError as exc:
+            raise EvalError(f"cannot inspect fixture directory {directory}: {exc}") from exc
+        for entry in entries:
+            path = Path(entry.path)
+            relative = path.relative_to(root).as_posix()
+            try:
+                info = entry.stat(follow_symlinks=False)
+            except OSError as exc:
+                raise EvalError(f"cannot inspect fixture entry {relative}: {exc}") from exc
+            if _metadata_is_link_like(info) or _is_link_like(path):
+                raise EvalError(f"fixture contains a link-like entry: {relative}")
+            if stat.S_ISDIR(info.st_mode):
+                state[relative] = {
+                    "kind": "directory",
+                    "mode": stat.S_IMODE(info.st_mode),
+                }
+                pending.append(path)
+    return state
+
+
+def evaluate_fixture_mutations(
+    before: dict[str, dict[str, Any]],
+    after: dict[str, dict[str, Any]] | None,
+    expected: list[dict[str, str]],
+) -> dict[str, Any]:
+    if after is None:
+        return {
+            "passed": not expected,
+            "observed": False,
+            "message": "post-run fixture evidence was not supplied"
+            if expected
+            else "no fixture mutation evidence was requested",
+            "changes": [],
+        }
+    before_paths = set(before)
+    after_paths = set(after)
+    if before_paths != after_paths:
+        return {
+            "passed": False,
+            "observed": True,
+            "message": "fixture paths were added or removed",
+            "changes": [],
+        }
+    expected_by_path = {item["path"]: item for item in expected}
+    changes: list[dict[str, str]] = []
+    unexpected: list[str] = []
+    for path in sorted(before_paths):
+        old = before[path]
+        new = after[path]
+        identity_changed = old != new
+        if not identity_changed:
+            if path in expected_by_path:
+                unexpected.append(f"{path}: expected content change did not occur")
+            continue
+        expectation = expected_by_path.get(path)
+        if expectation is None:
+            unexpected.append(f"{path}: undeclared fixture mutation")
+            continue
+        if old.get("kind") != "file" or new.get("kind") != "file":
+            unexpected.append(f"{path}: fixture entry type changed")
+            continue
+        if old["mode"] != new["mode"]:
+            unexpected.append(f"{path}: file mode changed")
+            continue
+        if new["sha256"] != expectation["after_sha256"]:
+            unexpected.append(f"{path}: content digest does not match the expected result")
+            continue
+        if old["sha256"] == new["sha256"]:
+            unexpected.append(f"{path}: expected content digest did not change")
+            continue
+        changes.append(
+            {
+                "path": path,
+                "before_sha256": old["sha256"],
+                "after_sha256": new["sha256"],
+            }
+        )
+    return {
+        "passed": not unexpected and len(changes) == len(expected),
+        "observed": True,
+        "message": "; ".join(unexpected)
+        if unexpected
+        else "fixture changes exactly match the host-owned mutation policy",
+        "changes": changes,
+    }
+
+
 def materialize_fixture(source: Path, destination: Path) -> dict[str, dict[str, Any]]:
     snapshot = snapshot_fixture(source)
     _materialize_snapshot(snapshot, destination)
@@ -577,20 +769,27 @@ def _case_by_id(suite: dict[str, Any], case_id: str) -> dict[str, Any]:
 
 
 def _contract(
-    suite: dict[str, Any], root: Path, runtime_skill: Path | None = None
+    suite: dict[str, Any],
+    root: Path,
+    runtime_skills: dict[str, Path] | None = None,
 ) -> dict[str, Path]:
     raw = CONTRACTS[suite["result_contract"]]
     result: dict[str, Path] = {}
-    prefix = f"skills/{suite['skill']}/"
-    for key, value in raw.items():
-        if key == "skill":
-            continue
+    for key in CONTRACT_PATH_KEYS:
+        value = raw[key]
         relative = _relative_path(value, key)
-        if runtime_skill is not None and relative.startswith(prefix):
-            nested = relative[len(prefix) :]
-            result[key] = _safe_repository_path(runtime_skill, nested, key)
-        else:
-            result[key] = _safe_repository_path(root, relative, key)
+        parts = PurePosixPath(relative).parts
+        if (
+            runtime_skills is not None
+            and len(parts) >= 3
+            and parts[0] == "skills"
+            and parts[1] in runtime_skills
+        ):
+            result[key] = _safe_repository_path(
+                runtime_skills[parts[1]], PurePosixPath(*parts[2:]).as_posix(), key
+            )
+            continue
+        result[key] = _safe_repository_path(root, relative, key)
     return result
 
 
@@ -600,21 +799,32 @@ def resolve_context(
     fixture: Path,
     output: Path,
     root: Path,
-    runtime_skill: Path | None = None,
+    runtime_skills: dict[str, Path] | None = None,
 ) -> dict[str, Any]:
-    contract = _contract(suite, root, runtime_skill)
+    contract_paths = _contract(suite, root, runtime_skills)
+    contract = CONTRACTS[suite["result_contract"]]
     target = case["target"]
-    command = [sys.executable, str(contract["context"]), "--repo", str(fixture)]
-    if target["kind"] == "part":
-        command.extend(
-            [
-                "--part",
-                f"{target['path']}:{target['start_line']}:{target['end_line']}",
-            ]
-        )
+    if contract["context_kind"] == "review-guidance-audit":
+        command = [sys.executable, str(contract_paths["context"]), "--repo", str(fixture)]
+        if target["kind"] == "part":
+            command.extend(
+                [
+                    "--part",
+                    f"{target['path']}:{target['start_line']}:{target['end_line']}",
+                ]
+            )
+        else:
+            command.extend(["--path", target["path"]])
+        command.extend(["--output", str(output)])
     else:
-        command.extend(["--path", target["path"]])
-    command.extend(["--output", str(output)])
+        command = [
+            sys.executable,
+            str(contract_paths["context"]),
+            "--repo",
+            str(fixture),
+            "paths",
+            target["path"],
+        ]
     completed = subprocess.run(
         command,
         cwd=root,
@@ -626,25 +836,56 @@ def resolve_context(
     if completed.returncode != 0:
         message = completed.stderr.decode("utf-8", "replace")[:2000]
         raise EvalError(f"context resolver failed: {message}")
-    return _load_json(output, "resolved context")
+    if contract["context_kind"] == "review-guidance-audit":
+        return _load_json(output, "resolved context")
+    try:
+        review_context = _parse_agent_result_text(completed.stdout.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        raise EvalError(f"context resolver returned invalid UTF-8: {exc}") from exc
+    if not isinstance(review_context, dict):
+        raise EvalError("context resolver must return a JSON object")
+    if contract["context_kind"] == "project-review":
+        context = review_context
+    elif contract["context_kind"] == "review-and-fix":
+        context = {
+            "schema_version": "1.0.0",
+            "target": review_context.get("target"),
+            "reviewers": [
+                {
+                    **identity,
+                    "context_sha256": _sha256_json(review_context),
+                    "context": review_context,
+                }
+                for identity in contract["reviewers"]
+            ],
+        }
+    else:  # pragma: no cover - fixed contract table owns this boundary
+        raise EvalError("unsupported context adapter")
+    _write_new_json(output, context)
+    return context
 
 
 def validate_result_contract(
     suite: dict[str, Any],
     result_path: Path,
+    context_path: Path,
     root: Path,
-    runtime_skill: Path | None = None,
+    runtime_skills: dict[str, Path] | None = None,
 ) -> tuple[bool, str]:
-    contract = _contract(suite, root, runtime_skill)
+    contract_paths = _contract(suite, root, runtime_skills)
+    contract = CONTRACTS[suite["result_contract"]]
+    command = [
+        sys.executable,
+        str(contract_paths["validator"]),
+        "validate" if contract["validator_kind"] == "simple" else "validate-run",
+        "--input",
+        str(result_path),
+    ]
+    if contract["validator_kind"] == "review-and-fix":
+        command.extend(["--context", str(context_path)])
     try:
         completed = subprocess.run(
-            [
-                sys.executable,
-                str(contract["validator"]),
-                "validate",
-                "--input",
-                str(result_path),
-            ],
+            command,
             cwd=root,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -688,18 +929,70 @@ def _result_guidance(context: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _bind_result(context: Any, result: Any) -> tuple[bool, str]:
+def _project_review_guidance(context: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "chain_id": chain["chain_id"],
+            "applies_to": list(chain["applies_to"]),
+            "sources": [
+                {
+                    key: source[key]
+                    for key in ("source_kind", "path", "revision", "sha256", "bytes")
+                }
+                for source in chain["sources"]
+            ],
+            "complete": chain["complete"],
+        }
+        for chain in context["guidance"]
+    ]
+
+
+def _bind_result(
+    suite: dict[str, Any],
+    context: Any,
+    result: Any,
+    observed_changes: list[dict[str, str]] | None = None,
+) -> tuple[bool, str]:
     if not isinstance(context, dict) or not isinstance(result, dict):
         return False, "context and result must be objects"
-    if result.get("context_sha256") != _sha256_json(context):
-        return False, "result context digest does not match the lead-owned context"
-    expected = {
-        "target": context.get("target"),
-        "guidance": _result_guidance(context) if isinstance(context.get("guidance"), list) else None,
-        "context_metrics": context.get("context_metrics"),
-    }
-    for key in RESULT_KEYS:
-        if result.get(key) != expected[key]:
+    contract = CONTRACTS[suite["result_contract"]]
+    if contract["binding_kind"] == "review-guidance-audit":
+        if result.get("context_sha256") != _sha256_json(context):
+            return False, "result context digest does not match the lead-owned context"
+        expected = {
+            "target": context.get("target"),
+            "guidance": _result_guidance(context)
+            if isinstance(context.get("guidance"), list)
+            else None,
+            "context_metrics": context.get("context_metrics"),
+        }
+    elif contract["binding_kind"] == "project-review":
+        expected = {
+            "target": context.get("target"),
+            "changes": context.get("changes"),
+            "guidance": _project_review_guidance(context)
+            if isinstance(context.get("guidance"), list)
+            else None,
+        }
+    elif contract["binding_kind"] == "review-and-fix":
+        expected = {
+            "context_sha256": _sha256_json(context),
+            "target": context.get("target"),
+            "reviewers": [
+                {
+                    "reviewer": reviewer["reviewer"],
+                    "reviewer_version": reviewer["reviewer_version"],
+                    "context_sha256": reviewer["context_sha256"],
+                }
+                for reviewer in context.get("reviewers", [])
+            ],
+        }
+        if observed_changes is not None:
+            expected["changes"] = observed_changes
+    else:  # pragma: no cover - fixed contract table owns this boundary
+        return False, "unsupported result binding adapter"
+    for key, value in expected.items():
+        if result.get(key) != value:
             return False, f"result {key} does not match the lead-owned context"
     return True, "result authority fields match the lead-owned context"
 
@@ -708,6 +1001,13 @@ def _normalize_context_root(context: dict[str, Any]) -> dict[str, Any]:
     value = json.loads(json.dumps(context))
     if isinstance(value.get("target"), dict):
         value["target"]["repository_root"] = "<fixture-root>"
+    for reviewer in value.get("reviewers", []):
+        if not isinstance(reviewer, dict):
+            continue
+        nested = reviewer.get("context")
+        if isinstance(nested, dict) and isinstance(nested.get("target"), dict):
+            nested["target"]["repository_root"] = "<fixture-root>"
+            reviewer["context_sha256"] = _sha256_json(nested)
     for chain in value.get("guidance", []):
         if not isinstance(chain, dict):
             continue
@@ -795,16 +1095,19 @@ def grade_case(
     expected_context: dict[str, Any],
     result: dict[str, Any],
     result_path: Path,
+    context_path: Path,
     root: Path,
     *,
-    runtime_skill: Path | None = None,
-    mutation_free: bool | None,
+    runtime_skills: dict[str, Path] | None = None,
+    mutation_report: dict[str, Any],
     forbidden_commands: list[str] | None,
 ) -> dict[str, Any]:
     contract_ok, contract_message = validate_result_contract(
-        suite, result_path, root, runtime_skill
+        suite, result_path, context_path, root, runtime_skills
     )
-    binding_ok, binding_message = _bind_result(context, result)
+    binding_ok, binding_message = _bind_result(
+        suite, context, result, mutation_report.get("changes")
+    )
     fixture_context_ok = _normalize_context_root(context) == _normalize_context_root(
         expected_context
     )
@@ -816,7 +1119,7 @@ def grade_case(
         and binding_ok
         and fixture_context_ok
         and all(item["passed"] for item in assertion_results)
-        and mutation_free is not False
+        and mutation_report["passed"]
         and forbidden_ok
     )
     return {
@@ -832,7 +1135,12 @@ def grade_case(
             if fixture_context_ok
             else "context does not match the suite fixture and selected target",
         },
-        "fixture_mutation_free": mutation_free,
+        "fixture_mutation": mutation_report,
+        "fixture_mutation_free": (
+            mutation_report["passed"] and not case["expected_mutations"]
+            if mutation_report.get("observed")
+            else None
+        ),
         "forbidden_commands": forbidden_commands or [],
         "assertions": assertion_results,
     }
@@ -999,21 +1307,42 @@ def _runner_prompt(
     case: dict[str, Any],
     fixture: Path,
     work: Path,
-    runtime_skill: Path,
+    runtime_skills: dict[str, Path],
+    context_path: Path | None = None,
 ) -> str:
-    skill = runtime_skill / "SKILL.md"
-    context = work / "context.json"
+    skill = runtime_skills[suite["skill"]] / "SKILL.md"
+    context = context_path or work / "context.json"
     draft = work / "draft.json"
+    dependencies = [
+        f"- {skill_id}: {runtime_skills[skill_id] / 'SKILL.md'}"
+        for skill_id in CONTRACTS[suite["result_contract"]]["dependencies"]
+    ]
+    dependency_text = (
+        "\nThe fixed trusted skill dependencies for this evaluation are:\n"
+        + "\n".join(dependencies)
+        + "\n"
+        if dependencies
+        else ""
+    )
+    repository_text = (
+        "Keep workflow drafts outside the repository. You may edit the disposable "
+        "repository only after the skill derives an `auto` plan, and only within "
+        "its exact reviewed target. Every other mutation remains forbidden."
+        if suite["skill"] == "review-and-fix"
+        else "Keep any semantic draft outside the repository and do not perform "
+        "repository mutations."
+    )
     return f"""Use the skill at {skill} to perform this request against the repository at {fixture}.
+{dependency_text}
 
 The caller has already selected and resolved the target. The exact lead-owned
 resolver context is {context}. Treat it as immutable authority: do not replace,
-regenerate, or edit it. Keep any semantic draft at {draft}; do not write inside
-the repository. Follow the skill completely, finalize against that exact
-context. Your final response must be one JSON object with exactly one field,
+regenerate, or edit it. Keep any semantic draft at {draft}. {repository_text}
+Follow the skill completely and finalize against that exact context. Your final
+response must be one JSON object with exactly one field,
 `result_json`, whose string value is the exact canonical JSON emitted by the
 skill finalizer. Do not add a Markdown fence or prose. Do not install
-dependencies, access remote systems, or perform mutations.
+dependencies or access remote systems.
 
 Request:
 {case['prompt']}
@@ -1315,7 +1644,7 @@ def _run_codex(
     events: Path,
     errors: Path,
     root: Path,
-    runtime_skill: Path,
+    runtime_skills: dict[str, Path],
     model: str,
     reasoning_effort: str,
     timeout: int,
@@ -1324,7 +1653,9 @@ def _run_codex(
     command = build_codex_command(
         suite, fixture, work, result, root, model, reasoning_effort, runner
     )
-    prompt = _runner_prompt(suite, case, fixture, work, runtime_skill)
+    prompt = _runner_prompt(
+        suite, case, fixture, work, runtime_skills, result.parent / "context.json"
+    )
     started = dt.datetime.now(dt.timezone.utc)
     timed_out = False
     with events.open("wb") as stdout_handle, errors.open("wb") as stderr_handle:
@@ -1433,8 +1764,17 @@ def command_grade(args: argparse.Namespace) -> int:
         base = Path(temporary)
         fixture = base / "fixture"
         materialize_fixture(source, fixture)
+        before = snapshot_fixture_state(fixture)
         expected_path = base / "expected-context.json"
         expected_context = resolve_context(suite, case, fixture, expected_path, ROOT)
+        after = (
+            snapshot_fixture_state(Path(args.fixture_after).absolute())
+            if getattr(args, "fixture_after", None)
+            else None
+        )
+        mutation_report = evaluate_fixture_mutations(
+            before, after, case["expected_mutations"]
+        )
         report = grade_case(
             suite,
             case,
@@ -1442,8 +1782,9 @@ def command_grade(args: argparse.Namespace) -> int:
             expected_context,
             result,
             result_path,
+            context_path,
             ROOT,
-            mutation_free=None,
+            mutation_report=mutation_report,
             forbidden_commands=None,
         )
     if args.output:
@@ -1473,7 +1814,14 @@ def command_run(args: argparse.Namespace) -> int:
         "behavioral agent result schema",
         65536,
     )
-    frozen_skill = skill_snapshot(ROOT / "skills" / suite["skill"])
+    contract = CONTRACTS[suite["result_contract"]]
+    skill_ids = [suite["skill"], *contract["dependencies"]]
+    if len(skill_ids) != len(set(skill_ids)):
+        raise EvalError("evaluated skill dependencies must not contain duplicates")
+    frozen_skills = {
+        skill_id: skill_snapshot(ROOT / "skills" / skill_id)
+        for skill_id in skill_ids
+    }
     frozen_fixtures = {
         case["id"]: snapshot_fixture(manifest.parent / case["fixture"])
         for case in selected
@@ -1482,7 +1830,11 @@ def command_run(args: argparse.Namespace) -> int:
     harness_bytes = _read_bytes(
         Path(__file__).resolve(), "behavioral evaluation harness", MAX_RESULT_BYTES
     )
-    skill_sha256 = _snapshot_digest(frozen_skill)
+    skill_sha256 = _snapshot_digest(frozen_skills[suite["skill"]])
+    dependency_sha256 = {
+        skill_id: _snapshot_digest(frozen_skills[skill_id])
+        for skill_id in contract["dependencies"]
+    }
     suite_sha256 = hashlib.sha256(suite_bytes).hexdigest()
     harness_sha256 = hashlib.sha256(harness_bytes).hexdigest()
     for index, case in enumerate(selected, start=1):
@@ -1500,16 +1852,20 @@ def command_run(args: argparse.Namespace) -> int:
             work.mkdir(mode=0o700)
             host = base / "host"
             host.mkdir(mode=0o700)
-            skill_parent = base / "evaluated-skill"
+            skill_parent = base / "evaluated-skills"
             skill_parent.mkdir(mode=0o700)
-            runtime_skill = skill_parent / suite["skill"]
-            _materialize_snapshot(frozen_skill, runtime_skill)
+            runtime_skills = {
+                skill_id: skill_parent / skill_id for skill_id in skill_ids
+            }
+            for skill_id, runtime_skill in runtime_skills.items():
+                _materialize_snapshot(frozen_skills[skill_id], runtime_skill)
             _write_new_json(work / "agent-result.schema.json", envelope_schema)
-            before = frozen_fixtures[case["id"]]
-            _materialize_snapshot(before, fixture)
-            context_path = work / "context.json"
+            frozen_before = frozen_fixtures[case["id"]]
+            _materialize_snapshot(frozen_before, fixture)
+            before = snapshot_fixture_state(fixture)
+            context_path = host / "context.json"
             context = resolve_context(
-                suite, case, fixture, context_path, ROOT, runtime_skill
+                suite, case, fixture, context_path, ROOT, runtime_skills
             )
             original_context_digest = hashlib.sha256(
                 _read_bytes(context_path, "lead-owned context", MAX_RESULT_BYTES)
@@ -1526,7 +1882,7 @@ def command_run(args: argparse.Namespace) -> int:
                 events_path,
                 errors_path,
                 ROOT,
-                runtime_skill,
+                runtime_skills,
                 args.model,
                 args.reasoning_effort,
                 timeout,
@@ -1534,10 +1890,17 @@ def command_run(args: argparse.Namespace) -> int:
             )
             isolation_errors: list[str] = []
             try:
-                after = snapshot_fixture(fixture)
-                mutation_free = _snapshot_identity(before) == _snapshot_identity(after)
+                after = snapshot_fixture_state(fixture)
+                mutation_report = evaluate_fixture_mutations(
+                    before, after, case["expected_mutations"]
+                )
             except EvalError as exc:
-                mutation_free = False
+                mutation_report = {
+                    "passed": False,
+                    "observed": True,
+                    "message": str(exc),
+                    "changes": [],
+                }
                 isolation_errors.append(str(exc))
             try:
                 context_unchanged = original_context_digest == hashlib.sha256(
@@ -1570,9 +1933,10 @@ def command_run(args: argparse.Namespace) -> int:
                         context,
                         result,
                         canonical_path,
+                        context_path,
                         ROOT,
-                        runtime_skill=runtime_skill,
-                        mutation_free=mutation_free and context_unchanged,
+                        runtime_skills=runtime_skills,
+                        mutation_report=mutation_report,
                         forbidden_commands=forbidden,
                     )
                     _write_new_json(case_directory / "context.json", context)
@@ -1584,7 +1948,12 @@ def command_run(args: argparse.Namespace) -> int:
                         "case": case["id"],
                         "passed": False,
                         "runner_error": str(exc),
-                        "fixture_mutation_free": mutation_free and context_unchanged,
+                        "fixture_mutation": mutation_report,
+                        "fixture_mutation_free": (
+                            mutation_report["passed"] and not case["expected_mutations"]
+                            if mutation_report.get("observed")
+                            else None
+                        ),
                         "forbidden_commands": forbidden,
                         "assertions": [],
                     }
@@ -1599,14 +1968,19 @@ def command_run(args: argparse.Namespace) -> int:
                     "case": case["id"],
                     "passed": False,
                     "runner_error": error_text or "Codex exited without a canonical result",
-                    "fixture_mutation_free": mutation_free and context_unchanged,
+                    "fixture_mutation": mutation_report,
+                    "fixture_mutation_free": (
+                        mutation_report["passed"] and not case["expected_mutations"]
+                        if mutation_report.get("observed")
+                        else None
+                    ),
                     "forbidden_commands": forbidden,
                     "assertions": [],
                 }
             if isolation_errors:
                 report["isolation_errors"] = isolation_errors
                 report["passed"] = False
-            report["fixture_sha256"] = _snapshot_digest(before)
+            report["fixture_sha256"] = _snapshot_digest(frozen_before)
             report["execution"] = execution
             _write_new_json(case_directory / "score.json", report)
             run_results.append(report)
@@ -1626,6 +2000,7 @@ def command_run(args: argparse.Namespace) -> int:
         "runner_kind": runner["kind"],
         "runner_sha256": runner["sha256"],
         "skill_sha256": skill_sha256,
+        "dependency_sha256": dependency_sha256,
         "harness_sha256": harness_sha256,
         "suite_sha256": suite_sha256,
         "total": len(run_results),
@@ -1656,6 +2031,10 @@ def build_parser() -> argparse.ArgumentParser:
     grade.add_argument("--case", required=True)
     grade.add_argument("--context", required=True)
     grade.add_argument("--result", required=True)
+    grade.add_argument(
+        "--fixture-after",
+        help="post-run fixture directory required to prove declared mutation cases",
+    )
     grade.add_argument("--output")
     run = commands.add_parser("run", help="explicitly invoke a local agent runner")
     run.add_argument("--suite", required=True)

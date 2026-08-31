@@ -198,3 +198,21 @@ Do not persist raw reviewer output, batches, or plans unless the caller supplies
 an explicit output path. Read JSON inputs only from stdin or no-link regular
 files, reject duplicate object members, and refuse accidental overwrite without
 explicit replacement intent.
+
+When another local agent or tool requests a structured workflow result, read
+`references/review-fix-result.schema.json`. Keep a lead-owned run context with
+the exact target and fixed reviewer identities plus the digest and bounded
+context supplied to each reviewer. Build a draft containing rounds, canonical
+batches and plans, exact changed-file digests, validation, and one conclusion;
+do not copy target or status authority into the draft. Finalize and validate it
+with:
+
+```text
+python <skill-dir>/scripts/review_workflow.py finalize-run --input <draft.json> --context <run-context.json>
+python <skill-dir>/scripts/review_workflow.py validate-run --input <result.json> --context <run-context.json>
+```
+
+The helper derives target binding, reviewer identity, decision status, stop
+reason, and acceptance from the canonical workflow evidence. The structured
+result reports what happened; it does not authorize a plan or action. Return the
+helper's exact JSON and do not hand-author a parallel machine summary.

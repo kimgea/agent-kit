@@ -1,0 +1,6 @@
+{
+  "timeout_seconds": {
+    "description": "Maximum processing time in seconds",
+    "maximum": 300
+  }
+}
