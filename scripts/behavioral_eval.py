@@ -1486,8 +1486,8 @@ def command_run(args: argparse.Namespace) -> int:
                 _read_bytes(context_path, "lead-owned context", MAX_RESULT_BYTES)
             ).hexdigest()
             result_path = host / "result.json"
-            events_path = work / "events.jsonl"
-            errors_path = work / "stderr.txt"
+            events_path = host / "events.jsonl"
+            errors_path = host / "stderr.txt"
             execution = _run_codex(
                 suite,
                 case,

@@ -599,15 +599,22 @@ class CodexRunnerTests(unittest.TestCase):
             timeout,
             runner,
         ):
-            self.assertEqual(work.parent / "host", result.parent)
+            host = work.parent / "host"
+            self.assertEqual(host, result.parent)
+            self.assertEqual(host, events.parent)
+            self.assertEqual(host, errors.parent)
             self.assertFalse(result.is_relative_to(work))
             sentinel = work.parent / "outside.txt"
             sentinel.write_text("unchanged", encoding="utf-8")
             hostile_result = work / "result.json"
+            hostile_events = work / "events.jsonl"
+            hostile_errors = work / "stderr.txt"
             try:
                 hostile_result.symlink_to(sentinel)
             except (OSError, NotImplementedError):
                 pass
+            hostile_events.write_text("", encoding="utf-8")
+            hostile_errors.write_text("concealed", encoding="utf-8")
             context = json.loads((work / "context.json").read_text(encoding="utf-8"))
             result.write_text(
                 json.dumps({"result_json": json.dumps(complete_result(context))}),
@@ -616,6 +623,7 @@ class CodexRunnerTests(unittest.TestCase):
             self.assertEqual("unchanged", sentinel.read_text(encoding="utf-8"))
             events.write_text("", encoding="utf-8")
             errors.write_text("", encoding="utf-8")
+            self.assertEqual([], behavioral_eval._parse_event_commands(events))
             return {
                 "exit_code": 0,
                 "timed_out": False,
