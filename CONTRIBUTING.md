@@ -31,6 +31,26 @@ Every skill requires frontmatter containing only `name` and `description` plus a
 matching `agents/openai.yaml`. Preserve plain Markdown and standard-library Python
 compatibility for Claude Code.
 
+### Behavioral evaluation boundary
+
+Descriptive `cases.json` files remain the portable forward-test baseline. A
+skill with stable canonical JSON may additionally register an executable
+`suite.json` through `behavioral_evals` in `toolkit.toml`. Keep fixtures
+synthetic, assertions hidden from the evaluated agent, and grading focused on
+structured decisions and observable effects rather than exact prose.
+
+`python scripts/agent_kit.py check` validates suites and simulated runner paths
+without invoking a model. Never add `behavioral_eval.py run`, `--runner codex`,
+or another paid agent invocation to GitHub Actions, packaging, commit hooks, or
+the canonical gate. Real runs are explicit local maintainer operations and their
+outputs stay under ignored local storage unless a sanitized summary is
+deliberately reported.
+
+Suite data is inert. It must not select commands, executables, validators,
+schemas, profiles, or arbitrary runner arguments. Add a fixed reviewed adapter
+and negative boundary tests when a new canonical result contract or agent runner
+is supported. See [local behavioral evaluations](docs/behavioral-evals.md).
+
 For an installable skill, also add or update its `[[plugins]]` mapping. A plugin
 may contain one skill or an explicitly reviewed related group, but each
 installable skill must belong to exactly one plugin. Plugin manifests and the

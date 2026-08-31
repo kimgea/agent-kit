@@ -22,6 +22,13 @@ Non-skill resources stay organized by asset type:
 - tools are reusable executables or wrappers;
 - evaluations are behavioral fixtures outside installed skills.
 
+Executable behavioral evaluation remains repository-maintainer infrastructure.
+The provider-neutral core materializes synthetic repositories, resolves
+lead-owned target context, grades canonical JSON, detects fixture mutation, and
+records bounded local evidence. Fixed runner adapters are separate from suite
+data; v1 invokes Codex only through an explicit local command. Descriptive suites
+remain valid for skills that have not adopted a stable executable contract.
+
 ## Context layering
 
 `agent-context` provides an optional read-only bridge between public defaults and
@@ -126,9 +133,11 @@ permission grant independently reviewable and removable.
 ## Validation
 
 The canonical check validates catalog/resource parity, skill frontmatter, Codex
-metadata, evaluation JSON, local Markdown links, generated-file hygiene, Python
-compilation, and unit tests. It snapshots Git status before and after execution to
-detect validation side effects.
+metadata, descriptive evaluation JSON, executable suite fixtures and simulated
+grading, local Markdown links, generated-file hygiene, Python compilation, and
+unit tests. It snapshots Git status before and after execution to detect
+validation side effects. It never invokes an agent model; model-backed behavioral
+runs are explicit local operations and never part of hosted CI.
 
 Release packaging uses fixed timestamps, sorted paths, stable permissions, and a
 single Linux release job. It emits standalone skill archives, cataloged plugin

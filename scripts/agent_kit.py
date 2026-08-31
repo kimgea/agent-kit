@@ -705,7 +705,7 @@ def validate_catalog(root: Path, catalog: dict[str, Any]) -> list[str]:
                     errors.append(f"{resource_id}: missing agents/openai.yaml")
                 else:
                     errors.extend(validate_openai_yaml(metadata_file, resource_id))
-        for field in ("docs", "evals"):
+        for field in ("docs", "evals", "behavioral_evals"):
             value = resource.get(field)
             if value is None:
                 continue
@@ -715,6 +715,35 @@ def validate_catalog(root: Path, catalog: dict[str, Any]) -> list[str]:
                     errors.append(f"{resource_id}: {field} file does not exist: {referenced}")
                 elif field == "evals":
                     errors.extend(validate_evals(referenced))
+                elif field == "behavioral_evals":
+                    evaluator = root / "scripts" / "behavioral_eval.py"
+                    if not evaluator.is_file():
+                        errors.append("missing scripts/behavioral_eval.py")
+                    else:
+                        try:
+                            completed = subprocess.run(
+                                [
+                                    sys.executable,
+                                    str(evaluator),
+                                    "check",
+                                    "--root",
+                                    str(root),
+                                    "--suite",
+                                    resource_id,
+                                ],
+                                cwd=root,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.PIPE,
+                                text=True,
+                                timeout=60,
+                                check=False,
+                            )
+                        except subprocess.TimeoutExpired:
+                            errors.append(f"{resource_id}: behavioral suite check timed out")
+                        else:
+                            if completed.returncode != 0:
+                                detail = completed.stderr.strip() or "suite check failed"
+                                errors.append(f"{resource_id}: {detail}")
             except AgentKitError as exc:
                 errors.append(str(exc))
         tests = resource.get("tests", [])

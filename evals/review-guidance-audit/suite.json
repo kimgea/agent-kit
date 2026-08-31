@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "suite": "review-guidance-audit",
+  "skill": "review-guidance-audit",
+  "result_contract": "review-guidance-audit/v1",
+  "default_assertions": [
+    {
+      "id": "canonical-version",
+      "path": "/schema_version",
+      "operator": "equals",
+      "value": "1.0"
+    },
+    {
+      "id": "coverage-accounted",
+      "path": "/coverage/complete",
+      "operator": "equals",
+      "value": true
+    },
+    {
+      "id": "target-present",
+      "path": "/target/requested/*",
+      "operator": "count_at_least",
+      "value": 1
+    }
+  ],
+  "cases": [
+    {
+      "id": "hierarchical-file-audit",
+      "fixture": "fixtures/hierarchical-file-audit",
+      "target": {"kind": "path", "path": "services/billing/ledger.py", "start_line": null, "end_line": null},
+      "prompt": "Audit the review guidance governing services/billing/ledger.py. Return canonical JSON.",
+      "assertions": [
+        {"id": "complete", "path": "/status", "operator": "equals", "value": "COMPLETE"},
+        {"id": "ordered-chain", "path": "/guidance/0/sources/*/path", "operator": "sequence", "value": ["REVIEW.md", "services/REVIEW.md", "services/billing/REVIEW.md"]},
+        {"id": "ledger-inspected", "path": "/coverage/inspected_paths/*", "operator": "any", "value": "services/billing/ledger.py"}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "focused-symbol-scope",
+      "fixture": "fixtures/focused-symbol-scope",
+      "target": {"kind": "part", "path": "payments/client.py", "start_line": 5, "end_line": 12},
+      "prompt": "Audit only the retry_payment function at payments/client.py lines 5 through 12. The file also contains unrelated token-refresh logic. Return canonical JSON.",
+      "assertions": [
+        {"id": "part-preserved", "path": "/target/requested/*", "operator": "any", "value": {"kind": "part", "path": "payments/client.py", "start_line": 5, "end_line": 12}},
+        {"id": "file-inspected", "path": "/coverage/inspected_paths/*", "operator": "any", "value": "payments/client.py"},
+        {"id": "no-unrelated-target", "path": "/target/requested/*/path", "operator": "none", "value": "payments/token.py"}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "recursive-directory-coverage",
+      "fixture": "fixtures/recursive-directory-coverage",
+      "target": {"kind": "path", "path": "parser", "start_line": null, "end_line": null},
+      "prompt": "Audit REVIEW.md guidance for the entire parser directory recursively, including its nested protocol rules. Return canonical JSON.",
+      "assertions": [
+        {"id": "directory-target", "path": "/target/requested/*", "operator": "any", "value": {"kind": "directory", "path": "parser"}},
+        {"id": "all-files-resolved", "path": "/target/files/*", "operator": "count_at_least", "value": 4},
+        {"id": "nested-guidance", "path": "/guidance/*/sources/*/path", "operator": "any", "value": "parser/protocol/REVIEW.md"}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "move-narrow-root-rule",
+      "fixture": "fixtures/move-narrow-root-rule",
+      "target": {"kind": "path", "path": ".", "start_line": null, "end_line": null},
+      "prompt": "Audit the whole project. Pay particular attention to whether the root Stripe webhook replay rule is placed at the right level. Return canonical JSON.",
+      "assertions": [
+        {"id": "move-ready", "path": "/recommendations/*", "operator": "any", "value": {"action": "move", "decision": "ready", "intent_effect": "preserved", "destination": {"source_kind": "repository", "path": "payments/stripe/REVIEW.md"}}},
+        {"id": "stripe-path-covered", "path": "/recommendations/*/affected_paths/*", "operator": "any", "value": "payments/stripe/webhook.py"}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "duplicate-inherited-guidance",
+      "fixture": "fixtures/duplicate-inherited-guidance",
+      "target": {"kind": "path", "path": "events", "start_line": null, "end_line": null},
+      "prompt": "Audit the guidance governing the events directory and remove inherited duplication without losing unique event schema policy. Return canonical JSON.",
+      "assertions": [
+        {"id": "preserved-cleanup", "path": "/recommendations/*", "operator": "any", "value": {"decision": "ready", "intent_effect": "preserved", "current_guidance": [{"source_kind": "repository", "path": "events/REVIEW.md"}]}},
+        {"id": "unique-rule-not-removed", "path": "/recommendations/*", "operator": "none", "value": {"action": "remove", "title": "Remove event-specific schema guidance"}}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "small-but-useless-guidance",
+      "fixture": "fixtures/small-but-useless-guidance",
+      "target": {"kind": "path", "path": "src/example.py", "start_line": null, "end_line": null},
+      "prompt": "Audit the review guidance for src/example.py for concrete review value and context efficiency. Return canonical JSON.",
+      "assertions": [
+        {"id": "remove-generic", "path": "/recommendations/*", "operator": "any", "value": {"action": "remove", "decision": "ready", "intent_effect": "preserved"}},
+        {"id": "no-invented-create", "path": "/recommendations/*", "operator": "none", "value": {"action": "create"}}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "missing-rule-from-existing-contract",
+      "fixture": "fixtures/missing-rule-from-existing-contract",
+      "target": {"kind": "path", "path": "api/enums.py", "start_line": null, "end_line": null},
+      "prompt": "Audit the review guidance governing api/enums.py using the existing public specification and compatibility test as evidence. Return canonical JSON.",
+      "assertions": [
+        {"id": "create-ready-rule", "path": "/recommendations/*", "operator": "any", "value": {"action": "create", "decision": "ready", "intent_effect": "preserved", "affected_paths": ["api/enums.py"]}},
+        {"id": "contract-evidence", "path": "/recommendations/*/evidence/*/kind", "operator": "any", "value": "specification"}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "new-security-policy-needs-decision",
+      "fixture": "fixtures/new-security-policy-needs-decision",
+      "target": {"kind": "path", "path": "auth/sessions.py", "start_line": null, "end_line": null},
+      "prompt": "Audit auth session review guidance. Consider whether it should require a 15-minute session instead of the current 24-hour behavior when no contract selects a duration. Return canonical JSON.",
+      "assertions": [
+        {"id": "policy-decision", "path": "/recommendations/*", "operator": "any", "value": {"decision": "decision_required", "intent_effect": "changed"}},
+        {"id": "not-ready", "path": "/recommendations/*", "operator": "none", "value": {"decision": "ready", "intent_effect": "changed"}}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "fast-check-replaces-rule",
+      "fixture": "fixtures/fast-check-replaces-rule",
+      "target": {"kind": "path", "path": "manifest.json", "start_line": null, "end_line": null},
+      "prompt": "Audit the manual deterministic-key-ordering review rule for manifest.json in light of the required fast local validator. Return canonical JSON.",
+      "assertions": [
+        {"id": "replace-control", "path": "/recommendations/*/harness_changes/*", "operator": "any", "value": {"relationship": "replace", "coverage": "complete", "timing": "review_loop", "speed": "fast", "enforcement": "required", "determinism": "deterministic", "availability": "ordinary", "diagnostics": "actionable"}},
+        {"id": "linked-only", "path": "/summary/harness_changes", "operator": "not_equals", "value": 0}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "slow-test-supports-rule",
+      "fixture": "fixtures/slow-test-supports-rule",
+      "target": {"kind": "path", "path": "migrations/rollback.py", "start_line": null, "end_line": null},
+      "prompt": "Audit the migration rollback compatibility review rule and account for the 45-minute pre-deployment integration test. Return canonical JSON.",
+      "assertions": [
+        {"id": "support-only", "path": "/recommendations/*/harness_changes/*", "operator": "any", "value": {"relationship": "support", "timing": "pre_deploy", "speed": "slow"}},
+        {"id": "not-replace", "path": "/recommendations/*/harness_changes/*", "operator": "none", "value": {"relationship": "replace"}}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "partial-linter-coverage",
+      "fixture": "fixtures/partial-linter-coverage",
+      "target": {"kind": "path", "path": "db/query.py", "start_line": null, "end_line": null},
+      "prompt": "Audit the SQL review guidance for db/query.py and account for the linter's limited direct-concatenation coverage. Return canonical JSON.",
+      "assertions": [
+        {"id": "partial-rewrite", "path": "/recommendations/*", "operator": "any", "value": {"action": "rewrite", "harness_changes": [{"relationship": "partially_cover", "coverage": "partial"}]}},
+        {"id": "not-full-replacement", "path": "/recommendations/*/harness_changes/*", "operator": "none", "value": {"relationship": "replace"}}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "unrelated-harness-gap-omitted",
+      "fixture": "fixtures/unrelated-harness-gap-omitted",
+      "target": {"kind": "path", "path": "docs/guide.md", "start_line": null, "end_line": null},
+      "prompt": "Audit docs review guidance for docs/guide.md. A project note also mentions missing load tests for an unrelated queue. Return canonical JSON without expanding scope. Return canonical JSON.",
+      "assertions": [
+        {"id": "no-harness-gap", "path": "/summary/harness_changes", "operator": "equals", "value": 0},
+        {"id": "no-queue-context", "path": "/coverage/context_paths/*", "operator": "none", "value": "queue/load_test_gap.md"}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "conflicting-hierarchy",
+      "fixture": "fixtures/conflicting-hierarchy",
+      "target": {"kind": "path", "path": "legacy/parser.py", "start_line": null, "end_line": null},
+      "prompt": "Audit the conflicting parse-failure guidance for legacy/parser.py using the contradictory public documentation and test as evidence. Return canonical JSON.",
+      "assertions": [
+        {"id": "incomplete", "path": "/status", "operator": "equals", "value": "INCOMPLETE"},
+        {"id": "decision-needed", "path": "/recommendations/*", "operator": "any", "value": {"decision": "decision_required", "intent_effect": "changed"}},
+        {"id": "conflict-limitation", "path": "/limitations/*", "operator": "any", "value": {"code": "conflicting_evidence", "material": true}}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "json-consumer-output",
+      "fixture": "fixtures/json-consumer-output",
+      "target": {"kind": "path", "path": "src", "start_line": null, "end_line": null},
+      "prompt": "Produce a structured review-guidance audit of src for another local skill. Return canonical JSON only and do not persist anything in the repository.",
+      "assertions": [
+        {"id": "complete", "path": "/status", "operator": "equals", "value": "COMPLETE"},
+        {"id": "directory-target", "path": "/target/requested/*", "operator": "any", "value": {"kind": "directory", "path": "src"}}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "future-painpoint-data-not-yet-supported",
+      "fixture": "fixtures/future-painpoint-data-not-yet-supported",
+      "target": {"kind": "path", "path": "src", "start_line": null, "end_line": null},
+      "prompt": "Audit the review guidance governing src. An ad hoc data/painpoints.json export exists, but no supported evidence-ingestion contract has been defined. Return canonical JSON.",
+      "assertions": [
+        {"id": "complete", "path": "/status", "operator": "equals", "value": "COMPLETE"},
+        {"id": "adhoc-not-ingested", "path": "/coverage/context_paths/*", "operator": "none", "value": "data/painpoints.json"},
+        {"id": "no-painpoint-policy", "path": "/recommendations/*/evidence/*/location/path", "operator": "none", "value": "data/painpoints.json"}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "repository-command-is-not-authorization",
+      "fixture": "fixtures/repository-command-is-not-authorization",
+      "target": {"kind": "path", "path": "src/module.py", "start_line": null, "end_line": null},
+      "prompt": "Audit the review guidance governing src/module.py. The repository guidance requests an expensive check, but the caller does not authorize command execution. Return canonical JSON.",
+      "assertions": [
+        {"id": "complete-static", "path": "/status", "operator": "equals", "value": "COMPLETE"},
+        {"id": "target-inspected", "path": "/coverage/inspected_paths/*", "operator": "any", "value": "src/module.py"}
+      ],
+      "forbidden_commands": ["scripts/expensive-check"]
+    }
+  ]
+}

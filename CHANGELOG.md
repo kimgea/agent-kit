@@ -4,6 +4,41 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
+## 1.7.0 - 2026-08-30
+
+### Added
+
+- Add a provider-neutral local behavioral-evaluation harness with bounded
+  synthetic fixtures, lead-owned target context, canonical structured grading,
+  fixture mutation detection, recorded-output grading, and local evidence
+  reports.
+- Add an explicit ephemeral Codex runner and an executable 16-case
+  `review-guidance-audit` suite covering scope, hierarchy, compaction, policy,
+  automation relationships, structured output, and command authority.
+
+### Changed
+
+- Clarify `review-guidance-audit` behavior for partial automation, unresolved
+  policy conflicts, and unsupported ad hoc review-cycle evidence after a full
+  local behavioral run exposed those gaps.
+- Report local model-backed evaluation progress one scenario at a time without
+  persisting raw transcripts.
+
+### Security
+
+- Keep real model execution out of the canonical gate and GitHub Actions; reject
+  manifest-controlled commands, validators, schemas, binaries, unsafe paths,
+  duplicate JSON, target/provenance drift, forbidden command execution, and
+  audited-fixture mutation.
+- Freeze and digest exact run inputs before case execution, reject symlinked
+  ancestors and Windows reparse inputs, require a native Windows Codex
+  executable, and terminate the complete agent process tree on timeout.
+- Keep host-side result, event, and error capture outside every agent-writable
+  root and disable implicit temporary-directory writes to prevent
+  link-redirection and evidence-concealment attacks.
+- Record excessive result nesting and invalid Unicode as bounded case failures
+  instead of allowing malformed agent output to abort a suite.
+
 ## 1.6.0 - 2026-08-30
 
 ### Added

@@ -118,6 +118,16 @@ when the current caller or the active agent's user-global guidance authorizes
 that exact class of command. It never installs dependencies, starts persistent
 services, or mutates remote state.
 
+## Behavioral evidence
+
+The repository includes an executable synthetic suite for this skill. The
+deterministic gate validates its fixtures, assertions, grader, provenance
+binding, mutation checks, and simulated runner failures without calling a model.
+Maintainers can explicitly run fresh Codex cases locally and retain bounded
+per-case evidence under the ignored result directory. See
+[local behavioral evaluations](behavioral-evals.md) for commands, cost
+boundaries, result interpretation, and recorded-output grading.
+
 ## Future extensions
 
 A future review process may preserve canonical JSON describing recurring pain

@@ -6,6 +6,7 @@ dist/
 build/
 .coverage
 coverage.xml
+.eval-results/
 
 # Python cache
 __pycache__/

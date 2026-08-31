@@ -45,6 +45,9 @@ normalization, conservative automatic-fix eligibility, and fresh acceptance.
 The [review-guidance audit guide](docs/review-guidance-audit.md) explains scoped
 guidance analysis, context compaction, placement, and when automated checks can
 replace or only support review rules.
+The [local behavioral evaluation guide](docs/behavioral-evals.md) explains how
+maintainers can run fresh-agent skill evaluations locally while keeping paid
+model calls out of the canonical gate and GitHub Actions.
 
 ## Install a skill
 
@@ -149,7 +152,8 @@ setup script can preview and remove them separately.
 - `hooks/` — optional defense-in-depth hooks; never a substitute for policy.
 - `adapters/` — harness-specific installation notes.
 - `tools/gh-api-get/` — portable GET-only GitHub REST API wrapper.
-- `evals/` — realistic behavioral cases for skill forward-testing.
+- `evals/` — descriptive forward-test cases plus opt-in executable synthetic
+  suites for skills with stable canonical results.
 
 These resources are cataloged but are not silently installed because they affect
 global behavior or need project-specific adaptation.
@@ -164,8 +168,10 @@ python scripts/agent_kit.py check
 ```
 
 The gate validates catalog parity, skill frontmatter and UI metadata, local links,
-evaluation schemas, generated-file hygiene, Python compilation, all unit tests,
-and that validation itself does not alter the working tree.
+evaluation schemas and executable-suite fixtures, generated-file hygiene, Python
+compilation, all unit tests, and that validation itself does not alter the
+working tree. It never invokes a model. Run model-backed behavioral suites only
+through the explicit local commands in the behavioral evaluation guide.
 
 Build every deterministic release format locally with:
 
