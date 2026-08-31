@@ -375,6 +375,12 @@ class CodexRunnerTests(unittest.TestCase):
         self.assertIn("--ignore-user-config", command)
         self.assertIn("--approve-for-me", command)
         self.assertNotIn("--sandbox", command)
+        self.assertIn(
+            "sandbox_workspace_write.exclude_slash_tmp=true", command
+        )
+        self.assertIn(
+            "sandbox_workspace_write.exclude_tmpdir_env_var=true", command
+        )
         self.assertIn("--output-schema", command)
         schema_index = command.index("--output-schema") + 1
         self.assertEqual(work / "agent-result.schema.json", Path(command[schema_index]))
@@ -593,11 +599,21 @@ class CodexRunnerTests(unittest.TestCase):
             timeout,
             runner,
         ):
+            self.assertEqual(work.parent / "host", result.parent)
+            self.assertFalse(result.is_relative_to(work))
+            sentinel = work.parent / "outside.txt"
+            sentinel.write_text("unchanged", encoding="utf-8")
+            hostile_result = work / "result.json"
+            try:
+                hostile_result.symlink_to(sentinel)
+            except (OSError, NotImplementedError):
+                pass
             context = json.loads((work / "context.json").read_text(encoding="utf-8"))
             result.write_text(
                 json.dumps({"result_json": json.dumps(complete_result(context))}),
                 encoding="utf-8",
             )
+            self.assertEqual("unchanged", sentinel.read_text(encoding="utf-8"))
             events.write_text("", encoding="utf-8")
             errors.write_text("", encoding="utf-8")
             return {

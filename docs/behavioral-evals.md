@@ -35,6 +35,9 @@ The Codex adapter starts a fresh ephemeral context for each synthetic
 repository, ignores unrelated user configuration, applies a workspace sandbox,
 and requests schema-constrained canonical JSON. The harness resolves the audit
 target before invoking the agent and keeps that context as lead-owned authority.
+Only the fixture and a dedicated agent-work directory are writable: implicit
+temporary-directory access is disabled, and host-side result capture stays in a
+separate non-agent-writable directory.
 Afterward it verifies canonical validity, exact target and guidance provenance,
 fixture content, hidden assertions, and prohibited command execution.
 

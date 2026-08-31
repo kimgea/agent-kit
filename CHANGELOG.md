@@ -33,6 +33,8 @@ in `toolkit.toml`.
 - Freeze and digest exact run inputs before case execution, reject symlinked
   ancestors and Windows reparse inputs, use a Windows-aware Codex launcher, and
   terminate the complete agent process tree on timeout.
+- Keep host-side result capture outside every agent-writable root and disable
+  implicit temporary-directory writes to prevent link-redirection attacks.
 
 ## 1.6.0 - 2026-08-30
 

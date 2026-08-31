@@ -1072,6 +1072,10 @@ def build_codex_command(
         "--ignore-user-config",
         "--strict-config",
         "--approve-for-me",
+        "--config",
+        "sandbox_workspace_write.exclude_slash_tmp=true",
+        "--config",
+        "sandbox_workspace_write.exclude_tmpdir_env_var=true",
         "--cd",
         str(fixture),
         "--add-dir",
@@ -1465,6 +1469,8 @@ def command_run(args: argparse.Namespace) -> int:
             fixture = base / "fixture"
             work = base / "work"
             work.mkdir(mode=0o700)
+            host = base / "host"
+            host.mkdir(mode=0o700)
             skill_parent = base / "evaluated-skill"
             skill_parent.mkdir(mode=0o700)
             runtime_skill = skill_parent / suite["skill"]
@@ -1479,7 +1485,7 @@ def command_run(args: argparse.Namespace) -> int:
             original_context_digest = hashlib.sha256(
                 _read_bytes(context_path, "lead-owned context", MAX_RESULT_BYTES)
             ).hexdigest()
-            result_path = work / "result.json"
+            result_path = host / "result.json"
             events_path = work / "events.jsonl"
             errors_path = work / "stderr.txt"
             execution = _run_codex(
