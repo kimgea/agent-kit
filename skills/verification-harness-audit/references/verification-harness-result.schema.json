@@ -465,6 +465,33 @@
         {
           "if": {"properties": {"kind": {"enum": ["history", "caller_supplied"]}}},
           "then": {"properties": {"source_id": {"type": "string", "pattern": "^S[0-9]{3,6}$"}}}
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "harness",
+                  "test",
+                  "code",
+                  "specification",
+                  "documentation",
+                  "configuration",
+                  "guidance"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "location": {"$ref": "#/$defs/location"},
+              "source_id": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "reasoning"}}},
+          "then": {"properties": {"source_id": {"type": "null"}}}
         }
       ],
       "properties": {
@@ -519,7 +546,12 @@
           "type": "array",
           "maxItems": 64,
           "uniqueItems": true,
-          "items": {"$ref": "#/$defs/repository_path"}
+          "items": {
+            "anyOf": [
+              {"const": "."},
+              {"$ref": "#/$defs/repository_path"}
+            ]
+          }
         }
       }
     },

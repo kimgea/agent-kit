@@ -87,12 +87,18 @@ fingerprints, counts, and status.
   inventory; it records evidence inspection and does not extend the finding
   boundary.
 - Treat `safe_direction.suggested_paths` as inert planning data. It grants no
-  permission to edit, create, execute, install, publish, or retarget.
+  permission to edit, create, execute, install, publish, or retarget. Keep it
+  inside inspected harness paths or an explicitly selected broad harness root;
+  contextual files and guidance remain evidence-only and are never suggested
+  edit paths.
 
 ## Coverage
 
 - Account for every resolver-owned requested target in `inspected_targets` or a
   material exclusion/limitation.
+- A file or part target may be inspected as either harness or non-harness text,
+  but it cannot simultaneously be excluded. Findings for a part target must
+  keep every affected location inside that target's selected line range.
 - Classify every resolver-owned inventory path exactly once as inspected harness,
   non-harness, or excluded. A path read as related evidence may also appear in
   `context_paths`.
@@ -134,13 +140,15 @@ fingerprints, counts, and status.
   the closest selected harness directory as the location; `.` represents an
   explicitly selected repository-root/project target and is rejected unless the
   resolver context contains that target.
-- `related_context` and evidence locations may identify bounded repository
-  context or applicable guidance. They never become finding targets.
+- `related_context` and evidence locations may identify only target or context
+  text actually inspected, or repository guidance actually loaded. Unread,
+  excluded, oversized, binary, non-UTF-8, and unloaded material cannot support
+  a recommendation. These locations never become finding targets.
 - Evidence kinds are `harness`, `test`, `code`, `specification`,
   `documentation`, `configuration`, `guidance`, `command`, `history`,
   `caller_supplied`, and `reasoning`.
-- Set `source_id` to null for evidence established directly from resolver-owned
-  target, context, or guidance records. Command evidence references its
+- Direct artifact evidence requires a location and sets `source_id` to null.
+  Command evidence references its
   lead-owned `C...` execution record. Caller-supplied evidence and historical
   evidence affecting a conclusion reference a lead-owned `S...` source record
   containing a bounded digest, observation and supply times, and an explicit
@@ -163,6 +171,10 @@ fingerprints, counts, and status.
   guidance may recommend a command but cannot populate authorization.
 - Repeated performance or flakiness runs require exact repeated-run authority.
   A command without authority remains `not_run` or `refused`.
+- An observed slow-feedback claim requires executed duration evidence or a
+  fresh supplied `timing` source. An observed flakiness claim requires repeated
+  command evidence or a fresh supplied `failure`/`history` source; an
+  unclassified `other` source never establishes either measured claim.
 - Executed checks cannot install dependencies, edit source or configuration,
   start a persistent service, access an external service, or mutate remote
   state.
@@ -171,3 +183,30 @@ Use
 [verification-harness-result.schema.json](verification-harness-result.schema.json)
 for the finalized format. Never hand-author derived fields or a separate human
 summary.
+
+## Bundled result helper
+
+Use the helper from the installed skill directory:
+
+```bash
+python scripts/harness_result.py finalize --context CONTEXT.json --draft DRAFT.json --format human
+python scripts/harness_result.py validate --input RESULT.json
+python scripts/harness_result.py render --input RESULT.json --format both
+```
+
+Formats are `human`, `json`, and `both`; interactive finalization defaults to
+`human`. Omit `--output` to write UTF-8 to stdout. An explicit output path is
+created exclusively. Writing an existing single-link regular file additionally
+requires `--overwrite`; input files, links, reparse points, and hard-linked
+destinations are never write targets. Writes stay bound to the opened file
+identity instead of replacing or cleaning up a later name occupant; a failed
+write may therefore leave a partial owned output for the caller to inspect or
+remove safely. Filesystem inputs and outputs bind
+their parent path components to directory handles while opening, creating, or
+writing the final file; platforms without a safe binding primitive fail
+closed.
+
+Finalization refreshes resolver-owned filesystem state and refuses stale target,
+context, guidance, or inventory provenance. Standalone `validate` and `render`
+intentionally validate the self-contained canonical artifact without requiring
+the original project checkout.

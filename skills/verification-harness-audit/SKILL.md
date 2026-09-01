@@ -45,6 +45,13 @@ when another agent or tool will consume the result, and use both only when the
 caller asks. Write no result file unless the caller supplies an explicit output
 path.
 
+The lead finalizes through the bundled `scripts/harness_result.py`; never hand
+assemble canonical output. `finalize` takes separate resolver context and
+semantic-draft files, rechecks that the current filesystem still matches the
+resolved boundary, derives every ID, fingerprint, count, and status, and strips
+private guidance bodies. `validate` and `render` operate on an already canonical
+result without re-reading the project.
+
 The locked status order is:
 
 1. `INCOMPLETE` when a material limitation prevents a reliable completed audit.

@@ -1,8 +1,10 @@
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -24,6 +26,10 @@ def load_module(name, path):
 harness_context = load_module(
     "verification_harness_context",
     ROOT / "skills" / "verification-harness-audit" / "scripts" / "harness_context.py",
+)
+harness_result = load_module(
+    "verification_harness_result",
+    ROOT / "skills" / "verification-harness-audit" / "scripts" / "harness_result.py",
 )
 
 
@@ -848,6 +854,1052 @@ class ResolverTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertNotIn("from scripts", source)
         self.assertNotIn("import scripts", source)
+
+
+def audit_draft(*, strength="essential", claim="observed_defect"):
+    return {
+        "summary": {
+            "conclusion": "The selected harness has one bounded verification improvement."
+        },
+        "coverage": {
+            "complete": True,
+            "inspected_targets": ["T001"],
+            "inspected_harness_paths": ["tests/test_parser.py"],
+            "classified_non_harness_paths": [],
+            "excluded": [],
+            "context_paths": [],
+        },
+        "recommendations": [
+            {
+                "kind": "weak_assertion",
+                "action": "strengthen",
+                "strength": strength,
+                "impact": "high",
+                "confidence": "high",
+                "decision": "ready",
+                "decision_reason": "The existing required workflow fixes the intended outcome.",
+                "claim": claim,
+                "basis": "required_workflow",
+                "basis_reference": "The selected test is the documented routine parser check.",
+                "title": "Strengthen the parser assertion",
+                "problem": "The selected assertion does not reject a documented invalid parser value.",
+                "reason": "The routine check can remain green while the existing parser contract is broken.",
+                "impact_summary": "A parser regression can escape the routine feedback loop.",
+                "affected_targets": ["T001"],
+                "affected_locations": [
+                    {
+                        "path": "tests/test_parser.py",
+                        "start_line": 1,
+                        "end_line": 2,
+                    }
+                ],
+                "related_context": [],
+                "evidence": [
+                    {
+                        "kind": "test",
+                        "description": "The selected test contains only the shallow assertion.",
+                        "location": {
+                            "path": "tests/test_parser.py",
+                            "start_line": 1,
+                            "end_line": 2,
+                        },
+                        "source_id": None,
+                    }
+                ],
+                "current_tier": "routine",
+                "recommended_tier": "routine",
+                "safe_direction": {
+                    "outcome": "Make the routine assertion fail for the documented invalid value.",
+                    "acceptance_evidence": [
+                        "The routine test fails when the invalid value is accepted."
+                    ],
+                    "alternatives": [],
+                    "suggested_paths": ["tests/test_parser.py"],
+                },
+            }
+        ],
+        "limitations": [],
+    }
+
+
+class ResultTests(unittest.TestCase):
+    def make_context(self, root, **overrides):
+        return harness_context.resolve(context_args(root, **overrides))
+
+    def test_finalizer_derives_improvements_ids_fingerprints_and_counts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            make_fixture(root)
+            context = self.make_context(root)
+
+            result = harness_result.finalize(context, audit_draft())
+
+            self.assertEqual("IMPROVEMENTS", result["status"])
+            self.assertEqual("R001", result["recommendations"][0]["recommendation_id"])
+            self.assertRegex(result["recommendations"][0]["fingerprint"], r"^[0-9a-f]{64}$")
+            self.assertEqual(1, result["summary"]["recommendation_counts"]["essential"])
+            self.assertEqual(1, result["summary"]["ready"])
+            self.assertEqual(1, result["summary"]["observed_defects"])
+            self.assertTrue(all("content" not in source for chain in result["guidance"] for source in chain["sources"]))
+            self.assertIs(result, harness_result._validate_result(result))
+
+    def test_advisory_only_complete_result_is_pass(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            make_fixture(root)
+            draft = audit_draft(strength="strong", claim="improvement_opportunity")
+
+            result = harness_result.finalize(self.make_context(root), draft)
+
+            self.assertEqual("PASS", result["status"])
+            self.assertEqual(1, result["summary"]["recommendation_counts"]["strong"])
+
+    def test_material_limitation_precedes_known_essential_recommendation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            make_fixture(root)
+            draft = audit_draft()
+            draft["coverage"]["complete"] = False
+            draft["limitations"] = [
+                {
+                    "code": "evidence_missing",
+                    "message": "A required local contract source was unavailable.",
+                    "affected_paths": ["tests/test_parser.py"],
+                    "material": True,
+                }
+            ]
+
+            result = harness_result.finalize(self.make_context(root), draft)
+
+            self.assertEqual("INCOMPLETE", result["status"])
+            self.assertEqual("essential", result["recommendations"][0]["strength"])
+
+    def test_draft_cannot_own_authority_or_expand_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            make_fixture(root)
+            context = self.make_context(root)
+            draft = audit_draft()
+            draft["target"] = context["target"]
+            with self.assertRaisesRegex(harness_result.ResultError, "unknown fields"):
+                harness_result.finalize(context, draft)
+
+            draft = audit_draft()
+            draft["recommendations"][0]["safe_direction"]["suggested_paths"] = [
+                "outside/new_test.py"
+            ]
+            with self.assertRaisesRegex(harness_result.ResultError, "expands"):
+                harness_result.finalize(context, draft)
+
+            context_with_evidence = self.make_context(
+                root,
+                contexts=["src/parser.py"],
+            )
+            for evidence_only_path in ("src/parser.py", "REVIEW.md"):
+                draft = audit_draft()
+                if evidence_only_path == "src/parser.py":
+                    draft["coverage"]["context_paths"] = ["src/parser.py"]
+                draft["recommendations"][0]["safe_direction"]["suggested_paths"] = [
+                    evidence_only_path
+                ]
+                with self.assertRaisesRegex(harness_result.ResultError, "expands"):
+                    harness_result.finalize(context_with_evidence, draft)
+
+    def test_essential_and_observed_slow_claims_require_supported_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            make_fixture(root)
+            context = self.make_context(root)
+
+            draft = audit_draft()
+            item = draft["recommendations"][0]
+            item["basis"] = "new_policy"
+            item["decision"] = "decision_required"
+            with self.assertRaisesRegex(harness_result.ResultError, "essential strength"):
+                harness_result.finalize(context, draft)
+
+            draft = audit_draft()
+            item = draft["recommendations"][0]
+            item["kind"] = "slow_feedback"
+            with self.assertRaisesRegex(harness_result.ResultError, "measured evidence"):
+                harness_result.finalize(context, draft)
+
+            evidence_file = Path(temporary) / "evidence.json"
+            evidence_file.write_text(
+                json.dumps(
+                    [
+                        {
+                            "kind": "timing",
+                            "source_label": "Fresh local timing",
+                            "source_sha256": "a" * 64,
+                            "observed_at": "2026-09-01T20:00:00Z",
+                            "supplied_at": "2026-09-01T20:01:00Z",
+                            "freshness": "fresh",
+                            "freshness_basis": "Measured for this exact working-tree snapshot.",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            measured_context = self.make_context(
+                root,
+                evidence_metadata=str(evidence_file),
+            )
+            draft = audit_draft()
+            item = draft["recommendations"][0]
+            item["kind"] = "slow_feedback"
+            item["evidence"] = [
+                {
+                    "kind": "caller_supplied",
+                    "description": "The exact routine check exceeded the accepted feedback window.",
+                    "location": None,
+                    "source_id": "S001",
+                }
+            ]
+            self.assertEqual(
+                "IMPROVEMENTS",
+                harness_result.finalize(measured_context, draft)["status"],
+            )
+
+            other_file = Path(temporary) / "other-evidence.json"
+            other_file.write_text(
+                json.dumps(
+                    [
+                        {
+                            "kind": "other",
+                            "source_label": "Unclassified observation",
+                            "source_sha256": "b" * 64,
+                            "observed_at": "2026-09-01T20:00:00Z",
+                            "supplied_at": "2026-09-01T20:01:00Z",
+                            "freshness": "fresh",
+                            "freshness_basis": "Supplied for this snapshot.",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            other_context = self.make_context(
+                root,
+                evidence_metadata=str(other_file),
+            )
+            with self.assertRaisesRegex(harness_result.ResultError, "measured evidence"):
+                harness_result.finalize(other_context, draft)
+
+            flaky_draft = audit_draft()
+            flaky_draft["recommendations"][0]["kind"] = "flakiness"
+            flaky_draft["recommendations"][0]["evidence"] = [
+                {
+                    "kind": "caller_supplied",
+                    "description": "The supplied timing record does not establish variable outcomes.",
+                    "location": None,
+                    "source_id": "S001",
+                }
+            ]
+            with self.assertRaisesRegex(harness_result.ResultError, "measured evidence"):
+                harness_result.finalize(measured_context, flaky_draft)
+
+    def test_part_findings_stay_within_the_selected_line_range(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            make_fixture(root)
+            context = self.make_context(
+                root,
+                paths=[],
+                parts=["tests/test_parser.py:1:1"],
+            )
+            draft = audit_draft()
+
+            with self.assertRaisesRegex(harness_result.ResultError, "affected_targets"):
+                harness_result.finalize(context, draft)
+
+            for field in ("affected_locations", "evidence"):
+                location = (
+                    draft["recommendations"][0][field][0]
+                    if field == "affected_locations"
+                    else draft["recommendations"][0][field][0]["location"]
+                )
+                location["end_line"] = 1
+            self.assertEqual("IMPROVEMENTS", harness_result.finalize(context, draft)["status"])
+
+    def test_coverage_cannot_mark_an_excluded_file_target_as_inspected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            make_fixture(root)
+            draft = audit_draft()
+            draft["coverage"]["complete"] = False
+            draft["coverage"]["inspected_harness_paths"] = []
+            draft["coverage"]["excluded"] = [
+                {
+                    "path": "tests/test_parser.py",
+                    "reason": "The selected target was unavailable for semantic inspection.",
+                    "material": True,
+                }
+            ]
+
+            with self.assertRaisesRegex(harness_result.ResultError, "excluded target"):
+                harness_result.finalize(self.make_context(root), draft)
+
+            non_harness = audit_draft()
+            non_harness["coverage"]["inspected_harness_paths"] = []
+            non_harness["coverage"]["classified_non_harness_paths"] = [
+                "tests/test_parser.py"
+            ]
+            non_harness["recommendations"] = []
+            result = harness_result.finalize(self.make_context(root), non_harness)
+            self.assertEqual("PASS", result["status"])
+
+    def test_evidence_requires_content_that_was_actually_read(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            make_fixture(root)
+            context = self.make_context(root)
+            draft = audit_draft()
+            draft["recommendations"][0]["evidence"][0]["location"] = None
+            with self.assertRaisesRegex(harness_result.ResultError, "location is required"):
+                harness_result.finalize(context, draft)
+
+            known = harness_result._known_location_paths(
+                context["inventory"],
+                context["context_inventory"],
+                context["guidance"],
+                audit_draft()["coverage"],
+            )
+            self.assertIn("tests/test_parser.py", known)
+            self.assertIn("REVIEW.md", known)
+            review_source = next(
+                source
+                for source in context["guidance"][0]["sources"]
+                if source["path"] == "tests/REVIEW.md"
+            )
+            review_source["loaded"] = False
+            known = harness_result._known_location_paths(
+                context["inventory"],
+                context["context_inventory"],
+                context["guidance"],
+                audit_draft()["coverage"],
+            )
+            self.assertNotIn("tests/REVIEW.md", known)
+
+    def test_nested_guidance_only_supports_its_applicable_target(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            make_fixture(root)
+            context = self.make_context(
+                root,
+                paths=["src/parser.py", "tests/test_parser.py"],
+            )
+            target_by_path = {
+                item["path"]: item["target_id"]
+                for item in context["target"]["requested"]
+            }
+            draft = audit_draft()
+            draft["coverage"]["inspected_targets"] = sorted(target_by_path.values())
+            draft["coverage"]["inspected_harness_paths"] = [
+                "src/parser.py",
+                "tests/test_parser.py",
+            ]
+            item = draft["recommendations"][0]
+            item["affected_targets"] = [target_by_path["src/parser.py"]]
+            item["affected_locations"] = [
+                {"path": "src/parser.py", "start_line": 1, "end_line": 2}
+            ]
+            item["safe_direction"]["suggested_paths"] = ["src/parser.py"]
+            item["evidence"] = [
+                {
+                    "kind": "guidance",
+                    "description": "A nested test rule was presented as parser guidance.",
+                    "location": {
+                        "path": "tests/REVIEW.md",
+                        "start_line": 1,
+                        "end_line": 1,
+                    },
+                    "source_id": None,
+                }
+            ]
+            with self.assertRaisesRegex(harness_result.ResultError, "does not apply"):
+                harness_result.finalize(context, draft)
+
+            item["evidence"] = [
+                {
+                    "kind": "code",
+                    "description": "The parser implementation is the affected artifact.",
+                    "location": {
+                        "path": "src/parser.py",
+                        "start_line": 1,
+                        "end_line": 2,
+                    },
+                    "source_id": None,
+                }
+            ]
+            item["related_context"] = [
+                {
+                    "path": "tests/REVIEW.md",
+                    "start_line": 1,
+                    "end_line": 1,
+                }
+            ]
+            with self.assertRaisesRegex(harness_result.ResultError, "does not apply"):
+                harness_result.finalize(context, draft)
+
+    def test_fingerprints_handle_nullable_ranges_and_totally_order_ties(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            make_fixture(root)
+            context = self.make_context(root)
+            first = audit_draft()
+            item = first["recommendations"][0]
+            item["affected_locations"].append(
+                {
+                    "path": "tests/test_parser.py",
+                    "start_line": None,
+                    "end_line": None,
+                }
+            )
+            other = json.loads(json.dumps(item))
+            other["safe_direction"]["outcome"] = (
+                "Make an equivalent existing-contract assertion fail for the invalid value."
+            )
+            first["recommendations"].append(other)
+            reversed_draft = json.loads(json.dumps(first))
+            reversed_draft["recommendations"].reverse()
+
+            ordered = harness_result.finalize(context, first)["recommendations"]
+            reversed_ordered = harness_result.finalize(context, reversed_draft)[
+                "recommendations"
+            ]
+            self.assertEqual(
+                [entry["fingerprint"] for entry in ordered],
+                [entry["fingerprint"] for entry in reversed_ordered],
+            )
+            human = harness_result.render_human(
+                harness_result.finalize(context, first)
+            )
+            self.assertIn("tests/test\\_parser\\.py:1-2", human)
+            self.assertIn("  - tests/test\\_parser\\.py\n", human)
+
+    def test_project_root_suggestion_matches_the_public_schema(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            context = self.make_context(root, paths=["."])
+            draft = {
+                "summary": {"conclusion": "The empty selected project has no harness yet."},
+                "coverage": {
+                    "complete": True,
+                    "inspected_targets": ["T001"],
+                    "inspected_harness_paths": [],
+                    "classified_non_harness_paths": [],
+                    "excluded": [],
+                    "context_paths": [],
+                },
+                "recommendations": [
+                    {
+                        "kind": "missing_coverage",
+                        "action": "add",
+                        "strength": "strong",
+                        "impact": "medium",
+                        "confidence": "medium",
+                        "decision": "decision_required",
+                        "decision_reason": "The project has no existing requirement selecting a check.",
+                        "claim": "inferred_risk",
+                        "basis": "uncertain",
+                        "basis_reference": "The selected project contains no harness artifacts.",
+                        "title": "Decide whether the project needs a routine check",
+                        "problem": "No local verification harness is present in the selected project.",
+                        "reason": "There is no automated feedback path to inspect.",
+                        "impact_summary": "Future changes may lack routine automated feedback.",
+                        "affected_targets": ["T001"],
+                        "affected_locations": [
+                            {"path": ".", "start_line": None, "end_line": None}
+                        ],
+                        "related_context": [],
+                        "evidence": [
+                            {
+                                "kind": "reasoning",
+                                "description": "The bounded inventory is empty.",
+                                "location": None,
+                                "source_id": None,
+                            }
+                        ],
+                        "current_tier": "absent",
+                        "recommended_tier": "unknown",
+                        "safe_direction": {
+                            "outcome": "Choose an existing requirement before adding a routine check.",
+                            "acceptance_evidence": [
+                                "A project requirement identifies the behavior a check should protect."
+                            ],
+                            "alternatives": [],
+                            "suggested_paths": ["."],
+                        },
+                    }
+                ],
+                "limitations": [],
+            }
+
+            result = harness_result.finalize(context, draft)
+            self.assertEqual(["."], result["recommendations"][0]["safe_direction"]["suggested_paths"])
+            schema = json.loads(
+                (
+                    ROOT
+                    / "skills"
+                    / "verification-harness-audit"
+                    / "references"
+                    / "verification-harness-result.schema.json"
+                ).read_text(encoding="utf-8")
+            )
+            path_items = schema["$defs"]["safe_direction"]["properties"][
+                "suggested_paths"
+            ]["items"]["anyOf"]
+            self.assertIn({"const": "."}, path_items)
+
+    def test_stale_resolver_context_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            make_fixture(root)
+            context = self.make_context(root)
+            (root / "tests" / "test_parser.py").write_text(
+                "def test_parse():\n    assert False\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(harness_result.ResultError, "stale"):
+                harness_result.finalize(context, audit_draft())
+
+    def test_context_rejects_forged_caller_authority_and_time_order(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            root = base / "repo"
+            root.mkdir()
+            make_fixture(root)
+            plan = base / "plan.json"
+            plan.write_text(
+                json.dumps(
+                    [
+                        {
+                            "argv": ["python", "-m", "unittest"],
+                            "cwd": ".",
+                            "reason": "Run the selected routine tests.",
+                            "expected_effects": ["Read tests and create temporary output."],
+                            "timeout_seconds": 60,
+                            "repetitions": 1,
+                            "authorization_kind": "caller",
+                            "authorization_source": "Caller approved this exact plan.",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            context = self.make_context(root, command_plan=str(plan))
+            context["execution"][0]["authorization"]["source_sha256"] = "0" * 64
+            with self.assertRaisesRegex(harness_result.ResultError, "digest"):
+                harness_result._validate_context(context)
+
+            evidence = base / "evidence.json"
+            evidence.write_text(
+                json.dumps(
+                    [
+                        {
+                            "kind": "history",
+                            "source_label": "Local history",
+                            "source_sha256": "b" * 64,
+                            "observed_at": "2026-09-01T20:02:00Z",
+                            "supplied_at": "2026-09-01T20:01:00Z",
+                            "freshness": "fresh",
+                            "freshness_basis": "Bounded local record.",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            context = self.make_context(root, evidence_metadata=str(evidence))
+            with self.assertRaisesRegex(harness_result.ResultError, "after supplied_at"):
+                harness_result._validate_context(context)
+
+    def test_validation_and_human_rendering_are_canonical_and_safe(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            make_fixture(root)
+            draft = audit_draft()
+            draft["recommendations"][0]["title"] = (
+                "<script>alert(1)</script>\nnext **bold** ```"
+            )
+            result = harness_result.finalize(self.make_context(root), draft)
+
+            human = harness_result.render_human(result)
+            self.assertIn(
+                "&lt;script&gt;alert\\(1\\)&lt;/script&gt;\\nnext \\*\\*bold\\*\\* \\`\\`\\`",
+                human,
+            )
+            self.assertNotIn("<script>", human)
+            self.assertIn("- Basis reference:", human)
+            self.assertIn("- Tier: routine → routine", human)
+            self.assertIn("- Evidence:", human)
+            self.assertIn("The selected test contains only the shallow assertion", human)
+            self.assertIn("tests/test\\_parser\\.py:1-2", human)
+            both = harness_result._format_result(result, "both")
+            self.assertIn(human, both)
+            self.assertIn("Canonical JSON", both)
+            self.assertNotIn("```\"", both)
+
+            malformed = json.loads(json.dumps(result))
+            malformed["summary"]["ready"] = 0
+            with self.assertRaisesRegex(harness_result.ResultError, "counts"):
+                harness_result._validate_result(malformed)
+            malformed = json.loads(json.dumps(result))
+            malformed["recommendations"][0]["fingerprint"] = "0" * 64
+            with self.assertRaisesRegex(harness_result.ResultError, "fingerprint"):
+                harness_result._validate_result(malformed)
+
+    def test_canonical_result_rejects_reordered_recommendations(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            make_fixture(root)
+            draft = audit_draft()
+            advisory = json.loads(json.dumps(draft["recommendations"][0]))
+            advisory["strength"] = "strong"
+            advisory["claim"] = "improvement_opportunity"
+            advisory["kind"] = "discoverability"
+            advisory["action"] = "document"
+            advisory["title"] = "Document the routine parser command"
+            draft["recommendations"].append(advisory)
+            result = harness_result.finalize(self.make_context(root), draft)
+
+            result["recommendations"].reverse()
+            for index, item in enumerate(result["recommendations"], 1):
+                item["recommendation_id"] = f"R{index:03d}"
+            with self.assertRaisesRegex(harness_result.ResultError, "canonical order"):
+                harness_result._validate_result(result)
+
+    def test_json_reader_rejects_duplicate_depth_and_link_inputs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            duplicate = base / "duplicate.json"
+            duplicate.write_text('{"a":1,"a":2}', encoding="utf-8")
+            with self.assertRaisesRegex(harness_result.ResultError, "duplicate"):
+                harness_result._read_json(str(duplicate))
+
+            deep = base / "deep.json"
+            deep.write_text("[" * 101 + "0" + "]" * 101, encoding="utf-8")
+            with self.assertRaisesRegex(harness_result.ResultError, "nesting limit"):
+                harness_result._read_json(str(deep))
+
+            link = base / "link.json"
+            try:
+                link.symlink_to(duplicate)
+            except OSError:
+                self.skipTest("symlinks unavailable")
+            with self.assertRaisesRegex(harness_result.ResultError, "link-like"):
+                harness_result._read_json(str(link))
+
+    def test_output_rejects_input_aliases_and_hardlink_replacement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            source = base / "source.json"
+            source.write_text("{}", encoding="utf-8")
+            with self.assertRaisesRegex(harness_result.ResultError, "input file"):
+                harness_result._write_output(
+                    "result",
+                    str(source),
+                    True,
+                    input_paths=[source],
+                )
+
+            destination = base / "destination.json"
+            alias = base / "alias.json"
+            destination.write_text("old", encoding="utf-8")
+            try:
+                os.link(destination, alias)
+            except OSError:
+                self.skipTest("hard links unavailable")
+            with self.assertRaisesRegex(harness_result.ResultError, "unsafe"):
+                harness_result._write_output(
+                    "result",
+                    str(destination),
+                    True,
+                    input_paths=[],
+                )
+
+            fresh = base / "fresh.json"
+            harness_result._write_output("result", str(fresh), False, input_paths=[])
+            self.assertEqual("result\n", fresh.read_text(encoding="utf-8"))
+
+    @unittest.skipUnless(os.name == "posix", "final-entry race probe requires POSIX rename semantics")
+    def test_output_never_replaces_or_cleans_up_a_swapped_final_entry(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            destination = base / "result.json"
+            moved = base / "opened.json"
+            destination.write_text("owned", encoding="utf-8")
+            original_write = harness_result._write_descriptor
+
+            def swap_then_write(descriptor, data):
+                destination.rename(moved)
+                destination.write_text("unrelated", encoding="utf-8")
+                original_write(descriptor, data)
+
+            with mock.patch.object(
+                harness_result,
+                "_write_descriptor",
+                side_effect=swap_then_write,
+            ):
+                with self.assertRaisesRegex(harness_result.ResultError, "entry changed"):
+                    harness_result._write_output(
+                        "replacement",
+                        str(destination),
+                        True,
+                        input_paths=[],
+                    )
+            self.assertEqual("unrelated", destination.read_text(encoding="utf-8"))
+            self.assertEqual("replacement\n", moved.read_text(encoding="utf-8"))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            destination = base / "result.json"
+            moved = base / "opened.json"
+
+            def swap_then_fail(descriptor, data):
+                del descriptor, data
+                destination.rename(moved)
+                destination.write_text("unrelated", encoding="utf-8")
+                raise OSError("simulated write failure")
+
+            with mock.patch.object(
+                harness_result,
+                "_write_descriptor",
+                side_effect=swap_then_fail,
+            ):
+                with self.assertRaisesRegex(OSError, "simulated"):
+                    harness_result._write_output(
+                        "partial",
+                        str(destination),
+                        False,
+                        input_paths=[],
+                    )
+            self.assertEqual("unrelated", destination.read_text(encoding="utf-8"))
+            self.assertTrue(moved.exists())
+
+    def test_stdout_uses_utf8_even_with_a_legacy_text_encoding(self):
+        raw = io.BytesIO()
+        legacy_stdout = io.TextIOWrapper(raw, encoding="cp1252", errors="strict")
+        with mock.patch.object(harness_result.sys, "stdout", legacy_stdout):
+            harness_result._write_output(
+                "ready — routine → release",
+                None,
+                False,
+                input_paths=[],
+            )
+            self.assertEqual(
+                "ready — routine → release\n".encode("utf-8"),
+                raw.getvalue(),
+            )
+        legacy_stdout.detach()
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(os, "O_NOFOLLOW"),
+        "descriptor-relative race probe requires POSIX no-follow support",
+    )
+    def test_input_and_output_remain_bound_when_parent_path_is_swapped(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            trusted = base / "trusted"
+            moved = base / "moved"
+            outside = base / "outside"
+            trusted.mkdir()
+            outside.mkdir()
+            (trusted / "input.json").write_text('{"origin":"trusted"}', encoding="utf-8")
+            (outside / "input.json").write_text('{"origin":"outside"}', encoding="utf-8")
+            original_open = os.open
+            raced = False
+
+            def swap_before_input_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal raced
+                if path == "input.json" and dir_fd is not None and not raced:
+                    raced = True
+                    trusted.rename(moved)
+                    trusted.symlink_to(outside, target_is_directory=True)
+                return original_open(path, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch.object(harness_result.os, "open", side_effect=swap_before_input_open):
+                value = harness_result._read_json(str(trusted / "input.json"))
+            self.assertEqual("trusted", value["origin"])
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            trusted = base / "trusted"
+            moved = base / "moved"
+            outside = base / "outside"
+            trusted.mkdir()
+            outside.mkdir()
+            original_open = os.open
+            raced = False
+
+            def swap_before_output_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal raced
+                if path == "result.json" and dir_fd is not None and not raced:
+                    raced = True
+                    trusted.rename(moved)
+                    trusted.symlink_to(outside, target_is_directory=True)
+                return original_open(path, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch.object(harness_result.os, "open", side_effect=swap_before_output_open):
+                harness_result._write_output(
+                    "bound",
+                    str(trusted / "result.json"),
+                    False,
+                    input_paths=[],
+                )
+            self.assertEqual("bound\n", (moved / "result.json").read_text(encoding="utf-8"))
+            self.assertFalse((outside / "result.json").exists())
+
+    @unittest.skipUnless(os.name == "nt", "Windows handle-boundary probe")
+    def test_windows_parent_handles_block_swaps_reject_reparse_and_are_released(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            trusted = base / "trusted"
+            moved = base / "moved"
+            trusted.mkdir()
+            input_file = trusted / "input.json"
+            input_file.write_text('{"bound":true}', encoding="utf-8")
+            original_descriptor = harness_result._windows_file_descriptor
+            swap_attempts = []
+
+            def attempt_swap_before_open(*args, **kwargs):
+                try:
+                    trusted.rename(moved)
+                except OSError:
+                    swap_attempts.append("blocked")
+                else:  # pragma: no cover - indicates the Windows lock failed
+                    swap_attempts.append("escaped")
+                return original_descriptor(*args, **kwargs)
+
+            with mock.patch.object(
+                harness_result,
+                "_windows_file_descriptor",
+                side_effect=attempt_swap_before_open,
+            ):
+                self.assertTrue(harness_result._read_json(str(input_file))["bound"])
+            self.assertEqual(["blocked"], swap_attempts)
+            trusted.rename(moved)
+            moved.rename(trusted)
+
+            output = trusted / "result.json"
+            swap_attempts.clear()
+            with mock.patch.object(
+                harness_result,
+                "_windows_file_descriptor",
+                side_effect=attempt_swap_before_open,
+            ):
+                harness_result._write_output(
+                    "bound",
+                    str(output),
+                    False,
+                    input_paths=[],
+                )
+            self.assertEqual(["blocked"], swap_attempts)
+            self.assertEqual("bound\n", output.read_text(encoding="utf-8"))
+            trusted.rename(moved)
+            moved.rename(trusted)
+
+            failed_output = trusted / "failed.json"
+            with mock.patch.object(
+                harness_result,
+                "_write_descriptor",
+                side_effect=OSError("simulated write failure"),
+            ):
+                with self.assertRaisesRegex(OSError, "simulated"):
+                    harness_result._write_output(
+                        "partial",
+                        str(failed_output),
+                        False,
+                        input_paths=[],
+                    )
+            self.assertTrue(failed_output.exists())
+            trusted.rename(moved)
+            moved.rename(trusted)
+
+            real_parent = base / "real-parent"
+            linked_parent = base / "linked-parent"
+            real_parent.mkdir()
+            (real_parent / "input.json").write_text("{}", encoding="utf-8")
+            try:
+                linked_parent.symlink_to(real_parent, target_is_directory=True)
+            except OSError:
+                with mock.patch.object(
+                    harness_result,
+                    "_windows_create_handle",
+                    return_value=123,
+                ), mock.patch.object(
+                    harness_result,
+                    "_windows_handle_attributes",
+                    return_value=(0x00000010 | 0x00000400, 1),
+                ), mock.patch.object(
+                    harness_result,
+                    "_windows_close_handle",
+                ) as close_handle:
+                    with self.assertRaisesRegex(
+                        harness_result.ResultError,
+                        "link-like|reparse",
+                    ):
+                        with harness_result._windows_locked_parent(input_file):
+                            pass
+                    close_handle.assert_called_once_with(123)
+            else:
+                with self.assertRaisesRegex(harness_result.ResultError, "link-like|reparse"):
+                    harness_result._read_json(str(linked_parent / "input.json"))
+
+            with mock.patch.object(
+                harness_result,
+                "_windows_create_handle",
+                side_effect=harness_result.ResultError("safe Windows primitive unavailable"),
+            ):
+                with self.assertRaisesRegex(harness_result.ResultError, "unavailable"):
+                    harness_result._read_json(str(input_file))
+
+    def test_cli_finalize_validate_and_render_share_one_canonical_result(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            root = base / "repo"
+            root.mkdir()
+            make_fixture(root)
+            context_file = base / "context.json"
+            draft_file = base / "draft.json"
+            result_file = base / "result.json"
+            context_file.write_text(
+                json.dumps(self.make_context(root)),
+                encoding="utf-8",
+            )
+            draft_file.write_text(json.dumps(audit_draft()), encoding="utf-8")
+            script = (
+                ROOT
+                / "skills"
+                / "verification-harness-audit"
+                / "scripts"
+                / "harness_result.py"
+            )
+
+            finalized = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "finalize",
+                    "--context",
+                    str(context_file),
+                    "--draft",
+                    str(draft_file),
+                    "--format",
+                    "json",
+                    "--output",
+                    str(result_file),
+                ],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(0, finalized.returncode, finalized.stderr)
+            self.assertEqual("", finalized.stdout)
+
+            validated = subprocess.run(
+                [sys.executable, str(script), "validate", "--input", str(result_file)],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(0, validated.returncode, validated.stderr)
+            self.assertIn("valid verification-harness-audit result", validated.stdout)
+
+            rendered = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "render",
+                    "--input",
+                    str(result_file),
+                    "--format",
+                    "human",
+                ],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(0, rendered.returncode, rendered.stderr)
+            self.assertIn("Verification harness audit: IMPROVEMENTS", rendered.stdout)
+
+    def test_installed_result_helper_has_no_repository_script_dependency(self):
+        source = (
+            ROOT / "skills" / "verification-harness-audit" / "scripts" / "harness_result.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("from scripts", source)
+        self.assertNotIn("import scripts", source)
+
+    def test_canonical_shape_mutations_never_escape_as_unexpected_exceptions(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            make_fixture(root)
+            result = harness_result.finalize(self.make_context(root), audit_draft())
+
+            paths = []
+            pending = [((), result)]
+            while pending:
+                path, value = pending.pop()
+                if isinstance(value, dict):
+                    for key, child in value.items():
+                        paths.append((*path, key))
+                        pending.append(((*path, key), child))
+                elif isinstance(value, list):
+                    for index, child in enumerate(value):
+                        paths.append((*path, index))
+                        pending.append(((*path, index), child))
+
+            for path in paths:
+                mutated = json.loads(json.dumps(result))
+                parent = mutated
+                for component in path[:-1]:
+                    parent = parent[component]
+                original = parent[path[-1]]
+                for replacement in (None, [], {}, True, 0, ""):
+                    if replacement == original and type(replacement) is type(original):
+                        continue
+                    candidate = json.loads(json.dumps(mutated))
+                    target = candidate
+                    for component in path[:-1]:
+                        target = target[component]
+                    target[path[-1]] = replacement
+                    try:
+                        harness_result._validate_result(candidate)
+                    except harness_result.ResultError:
+                        pass
+                    except Exception as exc:  # pragma: no cover - assertion details the path
+                        self.fail(f"unexpected {type(exc).__name__} at {path}: {exc}")
+
+                if isinstance(parent, dict):
+                    candidate = json.loads(json.dumps(result))
+                    target = candidate
+                    for component in path[:-1]:
+                        target = target[component]
+                    del target[path[-1]]
+                    try:
+                        harness_result._validate_result(candidate)
+                    except harness_result.ResultError:
+                        pass
+                    except Exception as exc:  # pragma: no cover - assertion details the path
+                        self.fail(f"unexpected {type(exc).__name__} deleting {path}: {exc}")
 
 
 if __name__ == "__main__":
