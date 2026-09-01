@@ -96,8 +96,9 @@ fingerprints, counts, and status.
 - Classify every resolver-owned inventory path exactly once as inspected harness,
   non-harness, or excluded. A path read as related evidence may also appear in
   `context_paths`.
-- Do not classify binary, non-UTF-8, oversized, or unreadable records as
-  inspected. Exclude them and preserve resolver limitations.
+- Do not classify binary, non-UTF-8, oversized, unreadable, or deliberately
+  `not_inspected` records as inspected. Exclude them and preserve resolver
+  limitations.
 - The resolver records both its maximum traversal entries and actual visited
   entry count. Reaching the ceiling before exhaustive enumeration is a material
   `scope_truncated` limitation; never infer the unseen remainder or sample it.

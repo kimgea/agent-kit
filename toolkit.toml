@@ -181,6 +181,7 @@ maturity = "beta"
 installable = true
 setup_requires_approval = false
 data_sensitivity = "repository source, active-agent review guidance, caller-supplied evidence metadata, command summaries, and generated recommendations"
+tests = ["tests/test_verification_harness_audit.py", "tests/test_agent_kit.py"]
 
 [[resources]]
 id = "serve-artifacts"

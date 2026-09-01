@@ -31,6 +31,10 @@ context; do not report unrelated defects found there.
 
 ## Use the canonical contract
 
+The lead reads [resolver-context.md](references/resolver-context.md) and uses the
+bundled resolver to freeze target, context, guidance, evidence, and optional
+pre-authorized command-plan provenance before semantic analysis.
+
 Read [result-authoring.md](references/result-authoring.md) before constructing a
 result. Read
 [verification-harness-result.schema.json](references/verification-harness-result.schema.json)

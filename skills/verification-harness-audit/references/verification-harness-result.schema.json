@@ -32,7 +32,7 @@
     },
     "guidance": {
       "type": "array",
-      "maxItems": 20000,
+      "maxItems": 21000,
       "items": {"$ref": "#/$defs/guidance_chain"}
     },
     "execution": {
@@ -185,7 +185,7 @@
       ],
       "properties": {
         "path": {"$ref": "#/$defs/repository_path"},
-        "bytes": {"type": "integer", "minimum": 0, "maximum": 1099511627776},
+        "bytes": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
         "sha256": {
           "anyOf": [
             {"$ref": "#/$defs/sha256"},
@@ -193,7 +193,7 @@
           ]
         },
         "inspection_kind": {
-          "enum": ["text", "binary", "non_utf8", "oversized", "unreadable"]
+          "enum": ["text", "binary", "non_utf8", "oversized", "unreadable", "not_inspected"]
         },
         "tracking": {"enum": ["tracked", "untracked", "ignored", "unknown"]}
       }
@@ -201,10 +201,12 @@
     "inventory": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["limits", "traversed_entries", "files", "complete"],
+      "required": ["limits", "traversed_entries", "read_bytes", "context_read_bytes", "files", "complete"],
       "properties": {
         "limits": {"$ref": "#/$defs/inventory_limits"},
         "traversed_entries": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "read_bytes": {"type": "integer", "minimum": 0, "maximum": 268435456},
+        "context_read_bytes": {"type": "integer", "minimum": 0, "maximum": 67108864},
         "files": {
           "type": "array",
           "maxItems": 20000,
@@ -231,7 +233,7 @@
         "revision": {"type": ["string", "null"], "maxLength": 256},
         "sha256": {"$ref": "#/$defs/sha256"},
         "bytes": {"type": "integer", "minimum": 0, "maximum": 16777216},
-        "lines": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "lines": {"type": "integer", "minimum": 0, "maximum": 1048576},
         "loaded": {"type": "boolean"}
       }
     },
@@ -251,9 +253,14 @@
         "paths": {
           "type": "array",
           "minItems": 1,
-          "maxItems": 20000,
+          "maxItems": 21000,
           "uniqueItems": true,
-          "items": {"$ref": "#/$defs/repository_path"}
+          "items": {
+            "anyOf": [
+              {"const": "."},
+              {"$ref": "#/$defs/repository_path"}
+            ]
+          }
         },
         "sources": {
           "type": "array",
@@ -641,6 +648,8 @@
         "code": {
           "enum": [
             "scope_truncated",
+            "ignored_path",
+            "link_skipped",
             "target_unreadable",
             "part_unreadable",
             "inventory_incomplete",
