@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verification Harness Audit"
+  short_description: "Audit local verification harness quality"
+  default_prompt: "Use $verification-harness-audit to audit this local verification harness and report evidence-backed improvements."

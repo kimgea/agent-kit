@@ -69,6 +69,7 @@ class CatalogAndValidationTests(unittest.TestCase):
                 "serve-artifacts",
                 "todo-capture",
                 "tool-audit",
+                "verification-harness-audit",
             ],
             sorted(resource["id"] for resource in value["resources"]),
         )
@@ -496,7 +497,7 @@ class LifecycleTests(unittest.TestCase):
                 Path("release"), None, "all", fixture
             )
             archives = [path for path in artifacts if path.suffix == ".zip"]
-            self.assertEqual(16, len(archives))
+            self.assertEqual(17, len(archives))
             self.assertEqual(6, len([path for path in archives if "-plugin-" in path.name]))
             self.assertEqual(
                 1,
@@ -552,7 +553,12 @@ class LifecycleTests(unittest.TestCase):
             )
             artifacts = agent_kit.package_artifacts(
                 Path("review-group"),
-                ["project-review", "review-and-fix", "review-guidance-audit"],
+                [
+                    "project-review",
+                    "review-and-fix",
+                    "review-guidance-audit",
+                    "verification-harness-audit",
+                ],
                 "plugin",
                 fixture,
             )
@@ -567,6 +573,7 @@ class LifecycleTests(unittest.TestCase):
             self.assertIn("project-review/skills/project-review/SKILL.md", names)
             self.assertIn("project-review/skills/review-and-fix/SKILL.md", names)
             self.assertIn("project-review/skills/review-guidance-audit/SKILL.md", names)
+            self.assertIn("project-review/skills/verification-harness-audit/SKILL.md", names)
             self.assertEqual("project-review", manifest["name"])
             self.assertEqual(3, len(manifest["interface"]["defaultPrompt"]))
 
