@@ -29,6 +29,7 @@ Current skills:
 | `project-review` | Review bounded changes under root and nested `REVIEW.md` guidance | Reads project source and optional user guidance; writes output only when explicitly requested |
 | `review-and-fix` | Safely address local review findings through decision gates and fresh re-review | Reads bounded project/review data; changes only eligible or approved local files |
 | `review-guidance-audit` | Improve hierarchical `REVIEW.md` guidance without editing it | Reads selected project files and review guidance; writes output only when explicitly requested |
+| `verification-harness-audit` | Assess whether selected local checks provide meaningful, timely, reliable protection | Reads bounded harness, context, guidance, and authorized command summaries; writes output only when explicitly requested |
 | `serve-artifacts` | Host and revoke transient web artifacts locally or through a selected private-network adapter | Private OS-native artifact copies, lifecycle state, and optional adapter ownership |
 | `todo-capture` | Preserve deferred work as shared pickup pointers | Private OS-native state directory |
 | `tool-audit` | Audit local tools, agent usage, friction, and permissions | Private OS-native state plus read-only transcript access |
@@ -45,6 +46,9 @@ normalization, conservative automatic-fix eligibility, and fresh acceptance.
 The [review-guidance audit guide](docs/review-guidance-audit.md) explains scoped
 guidance analysis, context compaction, placement, and when automated checks can
 replace or only support review rules.
+The [verification harness audit guide](docs/verification-harness-audit.md)
+explains harness-centered scope, assertion and command-wiring analysis, local CI
+inspection, evidence calibration, and canonical output.
 The [local behavioral evaluation guide](docs/behavioral-evals.md) explains how
 maintainers can run fresh-agent skill evaluations locally while keeping paid
 model calls out of the canonical gate and GitHub Actions.
@@ -56,7 +60,7 @@ for repeatable use. For an ownership-aware installation, clone the tagged toolki
 release, then install only the selected skill:
 
 ```bash
-git clone --branch v1.8.0 --depth 1 https://github.com/kimgea/agent-kit.git
+git clone --branch v1.9.0 --depth 1 https://github.com/kimgea/agent-kit.git
 cd agent-kit
 python scripts/agent_kit.py list
 ```
@@ -98,7 +102,7 @@ Every installable skill is released both as a standalone skill archive and as
 part of a Codex plugin. Most plugins contain one skill. The coherent `artifacts`
 plugin groups the diagram producer with the artifact host, while the
 `project-review` plugin groups project review, review-and-fix, and review-guidance
-audit. The release
+audit with verification-harness audit. The release
 includes an `agent-kit-marketplace-<version>.zip` catalog whose entries point to
 the bundled local plugin directories. Select a focused plugin when its grouped
 workflow is useful, or use a standalone archive to install one skill by itself.

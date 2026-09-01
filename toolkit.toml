@@ -1,5 +1,5 @@
 schema_version = 2
-toolkit_version = "1.8.0"
+toolkit_version = "1.9.0"
 minimum_python = "3.11"
 
 [plugin_marketplace]
@@ -181,6 +181,7 @@ maturity = "beta"
 installable = true
 setup_requires_approval = false
 data_sensitivity = "repository source, active-agent review guidance, caller-supplied evidence metadata, command summaries, and generated recommendations"
+docs = "docs/verification-harness-audit.md"
 tests = ["tests/test_verification_harness_audit.py", "tests/test_agent_kit.py"]
 
 [[resources]]

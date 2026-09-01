@@ -2,8 +2,8 @@
 name: verification-harness-audit
 status: in-progress
 created: 2026-09-01T19:55:34Z
-updated: 2026-09-02T01:32:49+02:00
-progress: 42%
+updated: 2026-09-02T01:44:56+02:00
+progress: 57%
 prd: .claude/prds/verification-harness-audit.md
 github: (not synced)
 ---
@@ -124,7 +124,7 @@ parallel; deterministic tests, behavioral evidence, and delivery remain gated.
 - [x] 001.md - Define canonical audit contract and skill skeleton (parallel: false)
 - [x] 002.md - Implement target, inventory, and guidance resolver (parallel: true)
 - [x] 003.md - Implement canonical result finalizer and renderer (parallel: true)
-- [ ] 004.md - Author audit workflow and repository integration (parallel: true)
+- [x] 004.md - Author audit workflow and repository integration (parallel: true)
 - [ ] 005.md - Add deterministic and conformance coverage (parallel: false)
 - [ ] 006.md - Add behavioral evaluations and consumer evidence (parallel: false)
 - [ ] 007.md - Validate, review, and deliver the skill (parallel: false)
