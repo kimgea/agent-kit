@@ -328,10 +328,10 @@ class ResolverTests(unittest.TestCase):
 
             def replace_before_open(path, maximum, **kwargs):
                 nonlocal replaced
-                if (
-                    os.path.normcase(Path(path).name)
+                if not replaced and (
+                    os.name == "nt"
+                    or os.path.normcase(Path(path).name)
                     == os.path.normcase(target.name)
-                    and not replaced
                 ):
                     os.replace(replacement, target)
                     replaced = True

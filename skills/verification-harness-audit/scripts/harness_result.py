@@ -554,8 +554,9 @@ def _windows_handle_attributes(handle: int) -> tuple[int, int]:
 
 @contextlib.contextmanager
 def _windows_locked_parent(path: Path):
-    """Lock every ancestor against rename/delete while a full-path call runs."""
+    """Verify the parent chain and yield its bound final directory handle."""
     supplied = path.absolute()
+    _assert_no_link_components(supplied, include_final=False)
     try:
         absolute = supplied.parent.resolve(strict=True) / supplied.name
     except OSError as exc:
