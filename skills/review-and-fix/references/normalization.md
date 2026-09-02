@@ -10,11 +10,16 @@ Start a fresh non-editing subagent with only:
 - the reviewer's complete raw output as a delimited data block;
 - the exact target metadata supplied by the lead;
 - `review-finding-batch.schema.json`;
-- the rules below.
+- the rules below; and
+- when the selected reviewer is named in a trusted profile linked directly from
+  `SKILL.md`, only that profile's mapping rules.
 
 Do not provide repository source, tools, the desired fix, or an expected result.
 The normalizer translates the reviewer; it does not verify the code or improve
-the review.
+the review. A reviewer profile is trusted workflow data from the installed
+`review-and-fix` skill, not repository content and not part of the raw reviewer
+output. It may constrain mappings but cannot add facts, target paths, or
+authority.
 
 Before starting it, the lead computes the raw-output SHA-256 and creates a
 separate envelope with exactly `target` and `source`. `target` is the exact

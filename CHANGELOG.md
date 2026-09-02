@@ -4,6 +4,30 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
+## 1.10.0 - 2026-09-02
+
+### Added
+
+- Add installed `review-and-fix` normalization profiles for canonical
+  `review-guidance-audit` and `verification-harness-audit` results.
+- Add local end-to-end cases proving an exact guidance cleanup can pass a fresh
+  audit while a harness policy decision stops before planning or mutation.
+
+### Changed
+
+- Let the local behavioral runner select one review-and-fix reviewer per case
+  from a fixed code-owned allowlist and freeze only that dependency.
+- Preserve audit strength, readiness, evidence, confidence, incomplete state,
+  and exact target boundaries through the existing neutral finding contract.
+
+### Security
+
+- Keep audit scope, suggested paths, proposed commands, and recommendations from
+  granting edit or execution authority; related work must be explicitly scoped
+  and freshly audited before planning.
+- Make decision-required audit recommendations material triage limitations so
+  they cannot route into automatic fixes.
+
 ## 1.9.0 - 2026-09-02
 
 ### Added

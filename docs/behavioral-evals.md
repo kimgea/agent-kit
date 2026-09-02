@@ -166,10 +166,13 @@ The executable suites currently cover:
 | `review-and-fix` | Review-and-fix workflow result | Exact declared existing files only |
 | `verification-harness-audit` | Verification-harness audit result | No mutations |
 
-`review-and-fix` fixes its reviewer set to `project-review` v1 and freezes that
-complete dependency beside the evaluated skill. Its cases can use multiple
-fresh agent contexts and are therefore slower and more allowance-intensive than
-single-pass review cases.
+`review-and-fix` selects one reviewer per case from a code-owned allowlist:
+`project-review` v1, `review-guidance-audit` v1, or
+`verification-harness-audit` v1. The host freezes only the selected reviewer
+beside the evaluated skill and embeds its lead-owned canonical context in the
+review-and-fix context. Suite data cannot name another skill, helper, schema, or
+adapter. These cases can use multiple fresh agent contexts and are therefore
+slower and more allowance-intensive than single-pass review cases.
 
 The verification-harness suite uses a fixed 4 KiB semantic-inspection ceiling
 for compact fixtures. Its adapter performs metadata resolution first, then

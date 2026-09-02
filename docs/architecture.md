@@ -87,15 +87,21 @@ still apply.
 
 `review-and-fix` is the local remediation consumer. It keeps each reviewer
 result as a separate neutral batch, deterministically bridges validated
-`project-review` JSON, and uses a fresh subagent only to normalize unfamiliar
-output. Lead-owned envelopes keep target/source provenance outside normalizer
-control and carry an explicit canonical reviewer outcome; deterministic
+`project-review` JSON, and uses a fresh subagent to normalize other output.
+Installed profiles define conservative mappings for canonical
+`review-guidance-audit` and `verification-harness-audit` results without adding
+producer-specific runtime imports or deterministic adapters. Lead-owned
+envelopes keep target/source provenance outside normalizer control and carry an
+explicit canonical reviewer outcome; deterministic
 `project-review` conversion also rejects a reviewer target that differs from the
 lead-owned expected target. A second fresh context reports facts for a proposed
 remedy; lead-owned selection stays outside planner control, and the runtime
 helper binds those facts to the canonical batch and exact reviewed paths before
 mechanically deriving whether the plan is routine, needs a user decision, or
-requires separate authorization.
+requires separate authorization. Audit scope never grants edit scope: a related
+guidance destination or harness path must be explicitly selected and freshly
+audited before planning. Producer incompleteness and decision-required
+recommendations stay fail-closed.
 The fixer cannot accept its own result: the same reviewer set reruns from fresh
 context, with stable fingerprints, target/reviewer drift detection, no-progress
 stopping, an explicit pass outcome, and a three-round limit. Ref ranges are
@@ -143,10 +149,10 @@ The semantic draft cannot own target, inventory, guidance, execution, evidence
 source, identifier, count, or status fields. A standard-library finalizer binds
 recommendations to resolver-owned authority, calibrates measured timing and
 flakiness evidence, derives `INCOMPLETE`, `IMPROVEMENTS`, or `PASS`, and renders
-human output from canonical JSON. `review-and-fix` can consume that output only
-through independent generic normalization in v1; a deterministic adapter,
-publisher, evidence store, and remediation workflow remain separate future
-components.
+human output from canonical JSON. `review-and-fix` consumes that output through
+its installed conservative reviewer profile and independent generic
+normalization. A deterministic adapter, publisher, evidence store, and dedicated
+harness-remediation workflow remain separate future components.
 
 ## Installation ownership
 
