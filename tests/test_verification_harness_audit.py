@@ -328,11 +328,16 @@ class ResolverTests(unittest.TestCase):
 
             def replace_before_open(path, maximum, **kwargs):
                 nonlocal replaced
-                if not replaced and (
-                    os.name == "nt"
-                    or os.path.normcase(Path(path).name)
+                same_target = (
+                    os.path.normcase(Path(path).name)
                     == os.path.normcase(target.name)
-                ):
+                )
+                if not same_target:
+                    try:
+                        same_target = os.path.samefile(path, target)
+                    except OSError:
+                        same_target = False
+                if not replaced and same_target:
                     os.replace(replacement, target)
                     replaced = True
                 return original_read(path, maximum, **kwargs)
