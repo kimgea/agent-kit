@@ -3,6 +3,7 @@ import importlib.util
 import io
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -848,6 +849,129 @@ class ResolverTests(unittest.TestCase):
             with self.assertRaisesRegex(harness_context.ContextError, "cannot resolve"):
                 harness_context.resolve(context_args(root / "missing"))
 
+    def test_read_only_target_and_canonical_output_preserve_platform_state(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            root = base / "repo"
+            root.mkdir()
+            make_fixture(root)
+            target = root / "tests" / "test_parser.py"
+            target.chmod(stat.S_IREAD)
+            before_mode = stat.S_IMODE(target.stat().st_mode)
+            output = base / "context.json"
+            try:
+                context = harness_context.resolve(context_args(root))
+                harness_context._write(context, str(output))
+                self.assertEqual(before_mode, stat.S_IMODE(target.stat().st_mode))
+            finally:
+                target.chmod(stat.S_IREAD | stat.S_IWRITE)
+
+            encoded = output.read_bytes()
+            self.assertTrue(encoded.endswith(b"\n"))
+            self.assertNotIn(b"\r\n", encoded)
+            if os.name == "posix":
+                self.assertEqual(0o600, stat.S_IMODE(output.stat().st_mode))
+
+    def test_all_resolver_material_limitation_classes_are_explicit(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            make_fixture(root)
+            observed = set()
+
+            truncated = harness_context.resolve(
+                context_args(root, paths=["."], max_traversal_entries=1)
+            )
+            observed.update(
+                item["code"] for item in truncated["limitations"] if item["material"]
+            )
+
+            binary = root / "tests" / "binary.bin"
+            binary.write_bytes(b"\xff\x00")
+            unreadable = harness_context.resolve(
+                context_args(root, paths=["tests/binary.bin"])
+            )
+            observed.update(
+                item["code"] for item in unreadable["limitations"] if item["material"]
+            )
+            part = harness_context.resolve(
+                context_args(
+                    root,
+                    paths=[],
+                    parts=["tests/binary.bin:1:1"],
+                )
+            )
+            observed.update(
+                item["code"] for item in part["limitations"] if item["material"]
+            )
+
+            context_unavailable = harness_context.resolve(
+                context_args(root, contexts=["tests/binary.bin"])
+            )
+            observed.update(
+                item["code"]
+                for item in context_unavailable["limitations"]
+                if item["material"]
+            )
+
+            (root / "REVIEW.md").write_bytes(
+                b"x" * (harness_context.MAX_GUIDANCE_SOURCE_BYTES + 1)
+            )
+            guidance_unreadable = harness_context.resolve(context_args(root))
+            observed.update(
+                item["code"]
+                for item in guidance_unreadable["limitations"]
+                if item["material"]
+            )
+
+            (root / "REVIEW.md").write_text("r" * 700 + "\n", encoding="utf-8")
+            (root / "tests" / "REVIEW.md").write_text(
+                "t" * 700 + "\n", encoding="utf-8"
+            )
+            guidance_budget = harness_context.resolve(
+                context_args(root, max_guidance_bytes=1024)
+            )
+            observed.update(
+                item["code"]
+                for item in guidance_budget["limitations"]
+                if item["material"]
+            )
+
+            synthetic_inventory_limit = harness_context._limitation(
+                "inventory_incomplete",
+                "Tracking classification could not be completed.",
+                [],
+                True,
+            )
+            with mock.patch.object(
+                harness_context,
+                "_tracking",
+                return_value=(
+                    {"tests/test_parser.py": "unknown"},
+                    [synthetic_inventory_limit],
+                ),
+            ):
+                inventory_incomplete = harness_context.resolve(context_args(root))
+            observed.update(
+                item["code"]
+                for item in inventory_incomplete["limitations"]
+                if item["material"]
+            )
+
+            self.assertTrue(
+                {
+                    "scope_truncated",
+                    "target_unreadable",
+                    "part_unreadable",
+                    "inventory_incomplete",
+                    "guidance_unreadable",
+                    "guidance_budget",
+                    "context_unavailable",
+                }
+                <= observed,
+                observed,
+            )
+
     def test_installed_resolver_has_no_repository_script_dependency(self):
         source = (
             ROOT / "skills" / "verification-harness-audit" / "scripts" / "harness_context.py"
@@ -988,6 +1112,22 @@ class ResultTests(unittest.TestCase):
             with self.assertRaisesRegex(harness_result.ResultError, "unknown fields"):
                 harness_result.finalize(context, draft)
 
+            for field, value in {
+                "inventory": context["inventory"],
+                "guidance": context["guidance"],
+                "execution": context["execution"],
+                "evidence_sources": context["evidence_sources"],
+                "status": "PASS",
+                "context_sha256": "0" * 64,
+            }.items():
+                with self.subTest(forged_field=field):
+                    forged = audit_draft()
+                    forged[field] = value
+                    with self.assertRaisesRegex(
+                        harness_result.ResultError, "unknown fields"
+                    ):
+                        harness_result.finalize(context, forged)
+
             draft = audit_draft()
             draft["recommendations"][0]["safe_direction"]["suggested_paths"] = [
                 "outside/new_test.py"
@@ -1008,6 +1148,219 @@ class ResultTests(unittest.TestCase):
                 ]
                 with self.assertRaisesRegex(harness_result.ResultError, "expands"):
                     harness_result.finalize(context_with_evidence, draft)
+
+    def test_every_semantic_material_limitation_derives_incomplete(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            make_fixture(root)
+            context = self.make_context(root)
+            semantic_codes = sorted(
+                harness_result.LIMITATION_CODES
+                - harness_result.RESOLVER_LIMITATION_CODES
+            )
+
+            for code in semantic_codes:
+                with self.subTest(code=code):
+                    draft = audit_draft(
+                        strength="strong",
+                        claim="improvement_opportunity",
+                    )
+                    draft["coverage"]["complete"] = False
+                    draft["limitations"] = [
+                        {
+                            "code": code,
+                            "message": f"Material {code} fixture.",
+                            "affected_paths": ["tests/test_parser.py"],
+                            "material": True,
+                        }
+                    ]
+                    result = harness_result.finalize(context, draft)
+                    self.assertEqual("INCOMPLETE", result["status"])
+
+    def test_private_guidance_content_is_omitted_from_canonical_result(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            root = base / "repo"
+            root.mkdir()
+            make_fixture(root)
+            global_review = base / "global-review.md"
+            private_text = "private machine guidance fixture"
+            global_review.write_text(private_text + "\n", encoding="utf-8")
+
+            result = harness_result.finalize(
+                self.make_context(
+                    root,
+                    global_review_file=str(global_review),
+                ),
+                audit_draft(),
+            )
+            serialized = json.dumps(result, sort_keys=True)
+
+            self.assertNotIn(private_text, serialized)
+            global_source = next(
+                source
+                for chain in result["guidance"]
+                for source in chain["sources"]
+                if source["source_kind"] == "user_global"
+            )
+            self.assertEqual(str(global_review), global_source["path"])
+            self.assertRegex(global_source["sha256"], r"^[0-9a-f]{64}$")
+            self.assertNotIn("content", global_source)
+
+    def test_user_global_command_authority_is_bound_to_resolved_provenance(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            root = base / "repo"
+            root.mkdir()
+            make_fixture(root)
+            global_review = base / "global-review.md"
+            global_review.write_text(
+                "The exact bounded unit command may run when requested.\n",
+                encoding="utf-8",
+            )
+            plan = base / "plan.json"
+
+            def write_plan(source: str) -> None:
+                plan.write_text(
+                    json.dumps(
+                        [
+                            {
+                                "argv": [sys.executable, "-m", "unittest"],
+                                "cwd": ".",
+                                "reason": "Run the globally authorized bounded unit check.",
+                                "expected_effects": ["Read repository files only."],
+                                "timeout_seconds": 60,
+                                "repetitions": 1,
+                                "authorization_kind": "user_global",
+                                "authorization_source": source,
+                            }
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+
+            write_plan(str(global_review))
+            context = self.make_context(
+                root,
+                global_review_file=str(global_review),
+                command_plan=str(plan),
+            )
+            global_source = next(
+                source
+                for chain in context["guidance"]
+                for source in chain["sources"]
+                if source["source_kind"] == "user_global"
+            )
+            authorization = context["execution"][0]["authorization"]
+            self.assertEqual("user_global", authorization["kind"])
+            self.assertEqual(str(global_review), authorization["source"])
+            self.assertEqual(global_source["sha256"], authorization["source_sha256"])
+
+            result = harness_result.finalize(context, audit_draft())
+            self.assertEqual(
+                global_source["sha256"],
+                result["execution"][0]["authorization"]["source_sha256"],
+            )
+
+            with self.assertRaisesRegex(
+                harness_context.ContextError,
+                "requires --global-review-file",
+            ):
+                self.make_context(root, command_plan=str(plan))
+
+            write_plan(str(base / "wrong-global-review.md"))
+            with self.assertRaisesRegex(
+                harness_context.ContextError,
+                "must reference the resolved global source path",
+            ):
+                self.make_context(
+                    root,
+                    global_review_file=str(global_review),
+                    command_plan=str(plan),
+                )
+
+            forged = json.loads(json.dumps(context))
+            forged["execution"][0]["authorization"]["source_sha256"] = "0" * 64
+            with self.assertRaisesRegex(
+                harness_result.ResultError,
+                "does not match resolved guidance",
+            ):
+                harness_result._validate_context(forged)
+
+    def test_timeout_recording_is_process_independent_and_target_bound(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            root = base / "repo"
+            root.mkdir()
+            make_fixture(root)
+            marker = base / "command-must-not-run"
+            plan = base / "plan.json"
+            plan.write_text(
+                json.dumps(
+                    [
+                        {
+                            "argv": [
+                                sys.executable,
+                                "-c",
+                                f"open({str(marker)!r}, 'w').write('ran')",
+                            ],
+                            "cwd": ".",
+                            "reason": "Exercise the bounded timeout record contract.",
+                            "expected_effects": ["Read the selected fixture only."],
+                            "timeout_seconds": 1,
+                            "repetitions": 1,
+                            "authorization_kind": "caller",
+                            "authorization_source": "Caller authorized this exact fixture plan.",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            context = self.make_context(root, command_plan=str(plan))
+            record = context["execution"][0]
+            record.update(
+                {
+                    "outcome": "timed_out",
+                    "exit_code": None,
+                    "duration_ms": 1001,
+                    "output_sha256": hashlib.sha256(
+                        b"bounded timeout summary"
+                    ).hexdigest(),
+                    "summary": "The authorized check reached its one-second timeout.",
+                }
+            )
+
+            harness_result._validate_context(context)
+            result = harness_result.finalize(context, audit_draft())
+
+            self.assertEqual("timed_out", result["execution"][0]["outcome"])
+            self.assertEqual(1001, result["execution"][0]["duration_ms"])
+            self.assertFalse(marker.exists())
+
+    def test_canonical_result_expansion_is_bounded_before_validation_succeeds(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            make_fixture(root)
+            result = harness_result.finalize(self.make_context(root), audit_draft())
+            compact_bytes = len(harness_result._canonical_json(result))
+            rendered_bytes = len(
+                (harness_result._json_result_text(result) + "\n").encode("utf-8")
+            )
+            self.assertGreater(rendered_bytes, compact_bytes)
+            bounded_limit = (compact_bytes + rendered_bytes) // 2
+
+            with mock.patch.object(
+                harness_result,
+                "MAX_JSON_BYTES",
+                bounded_limit,
+            ):
+                with self.assertRaisesRegex(
+                    harness_result.ResultError,
+                    "machine-readable size ceiling",
+                ):
+                    harness_result._validate_result(result)
 
     def test_essential_and_observed_slow_claims_require_supported_evidence(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -131,7 +131,7 @@ installable = true
 setup_requires_approval = false
 data_sensitivity = "repository source, user review guidance, command summaries, and generated findings"
 docs = "docs/project-review.md"
-tests = ["tests/test_project_review.py", "tests/test_behavioral_eval.py", "tests/test_agent_kit.py"]
+tests = ["tests/test_project_review.py", "tests/test_review_hierarchy_conformance.py", "tests/test_behavioral_eval.py", "tests/test_agent_kit.py"]
 evals = "evals/project-review/cases.json"
 behavioral_evals = "evals/project-review/suite.json"
 
@@ -165,7 +165,7 @@ installable = true
 setup_requires_approval = false
 data_sensitivity = "repository source, active-agent review guidance, context metrics, and generated recommendations"
 docs = "docs/review-guidance-audit.md"
-tests = ["tests/test_review_guidance_audit.py", "tests/test_behavioral_eval.py", "tests/test_agent_kit.py"]
+tests = ["tests/test_review_guidance_audit.py", "tests/test_review_hierarchy_conformance.py", "tests/test_behavioral_eval.py", "tests/test_agent_kit.py"]
 evals = "evals/review-guidance-audit/cases.json"
 behavioral_evals = "evals/review-guidance-audit/suite.json"
 
@@ -182,7 +182,7 @@ installable = true
 setup_requires_approval = false
 data_sensitivity = "repository source, active-agent review guidance, caller-supplied evidence metadata, command summaries, and generated recommendations"
 docs = "docs/verification-harness-audit.md"
-tests = ["tests/test_verification_harness_audit.py", "tests/test_agent_kit.py"]
+tests = ["tests/test_verification_harness_audit.py", "tests/test_review_hierarchy_conformance.py", "tests/test_agent_kit.py"]
 
 [[resources]]
 id = "serve-artifacts"

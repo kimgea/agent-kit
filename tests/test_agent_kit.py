@@ -577,7 +577,7 @@ class LifecycleTests(unittest.TestCase):
             self.assertEqual("project-review", manifest["name"])
             self.assertEqual(3, len(manifest["interface"]["defaultPrompt"]))
 
-    def test_grouped_plugin_skill_remains_independently_packageable(self):
+    def test_grouped_plugin_skills_remain_independently_packageable(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = Path(temporary) / "source"
             shutil.copytree(
@@ -603,6 +603,44 @@ class LifecycleTests(unittest.TestCase):
                 "review-guidance-audit/skills/project-review/SKILL.md",
                 names,
             )
+
+            verification_artifacts = agent_kit.package_artifacts(
+                Path("standalone-verification"),
+                ["verification-harness-audit"],
+                "skill",
+                fixture,
+            )
+            verification_archive = next(
+                path
+                for path in verification_artifacts
+                if path.name.startswith("verification-harness-audit-")
+            )
+            with zipfile.ZipFile(verification_archive) as bundle:
+                verification_names = set(bundle.namelist())
+                resolver_source = bundle.read(
+                    "verification-harness-audit/scripts/harness_context.py"
+                ).decode("utf-8")
+                result_source = bundle.read(
+                    "verification-harness-audit/scripts/harness_result.py"
+                ).decode("utf-8")
+            expected_runtime = {
+                "LICENSE",
+                "THIRD_PARTY_NOTICES.md",
+                "verification-harness-audit/SKILL.md",
+                "verification-harness-audit/agents/openai.yaml",
+                "verification-harness-audit/references/audit-rubric.md",
+                "verification-harness-audit/references/resolver-context.md",
+                "verification-harness-audit/references/result-authoring.md",
+                "verification-harness-audit/references/verification-harness-result.schema.json",
+                "verification-harness-audit/scripts/harness_context.py",
+                "verification-harness-audit/scripts/harness_result.py",
+            }
+            self.assertEqual(expected_runtime, verification_names)
+            for source in (resolver_source, result_source):
+                self.assertNotIn("from scripts", source)
+                self.assertNotIn("import scripts", source)
+                self.assertNotIn("skills.project_review", source)
+                self.assertNotIn("skills.review_guidance_audit", source)
 
     def test_invalid_plugin_membership_and_unknown_package_selection_are_refused(self):
         with tempfile.TemporaryDirectory() as temporary:
