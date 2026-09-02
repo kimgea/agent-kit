@@ -1,7 +1,7 @@
 ---
 name: verification-harness-audit
 description: Audit local verification harnesses for timely, reliable, meaningful protection without changing them.
-status: active
+status: completed
 created: 2026-09-01T18:45:17Z
 ---
 
