@@ -1020,6 +1020,80 @@ class ResolverTests(unittest.TestCase):
                 trusted.rename(moved)
                 moved.rename(trusted)
 
+    @unittest.skipUnless(os.name == "nt", "Windows handle-boundary probe")
+    def test_windows_context_parent_chain_rejects_raced_reparse(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            trusted = base / "trusted"
+            moved = base / "moved"
+            outside = base / "outside"
+            trusted.mkdir()
+            outside.mkdir()
+            source = trusted / "source.txt"
+            source.write_bytes(b"trusted\n")
+            (outside / source.name).write_bytes(b"outside\n")
+            probe = base / "probe-link"
+            try:
+                probe.symlink_to(outside, target_is_directory=True)
+                probe.unlink()
+            except OSError:
+                self.skipTest("directory symlinks unavailable")
+
+            original_absolute = harness_context._windows_create_handle
+            original_relative = harness_context._windows_relative_handle
+
+            def restore_parent():
+                if trusted.is_symlink():
+                    trusted.unlink()
+                if moved.exists():
+                    moved.rename(trusted)
+
+            def exercise(action):
+                raced = False
+
+                def replace_unopened_child(parent_handle, name, **kwargs):
+                    nonlocal raced
+                    if (
+                        kwargs.get("directory")
+                        and name == trusted.name
+                        and not raced
+                    ):
+                        trusted.rename(moved)
+                        trusted.symlink_to(outside, target_is_directory=True)
+                        raced = True
+                    return original_relative(parent_handle, name, **kwargs)
+
+                try:
+                    with mock.patch.object(
+                        harness_context,
+                        "_windows_create_handle",
+                        wraps=original_absolute,
+                    ) as absolute_open, mock.patch.object(
+                        harness_context,
+                        "_windows_relative_handle",
+                        side_effect=replace_unopened_child,
+                    ):
+                        with self.assertRaisesRegex(
+                            harness_context.ContextError,
+                            "link-like|reparse",
+                        ):
+                            action()
+                    self.assertTrue(raced)
+                    self.assertEqual(1, absolute_open.call_count)
+                    self.assertEqual(
+                        Path(source.absolute().anchor),
+                        Path(absolute_open.call_args.args[0]),
+                    )
+                finally:
+                    restore_parent()
+
+            exercise(lambda: harness_context._read_regular(source, 64))
+            output = trusted / "context.json"
+            exercise(
+                lambda: harness_context._write_created_output(output, b"bound\n")
+            )
+            self.assertFalse((outside / output.name).exists())
+
     def test_read_only_target_and_canonical_output_preserve_platform_state(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
@@ -2312,6 +2386,87 @@ class ResultTests(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(harness_result.ResultError, "unavailable"):
                     harness_result._read_json(str(input_file))
+
+    @unittest.skipUnless(os.name == "nt", "Windows handle-boundary probe")
+    def test_windows_result_parent_chain_rejects_raced_reparse(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            trusted = base / "trusted"
+            moved = base / "moved"
+            outside = base / "outside"
+            trusted.mkdir()
+            outside.mkdir()
+            input_file = trusted / "input.json"
+            input_file.write_text('{"bound":true}', encoding="utf-8")
+            (outside / input_file.name).write_text(
+                '{"bound":false}', encoding="utf-8"
+            )
+            probe = base / "probe-link"
+            try:
+                probe.symlink_to(outside, target_is_directory=True)
+                probe.unlink()
+            except OSError:
+                self.skipTest("directory symlinks unavailable")
+
+            original_absolute = harness_result._windows_create_handle
+            original_relative = harness_result._windows_relative_handle
+
+            def restore_parent():
+                if trusted.is_symlink():
+                    trusted.unlink()
+                if moved.exists():
+                    moved.rename(trusted)
+
+            def exercise(action):
+                raced = False
+
+                def replace_unopened_child(parent_handle, name, **kwargs):
+                    nonlocal raced
+                    if (
+                        kwargs.get("directory")
+                        and name == trusted.name
+                        and not raced
+                    ):
+                        trusted.rename(moved)
+                        trusted.symlink_to(outside, target_is_directory=True)
+                        raced = True
+                    return original_relative(parent_handle, name, **kwargs)
+
+                try:
+                    with mock.patch.object(
+                        harness_result,
+                        "_windows_create_handle",
+                        wraps=original_absolute,
+                    ) as absolute_open, mock.patch.object(
+                        harness_result,
+                        "_windows_relative_handle",
+                        side_effect=replace_unopened_child,
+                    ):
+                        with self.assertRaisesRegex(
+                            harness_result.ResultError,
+                            "link-like|reparse",
+                        ):
+                            action()
+                    self.assertTrue(raced)
+                    self.assertEqual(1, absolute_open.call_count)
+                    self.assertEqual(
+                        Path(input_file.absolute().anchor),
+                        Path(absolute_open.call_args.args[0]),
+                    )
+                finally:
+                    restore_parent()
+
+            exercise(lambda: harness_result._read_json(str(input_file)))
+            output = trusted / "result.json"
+            exercise(
+                lambda: harness_result._write_output(
+                    "bound",
+                    str(output),
+                    False,
+                    input_paths=[],
+                )
+            )
+            self.assertFalse((outside / output.name).exists())
 
     def test_cli_finalize_validate_and_render_share_one_canonical_result(self):
         with tempfile.TemporaryDirectory() as temporary:

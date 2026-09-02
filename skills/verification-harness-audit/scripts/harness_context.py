@@ -241,10 +241,6 @@ def _windows_handle_path(handle: int) -> Path:
     return Path(value)
 
 
-def _windows_path_key(path: Path) -> str:
-    return os.path.normcase(os.path.normpath(str(path.absolute())))
-
-
 def _windows_relative_handle(
     parent_handle: int,
     name: str,
@@ -254,7 +250,7 @@ def _windows_relative_handle(
     display_path: Path,
     directory: bool = False,
 ) -> int:
-    """Open or create one non-link file relative to a bound parent handle."""
+    """Open or create one non-link entry relative to a bound parent handle."""
     import ctypes
     from ctypes import wintypes
 
@@ -381,45 +377,53 @@ def _windows_handle_attributes(handle: int) -> tuple[int, int, int, int]:
 @contextlib.contextmanager
 def _windows_locked_parent(path: Path):
     """Verify the parent chain and yield its bound final directory handle."""
-    supplied = path.absolute()
-    _assert_no_link_components(supplied, include_final=False)
-    try:
-        absolute = supplied.parent.resolve(strict=True) / supplied.name
-    except OSError as exc:
-        raise ContextError(f"cannot resolve safe Windows parent for {path}: {exc}") from exc
+    absolute = path.absolute()
+    _assert_no_link_components(absolute, include_final=False)
     if not absolute.name:
         raise ContextError(f"path must name a file: {path}")
     current = Path(absolute.anchor)
-    directories = [current]
-    for part in absolute.parent.parts[1:]:
-        current /= part
-        directories.append(current)
     handles: list[int] = []
     try:
-        for directory in directories:
-            handle = _windows_create_handle(
-                directory,
+        handle = _windows_create_handle(
+            current,
+            access=0x00000080,
+            creation=3,
+            flags=0x02000000 | 0x00200000,
+        )
+        try:
+            attributes, _, _, _ = _windows_handle_attributes(handle)
+        except Exception:
+            _windows_close_handle(handle)
+            raise
+        if attributes & 0x00000400 or not attributes & 0x00000010:
+            _windows_close_handle(handle)
+            raise ContextError(
+                f"refusing link-like or non-directory parent: {current}"
+            )
+        handles.append(handle)
+        for part in absolute.parent.parts[1:]:
+            current /= part
+            child = _windows_relative_handle(
+                handles[-1],
+                part,
                 access=0x00000080,
                 creation=3,
-                flags=0x02000000 | 0x00200000,
+                display_path=current,
+                directory=True,
             )
             try:
-                attributes, _, _, _ = _windows_handle_attributes(handle)
+                attributes, _, _, _ = _windows_handle_attributes(child)
             except Exception:
-                _windows_close_handle(handle)
+                _windows_close_handle(child)
                 raise
             if attributes & 0x00000400 or not attributes & 0x00000010:
-                _windows_close_handle(handle)
+                _windows_close_handle(child)
                 raise ContextError(
-                    f"refusing link-like or non-directory parent: {directory}"
+                    f"refusing link-like or non-directory parent: {current}"
                 )
-            handles.append(handle)
+            handles.append(child)
         bound_parent = _windows_handle_path(handles[-1])
-        if _windows_path_key(bound_parent) != _windows_path_key(absolute.parent):
-            raise ContextError(
-                f"Windows parent changed while being bound: {absolute.parent}"
-            )
-        yield absolute, handles[-1]
+        yield bound_parent / absolute.name, handles[-1]
     finally:
         for handle in reversed(handles):
             _windows_close_handle(handle)
