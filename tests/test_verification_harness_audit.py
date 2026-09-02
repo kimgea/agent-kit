@@ -60,6 +60,10 @@ def context_args(root, **overrides):
 
 
 def same_path(left, right):
+    try:
+        return os.path.samefile(left, right)
+    except OSError:
+        pass
     return os.path.normcase(str(Path(left).resolve())) == os.path.normcase(
         str(Path(right).resolve())
     )
@@ -942,11 +946,12 @@ class ResolverTests(unittest.TestCase):
             self.assertFalse((outside / "context.json").exists())
 
     @unittest.skipUnless(os.name == "nt", "Windows handle-boundary probe")
-    def test_windows_context_parent_handles_block_swaps_and_release(self):
+    def test_windows_context_parent_handles_bind_swaps_and_release(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             trusted = base / "trusted"
             moved = base / "moved"
+            outside_text = "outside\n"
             trusted.mkdir()
             source = trusted / "source.txt"
             source.write_text("trusted\n", encoding="utf-8")
@@ -958,8 +963,12 @@ class ResolverTests(unittest.TestCase):
                     trusted.rename(moved)
                 except OSError:
                     swap_attempts.append("blocked")
-                else:  # pragma: no cover - indicates the Windows lock failed
+                else:
                     swap_attempts.append("escaped")
+                    trusted.mkdir()
+                    (trusted / "source.txt").write_text(
+                        outside_text, encoding="utf-8"
+                    )
                 return original_descriptor(*args, **kwargs)
 
             with mock.patch.object(
@@ -969,9 +978,15 @@ class ResolverTests(unittest.TestCase):
             ):
                 _, data = harness_context._read_regular(source, 64)
             self.assertEqual(b"trusted\n", data)
-            self.assertEqual(["blocked"], swap_attempts)
-            trusted.rename(moved)
-            moved.rename(trusted)
+            self.assertIn(swap_attempts, (["blocked"], ["escaped"]))
+            if swap_attempts == ["escaped"]:
+                self.assertEqual(outside_text, source.read_text(encoding="utf-8"))
+                source.unlink()
+                trusted.rmdir()
+                moved.rename(trusted)
+            else:
+                trusted.rename(moved)
+                moved.rename(trusted)
 
             swap_attempts.clear()
             with mock.patch.object(
@@ -982,12 +997,19 @@ class ResolverTests(unittest.TestCase):
                 harness_context._write_created_output(
                     trusted / "context.json", b"bound\n"
                 )
-            self.assertEqual(["blocked"], swap_attempts)
+            self.assertIn(swap_attempts, (["blocked"], ["escaped"]))
+            output_parent = moved if swap_attempts == ["escaped"] else trusted
             self.assertEqual(
-                b"bound\n", (trusted / "context.json").read_bytes()
+                b"bound\n", (output_parent / "context.json").read_bytes()
             )
-            trusted.rename(moved)
-            moved.rename(trusted)
+            if swap_attempts == ["escaped"]:
+                self.assertFalse((trusted / "context.json").exists())
+                (trusted / "source.txt").unlink()
+                trusted.rmdir()
+                moved.rename(trusted)
+            else:
+                trusted.rename(moved)
+                moved.rename(trusted)
 
     def test_read_only_target_and_canonical_output_preserve_platform_state(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -2158,7 +2180,7 @@ class ResultTests(unittest.TestCase):
             self.assertFalse((outside / "result.json").exists())
 
     @unittest.skipUnless(os.name == "nt", "Windows handle-boundary probe")
-    def test_windows_parent_handles_block_swaps_reject_reparse_and_are_released(self):
+    def test_windows_parent_handles_bind_swaps_reject_reparse_and_are_released(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             trusted = base / "trusted"
@@ -2174,8 +2196,12 @@ class ResultTests(unittest.TestCase):
                     trusted.rename(moved)
                 except OSError:
                     swap_attempts.append("blocked")
-                else:  # pragma: no cover - indicates the Windows lock failed
+                else:
                     swap_attempts.append("escaped")
+                    trusted.mkdir()
+                    (trusted / "input.json").write_text(
+                        '{"bound":false}', encoding="utf-8"
+                    )
                 return original_descriptor(*args, **kwargs)
 
             with mock.patch.object(
@@ -2184,9 +2210,15 @@ class ResultTests(unittest.TestCase):
                 side_effect=attempt_swap_before_open,
             ):
                 self.assertTrue(harness_result._read_json(str(input_file))["bound"])
-            self.assertEqual(["blocked"], swap_attempts)
-            trusted.rename(moved)
-            moved.rename(trusted)
+            self.assertIn(swap_attempts, (["blocked"], ["escaped"]))
+            if swap_attempts == ["escaped"]:
+                self.assertFalse(harness_result._read_json(str(input_file))["bound"])
+                input_file.unlink()
+                trusted.rmdir()
+                moved.rename(trusted)
+            else:
+                trusted.rename(moved)
+                moved.rename(trusted)
 
             output = trusted / "result.json"
             swap_attempts.clear()
@@ -2201,10 +2233,19 @@ class ResultTests(unittest.TestCase):
                     False,
                     input_paths=[],
                 )
-            self.assertEqual(["blocked"], swap_attempts)
-            self.assertEqual("bound\n", output.read_text(encoding="utf-8"))
-            trusted.rename(moved)
-            moved.rename(trusted)
+            self.assertIn(swap_attempts, (["blocked"], ["escaped"]))
+            output_parent = moved if swap_attempts == ["escaped"] else trusted
+            self.assertEqual(
+                "bound\n", (output_parent / output.name).read_text(encoding="utf-8")
+            )
+            if swap_attempts == ["escaped"]:
+                self.assertFalse(output.exists())
+                input_file.unlink()
+                trusted.rmdir()
+                moved.rename(trusted)
+            else:
+                trusted.rename(moved)
+                moved.rename(trusted)
 
             failed_output = trusted / "failed.json"
             with mock.patch.object(

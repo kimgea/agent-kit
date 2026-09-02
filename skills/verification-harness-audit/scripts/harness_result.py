@@ -393,6 +393,133 @@ def _windows_close_handle(handle: int) -> None:
     close_handle(handle)
 
 
+def _windows_handle_path(handle: int) -> Path:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    get_final_path = kernel32.GetFinalPathNameByHandleW
+    get_final_path.argtypes = [
+        wintypes.HANDLE,
+        wintypes.LPWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+    ]
+    get_final_path.restype = wintypes.DWORD
+    required = get_final_path(handle, None, 0, 0)
+    if required == 0:
+        error = ctypes.get_last_error()
+        raise OSError(error, ctypes.FormatError(error))
+    buffer = ctypes.create_unicode_buffer(required + 1)
+    written = get_final_path(handle, buffer, len(buffer), 0)
+    if written == 0 or written >= len(buffer):
+        error = ctypes.get_last_error()
+        raise OSError(error, ctypes.FormatError(error))
+    value = buffer.value
+    if value.startswith("\\\\?\\UNC\\"):
+        value = "\\\\" + value[8:]
+    elif value.startswith("\\\\?\\"):
+        value = value[4:]
+    return Path(value)
+
+
+def _windows_path_key(path: Path) -> str:
+    return os.path.normcase(os.path.normpath(str(path.absolute())))
+
+
+def _windows_relative_handle(
+    parent_handle: int,
+    name: str,
+    *,
+    access: int,
+    creation: int,
+    display_path: Path,
+) -> int:
+    """Open or create one non-link file relative to a bound parent handle."""
+    import ctypes
+    from ctypes import wintypes
+
+    class UnicodeString(ctypes.Structure):
+        _fields_ = [
+            ("length", wintypes.USHORT),
+            ("maximum_length", wintypes.USHORT),
+            ("buffer", wintypes.LPWSTR),
+        ]
+
+    class ObjectAttributes(ctypes.Structure):
+        _fields_ = [
+            ("length", wintypes.ULONG),
+            ("root_directory", wintypes.HANDLE),
+            ("object_name", ctypes.POINTER(UnicodeString)),
+            ("attributes", wintypes.ULONG),
+            ("security_descriptor", wintypes.LPVOID),
+            ("security_quality_of_service", wintypes.LPVOID),
+        ]
+
+    class IoStatusBlock(ctypes.Structure):
+        _fields_ = [
+            ("status", ctypes.c_void_p),
+            ("information", ctypes.c_void_p),
+        ]
+
+    disposition = {1: 2, 3: 1}.get(creation)
+    if disposition is None:
+        raise ResultError(f"unsupported Windows create disposition: {creation}")
+    encoded_length = len(name.encode("utf-16-le"))
+    name_buffer = ctypes.create_unicode_buffer(name)
+    object_name = UnicodeString(
+        encoded_length,
+        encoded_length + 2,
+        ctypes.cast(name_buffer, wintypes.LPWSTR),
+    )
+    attributes = ObjectAttributes(
+        ctypes.sizeof(ObjectAttributes),
+        wintypes.HANDLE(parent_handle),
+        ctypes.pointer(object_name),
+        0x00000040,
+        None,
+        None,
+    )
+    status_block = IoStatusBlock()
+    handle = wintypes.HANDLE()
+    ntdll = ctypes.WinDLL("ntdll")
+    nt_create_file = ntdll.NtCreateFile
+    nt_create_file.argtypes = [
+        ctypes.POINTER(wintypes.HANDLE),
+        wintypes.ULONG,
+        ctypes.POINTER(ObjectAttributes),
+        ctypes.POINTER(IoStatusBlock),
+        ctypes.c_void_p,
+        wintypes.ULONG,
+        wintypes.ULONG,
+        wintypes.ULONG,
+        wintypes.ULONG,
+        ctypes.c_void_p,
+        wintypes.ULONG,
+    ]
+    nt_create_file.restype = wintypes.LONG
+    status = nt_create_file(
+        ctypes.byref(handle),
+        access | 0x00100000,
+        ctypes.byref(attributes),
+        ctypes.byref(status_block),
+        None,
+        0x00000080,
+        0x00000001 | 0x00000002,
+        disposition,
+        0x00000020 | 0x00000040 | 0x00200000,
+        None,
+        0,
+    )
+    if status < 0:
+        rtl_error = ntdll.RtlNtStatusToDosError
+        rtl_error.argtypes = [wintypes.LONG]
+        rtl_error.restype = wintypes.ULONG
+        error = int(rtl_error(status))
+        raise OSError(error, ctypes.FormatError(error), str(display_path))
+    return int(handle.value)
+
+
 def _windows_handle_attributes(handle: int) -> tuple[int, int]:
     import ctypes
     from ctypes import wintypes
@@ -458,7 +585,12 @@ def _windows_locked_parent(path: Path):
                 _windows_close_handle(handle)
                 raise ResultError(f"refusing link-like or non-directory parent: {directory}")
             handles.append(handle)
-        yield absolute
+        bound_parent = _windows_handle_path(handles[-1])
+        if _windows_path_key(bound_parent) != _windows_path_key(absolute.parent):
+            raise ResultError(
+                f"Windows parent changed while being bound: {absolute.parent}"
+            )
+        yield absolute, handles[-1]
     finally:
         for handle in reversed(handles):
             _windows_close_handle(handle)
@@ -467,17 +599,19 @@ def _windows_locked_parent(path: Path):
 def _windows_file_descriptor(
     path: Path,
     *,
+    parent_handle: int,
     access: int,
     creation: int,
     descriptor_flags: int,
 ) -> int:
     import msvcrt
 
-    handle = _windows_create_handle(
-        path,
+    handle = _windows_relative_handle(
+        parent_handle,
+        path.name,
         access=access,
         creation=creation,
-        flags=0x00000080 | 0x00200000,
+        display_path=path,
     )
     try:
         attributes, _ = _windows_handle_attributes(handle)
@@ -493,11 +627,12 @@ def _windows_file_descriptor(
 def _bound_read_descriptor(path: Path, label: str):
     """Open a regular file while binding every path component to one identity."""
     if os.name == "nt":
-        with _windows_locked_parent(path) as absolute:
+        with _windows_locked_parent(path) as (absolute, parent_handle):
             try:
                 preflight = absolute.lstat()
                 descriptor = _windows_file_descriptor(
                     absolute,
+                    parent_handle=parent_handle,
                     access=0x80000000,
                     creation=3,
                     descriptor_flags=os.O_RDONLY | getattr(os, "O_BINARY", 0),
@@ -2381,8 +2516,13 @@ def _write_output_posix(
             try:
                 os.ftruncate(descriptor, 0)
                 _write_descriptor(descriptor, data)
+                final_metadata = os.fstat(descriptor)
                 final_entry = os.stat(name, dir_fd=parent, follow_symlinks=False)
-                if _file_identity(final_entry) != _file_identity(metadata):
+                if (
+                    final_entry.st_nlink != 1
+                    or final_metadata.st_nlink != 1
+                    or _file_identity(final_entry) != _file_identity(final_metadata)
+                ):
                     raise ResultError(f"output entry changed while being written: {absolute}")
             finally:
                 os.close(descriptor)
@@ -2404,8 +2544,13 @@ def _write_output_posix(
             if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
                 raise ResultError(f"refusing unsafe new output: {absolute}")
             _write_descriptor(descriptor, data)
+            final_metadata = os.fstat(descriptor)
             final_entry = os.stat(name, dir_fd=parent, follow_symlinks=False)
-            if _file_identity(final_entry) != _file_identity(metadata):
+            if (
+                final_entry.st_nlink != 1
+                or final_metadata.st_nlink != 1
+                or _file_identity(final_entry) != _file_identity(final_metadata)
+            ):
                 raise ResultError(f"output entry changed while being written: {absolute}")
         finally:
             os.close(descriptor)
@@ -2417,7 +2562,7 @@ def _write_output_windows(
     overwrite: bool,
     input_identities: set[tuple[int, int]],
 ) -> None:
-    with _windows_locked_parent(path) as absolute:
+    with _windows_locked_parent(path) as (absolute, parent_handle):
         try:
             preflight = absolute.lstat()
         except FileNotFoundError:
@@ -2430,6 +2575,7 @@ def _write_output_windows(
         try:
             descriptor = _windows_file_descriptor(
                 absolute,
+                parent_handle=parent_handle,
                 access=0x40000000 | 0x00000080,
                 creation=creation,
                 descriptor_flags=os.O_WRONLY | getattr(os, "O_BINARY", 0),
@@ -2453,8 +2599,23 @@ def _write_output_windows(
             if not created:
                 os.ftruncate(descriptor, 0)
             _write_descriptor(descriptor, data)
-            final_entry = absolute.lstat()
-            if _file_identity(final_entry) != _file_identity(metadata):
+            final_metadata = os.fstat(descriptor)
+            verification = _windows_file_descriptor(
+                absolute,
+                parent_handle=parent_handle,
+                access=0x00000080,
+                creation=3,
+                descriptor_flags=os.O_RDONLY | getattr(os, "O_BINARY", 0),
+            )
+            try:
+                final_entry = os.fstat(verification)
+            finally:
+                os.close(verification)
+            if (
+                final_metadata.st_nlink != 1
+                or _file_open_binding_signature(final_entry)
+                != _file_open_binding_signature(final_metadata)
+            ):
                 raise ResultError(f"output entry changed while being written: {absolute}")
         finally:
             os.close(descriptor)
