@@ -1,5 +1,5 @@
 schema_version = 2
-toolkit_version = "1.8.0"
+toolkit_version = "1.9.0"
 minimum_python = "3.11"
 
 [plugin_marketplace]
@@ -42,18 +42,18 @@ authentication = "ON_INSTALL"
 
 [[plugins]]
 id = "project-review"
-skills = ["project-review", "review-and-fix", "review-guidance-audit"]
+skills = ["project-review", "review-and-fix", "review-guidance-audit", "verification-harness-audit"]
 category = "Developer Tools"
 installation = "AVAILABLE"
 authentication = "ON_INSTALL"
-version = "1.3.0"
-description = "Review bounded project changes, safely remediate findings, and improve the hierarchical guidance used by reviewers."
+version = "1.4.0"
+description = "Review bounded project changes, safely remediate findings, improve hierarchical guidance, and audit local verification harnesses."
 display_name = "Project Review Workflow"
-short_description = "Review, remediate, and improve review guidance"
+short_description = "Review, remediate, and audit verification"
 default_prompts = [
   "Use $project-review to review these bounded project changes.",
   "Use $review-and-fix to review and safely fix these local changes.",
-  "Use $review-guidance-audit to improve the applicable REVIEW.md guidance.",
+  "Use $review-guidance-audit for guidance, or $verification-harness-audit for the local verification harness.",
 ]
 
 [[plugins]]
@@ -131,7 +131,7 @@ installable = true
 setup_requires_approval = false
 data_sensitivity = "repository source, user review guidance, command summaries, and generated findings"
 docs = "docs/project-review.md"
-tests = ["tests/test_project_review.py", "tests/test_behavioral_eval.py", "tests/test_agent_kit.py"]
+tests = ["tests/test_project_review.py", "tests/test_review_hierarchy_conformance.py", "tests/test_behavioral_eval.py", "tests/test_agent_kit.py"]
 evals = "evals/project-review/cases.json"
 behavioral_evals = "evals/project-review/suite.json"
 
@@ -165,9 +165,26 @@ installable = true
 setup_requires_approval = false
 data_sensitivity = "repository source, active-agent review guidance, context metrics, and generated recommendations"
 docs = "docs/review-guidance-audit.md"
-tests = ["tests/test_review_guidance_audit.py", "tests/test_behavioral_eval.py", "tests/test_agent_kit.py"]
+tests = ["tests/test_review_guidance_audit.py", "tests/test_review_hierarchy_conformance.py", "tests/test_behavioral_eval.py", "tests/test_agent_kit.py"]
 evals = "evals/review-guidance-audit/cases.json"
 behavioral_evals = "evals/review-guidance-audit/suite.json"
+
+[[resources]]
+id = "verification-harness-audit"
+kind = "skill"
+path = "skills/verification-harness-audit"
+version = "1.0.0"
+summary = "Audit a selected local verification harness under hierarchical review guidance."
+agents = ["codex", "claude"]
+platforms = ["linux", "windows", "macos"]
+maturity = "beta"
+installable = true
+setup_requires_approval = false
+data_sensitivity = "repository source, active-agent review guidance, caller-supplied evidence metadata, command summaries, and generated recommendations"
+docs = "docs/verification-harness-audit.md"
+tests = ["tests/test_verification_harness_audit.py", "tests/test_review_hierarchy_conformance.py", "tests/test_behavioral_eval.py", "tests/test_agent_kit.py"]
+evals = "evals/verification-harness-audit/cases.json"
+behavioral_evals = "evals/verification-harness-audit/suite.json"
 
 [[resources]]
 id = "serve-artifacts"

@@ -1,10 +1,12 @@
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
 import os
 import shutil
 import stat
+import subprocess
 import tempfile
 import unittest
 import zipfile
@@ -51,6 +53,233 @@ class CatalogAndValidationTests(unittest.TestCase):
         self.assertEqual(skills, catalog_skills)
         self.assertEqual([], agent_kit.validate_repository(ROOT))
 
+    def test_workflow_gate_requires_one_exact_non_bypassable_command(self):
+        command = "python scripts/agent_kit.py check"
+        self.assertTrue(agent_kit.workflow_has_exact_run_command(f"run: {command}\n", command))
+        self.assertFalse(
+            agent_kit.workflow_has_exact_run_command(
+                f"run: {command} --skip-tests\n", command
+            )
+        )
+        self.assertFalse(
+            agent_kit.workflow_has_exact_run_command(
+                f"run: {command}\n# {command}\n", command
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary)
+            workflows = fixture / ".github" / "workflows"
+            workflows.mkdir(parents=True)
+            for name in ("ci.yml", "release.yml"):
+                shutil.copy2(ROOT / ".github" / "workflows" / name, workflows / name)
+            catalog = agent_kit.load_catalog(ROOT)
+            ci = workflows / "ci.yml"
+            ci.write_text(
+                ci.read_text(encoding="utf-8").replace(
+                    f"run: {command}", f"run: {command} --skip-tests"
+                ),
+                encoding="utf-8",
+            )
+            errors = agent_kit.validate_repository_controls(fixture, catalog)
+            self.assertTrue(
+                any("ci.yml: canonical gate must be exactly one run entry" in item for item in errors),
+                errors,
+            )
+
+    def test_check_detects_worktree_mutation_on_every_failure_path(self):
+        args = type("Args", (), {"skip_tests": False})()
+        scenarios = (
+            ("repository validation", ["invalid repository"], 0),
+            ("unit tests", [], 1),
+        )
+        for label, validation_errors, test_status in scenarios:
+            with self.subTest(label=label), mock.patch.object(
+                agent_kit,
+                "validation_snapshot",
+                side_effect=[("git", "before"), ("git", "after")],
+            ), mock.patch.object(
+                agent_kit, "validate_repository", return_value=validation_errors
+            ), mock.patch.object(
+                agent_kit, "compile_repository", return_value=[]
+            ), mock.patch.object(
+                agent_kit, "run_tests", return_value=test_status
+            ), contextlib.redirect_stderr(io.StringIO()) as errors:
+                self.assertEqual(1, agent_kit.command_check(args))
+            self.assertIn("validation changed the working tree", errors.getvalue())
+
+    def test_check_snapshots_non_git_sources_and_raised_failures(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary)
+            source = fixture / "source.txt"
+            source.write_text("before\n", encoding="utf-8")
+            before = agent_kit.validation_snapshot(fixture)
+            source.write_text("after\n", encoding="utf-8")
+            after = agent_kit.validation_snapshot(fixture)
+            self.assertEqual("tree", before[0])
+            self.assertNotEqual(before, after)
+
+            before_directory = after
+            (fixture / "empty").mkdir()
+            after_directory = agent_kit.validation_snapshot(fixture)
+            self.assertNotEqual(before_directory, after_directory)
+
+            if os.name != "nt":
+                before_mode = after_directory
+                source.chmod(stat.S_IMODE(source.stat().st_mode) ^ stat.S_IXUSR)
+                after_mode = agent_kit.validation_snapshot(fixture)
+                self.assertNotEqual(before_mode, after_mode)
+
+        args = type("Args", (), {"skip_tests": False})()
+        with mock.patch.object(
+            agent_kit,
+            "validation_snapshot",
+            side_effect=[("git", "before"), ("git", "after")],
+        ) as snapshot, mock.patch.object(
+            agent_kit, "validate_repository", side_effect=RuntimeError("failed")
+        ), contextlib.redirect_stderr(io.StringIO()) as errors:
+            with self.assertRaisesRegex(RuntimeError, "failed"):
+                agent_kit.command_check(args)
+        self.assertEqual(2, snapshot.call_count)
+        self.assertIn("validation changed the working tree", errors.getvalue())
+
+    def test_git_snapshot_detects_rewrites_with_unchanged_porcelain_status(self):
+        git = shutil.which("git")
+        if git is None:
+            self.skipTest("git is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary)
+            subprocess.run([git, "init", "-q"], cwd=fixture, check=True)
+            tracked = fixture / "tracked.txt"
+            untracked = fixture / "untracked.txt"
+            tracked.write_text("staged\n", encoding="utf-8")
+            subprocess.run([git, "add", "tracked.txt"], cwd=fixture, check=True)
+            tracked.write_text("dirty one\n", encoding="utf-8")
+            untracked.write_text("loose one\n", encoding="utf-8")
+
+            status_before = agent_kit.git_status(fixture)
+            snapshot_before = agent_kit.validation_snapshot(fixture)
+            tracked.write_text("dirty two\n", encoding="utf-8")
+            untracked.write_text("loose two\n", encoding="utf-8")
+            status_after = agent_kit.git_status(fixture)
+            snapshot_after = agent_kit.validation_snapshot(fixture)
+
+            self.assertEqual(status_before, status_after)
+            self.assertNotEqual(snapshot_before, snapshot_after)
+
+    def test_git_snapshot_rejects_link_like_source_ancestors(self):
+        windows_reparse = type(
+            "WindowsReparseStat",
+            (),
+            {
+                "st_mode": stat.S_IFDIR,
+                "st_file_attributes": getattr(
+                    stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400
+                ),
+            },
+        )()
+        self.assertTrue(agent_kit._validation_link_like(windows_reparse))
+
+        git = shutil.which("git")
+        if git is None:
+            self.skipTest("git is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "repository"
+            outside = base / "outside"
+            fixture.mkdir()
+            outside.mkdir()
+            subprocess.run([git, "init", "-q"], cwd=fixture, check=True)
+            tracked = fixture / "tracked"
+            tracked.mkdir()
+            (tracked / "source.txt").write_text("inside\n", encoding="utf-8")
+            subprocess.run(
+                [git, "add", "tracked/source.txt"], cwd=fixture, check=True
+            )
+            shutil.rmtree(tracked)
+            (outside / "source.txt").write_text("outside\n", encoding="utf-8")
+            try:
+                os.symlink(outside, tracked, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"directory symlinks are unavailable: {exc}")
+
+            with self.assertRaisesRegex(agent_kit.AgentKitError, "source ancestor"):
+                agent_kit.validation_snapshot(fixture)
+
+    def test_source_digest_detects_ancestor_swap_after_open(self):
+        if os.name == "nt":
+            self.skipTest("Windows denies renaming an ancestor with an open child handle")
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "repository"
+            outside = base / "outside"
+            tracked = fixture / "tracked"
+            saved = fixture / "saved"
+            tracked.mkdir(parents=True)
+            outside.mkdir()
+            source = tracked / "source.txt"
+            source.write_text("inside\n", encoding="utf-8")
+            (outside / "source.txt").write_text("outside\n", encoding="utf-8")
+            real_open = os.open
+
+            def open_then_swap(path, flags):
+                descriptor = real_open(path, flags)
+                tracked.rename(saved)
+                try:
+                    os.symlink(outside, tracked, target_is_directory=True)
+                except OSError:
+                    os.close(descriptor)
+                    raise
+                return descriptor
+
+            try:
+                with mock.patch.object(agent_kit.os, "open", side_effect=open_then_swap):
+                    with self.assertRaisesRegex(
+                        agent_kit.AgentKitError, "source ancestor"
+                    ):
+                        agent_kit._hash_validation_path(
+                            hashlib.sha256(), fixture, b"tracked/source.txt"
+                        )
+            except OSError as exc:
+                self.skipTest(f"directory symlinks are unavailable: {exc}")
+
+    def test_source_digest_tolerates_descriptor_metadata_representation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary)
+            source = fixture / "source.txt"
+            source.write_text("stable\n", encoding="utf-8")
+            real_fstat = agent_kit.os.fstat
+
+            def fstat_with_api_variance(descriptor):
+                value = real_fstat(descriptor)
+                return type(
+                    "DescriptorStat",
+                    (),
+                    {
+                        "st_mode": value.st_mode ^ stat.S_IXUSR,
+                        "st_dev": value.st_dev,
+                        "st_ino": value.st_ino,
+                        "st_size": value.st_size,
+                        "st_mtime_ns": value.st_mtime_ns + 1,
+                        "st_ctime_ns": value.st_ctime_ns + 1,
+                    },
+                )()
+
+            with mock.patch.object(
+                agent_kit.os, "fstat", side_effect=fstat_with_api_variance
+            ):
+                agent_kit._hash_validation_path(
+                    hashlib.sha256(), fixture, b"source.txt"
+                )
+
+    def test_git_worktree_snapshot_fails_closed_when_git_is_unavailable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary)
+            (fixture / ".git").mkdir()
+            with mock.patch.object(agent_kit.shutil, "which", return_value=None):
+                with self.assertRaisesRegex(agent_kit.AgentKitError, "git is unavailable"):
+                    agent_kit.validation_snapshot(fixture)
+
     def test_list_json_is_machine_readable(self):
         args = type("Args", (), {"kind": "skill", "json": True})()
         output = io.StringIO()
@@ -69,6 +298,7 @@ class CatalogAndValidationTests(unittest.TestCase):
                 "serve-artifacts",
                 "todo-capture",
                 "tool-audit",
+                "verification-harness-audit",
             ],
             sorted(resource["id"] for resource in value["resources"]),
         )
@@ -496,7 +726,7 @@ class LifecycleTests(unittest.TestCase):
                 Path("release"), None, "all", fixture
             )
             archives = [path for path in artifacts if path.suffix == ".zip"]
-            self.assertEqual(16, len(archives))
+            self.assertEqual(17, len(archives))
             self.assertEqual(6, len([path for path in archives if "-plugin-" in path.name]))
             self.assertEqual(
                 1,
@@ -552,7 +782,12 @@ class LifecycleTests(unittest.TestCase):
             )
             artifacts = agent_kit.package_artifacts(
                 Path("review-group"),
-                ["project-review", "review-and-fix", "review-guidance-audit"],
+                [
+                    "project-review",
+                    "review-and-fix",
+                    "review-guidance-audit",
+                    "verification-harness-audit",
+                ],
                 "plugin",
                 fixture,
             )
@@ -567,10 +802,11 @@ class LifecycleTests(unittest.TestCase):
             self.assertIn("project-review/skills/project-review/SKILL.md", names)
             self.assertIn("project-review/skills/review-and-fix/SKILL.md", names)
             self.assertIn("project-review/skills/review-guidance-audit/SKILL.md", names)
+            self.assertIn("project-review/skills/verification-harness-audit/SKILL.md", names)
             self.assertEqual("project-review", manifest["name"])
             self.assertEqual(3, len(manifest["interface"]["defaultPrompt"]))
 
-    def test_grouped_plugin_skill_remains_independently_packageable(self):
+    def test_grouped_plugin_skills_remain_independently_packageable(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = Path(temporary) / "source"
             shutil.copytree(
@@ -596,6 +832,44 @@ class LifecycleTests(unittest.TestCase):
                 "review-guidance-audit/skills/project-review/SKILL.md",
                 names,
             )
+
+            verification_artifacts = agent_kit.package_artifacts(
+                Path("standalone-verification"),
+                ["verification-harness-audit"],
+                "skill",
+                fixture,
+            )
+            verification_archive = next(
+                path
+                for path in verification_artifacts
+                if path.name.startswith("verification-harness-audit-")
+            )
+            with zipfile.ZipFile(verification_archive) as bundle:
+                verification_names = set(bundle.namelist())
+                resolver_source = bundle.read(
+                    "verification-harness-audit/scripts/harness_context.py"
+                ).decode("utf-8")
+                result_source = bundle.read(
+                    "verification-harness-audit/scripts/harness_result.py"
+                ).decode("utf-8")
+            expected_runtime = {
+                "LICENSE",
+                "THIRD_PARTY_NOTICES.md",
+                "verification-harness-audit/SKILL.md",
+                "verification-harness-audit/agents/openai.yaml",
+                "verification-harness-audit/references/audit-rubric.md",
+                "verification-harness-audit/references/resolver-context.md",
+                "verification-harness-audit/references/result-authoring.md",
+                "verification-harness-audit/references/verification-harness-result.schema.json",
+                "verification-harness-audit/scripts/harness_context.py",
+                "verification-harness-audit/scripts/harness_result.py",
+            }
+            self.assertEqual(expected_runtime, verification_names)
+            for source in (resolver_source, result_source):
+                self.assertNotIn("from scripts", source)
+                self.assertNotIn("import scripts", source)
+                self.assertNotIn("skills.project_review", source)
+                self.assertNotIn("skills.review_guidance_audit", source)
 
     def test_invalid_plugin_membership_and_unknown_package_selection_are_refused(self):
         with tempfile.TemporaryDirectory() as temporary:

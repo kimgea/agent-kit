@@ -11,6 +11,10 @@
 Repository tooling requires Python 3.11 or newer because it uses the standard
 library `tomllib`. Git and GitHub CLI are optional for local discovery; publishing
 and GitHub reads require them.
+The canonical repository gate combines Git status with an exact digest of
+tracked and visible untracked source when it is inside a worktree, and fails
+closed if either snapshot is unavailable. Outside a worktree it compares an
+exact source-tree digest before and after validation instead.
 
 ## Harnesses
 
@@ -22,6 +26,7 @@ and GitHub reads require them.
 | `project-review` | Supported | Supported | Standard-library scope/result helpers; Git is needed for change scopes |
 | `review-and-fix` | Supported | Supported | Plain orchestration plus standard-library batch, plan, and round helpers; fresh subagents are required for unfamiliar prose |
 | `review-guidance-audit` | Supported | Supported | Standard-library current-filesystem resolver and canonical result helper; no external service required |
+| `verification-harness-audit` | Supported | Supported | Standard-library progressive resolver and canonical result helper; local CI is project data and no provider service is required |
 | `serve-artifacts` | Supported | Supported | Standard-library local-first host; network adapters are optional |
 | `todo-capture` | Supported | Supported | Native Windows and POSIX storage/permission fixtures |
 | `tool-audit` | Supported | Supported | Codex and Claude transcript parsers; wrapped Codex calls are conservative |
@@ -54,6 +59,15 @@ modules. Git ref and working-tree modes require Git; bounded snapshot review doe
 not. Unit fixtures cover POSIX and Windows-style path rejection on all CI hosts,
 while native Git behavior runs on Ubuntu and Windows. Optional subagents change
 throughput, not the result contract.
+
+Verification-harness audit scope/result helpers also use only Python 3.11
+standard-library modules. Current-filesystem part and explicit-path audits need
+no Git; Git improves tracked/ignored classification for broad discovery.
+Platform-neutral boundary fixtures cover Windows-style paths everywhere, while
+native Windows tests exercise no-reparse handles, locked ancestor paths, UTF-8
+stdout, and output ownership. macOS uses the POSIX descriptor-relative path and
+no-follow implementation but has no native CI runner yet. Optional subreviews
+change throughput, not target, authority, or result semantics.
 
 ## Installation paths
 

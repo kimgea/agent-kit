@@ -42,6 +42,32 @@ MAX_ASSERTIONS = 128
 MAX_PROMPT_BYTES = 64 * 1024
 MAX_TIMEOUT_SECONDS = 3600
 DEFAULT_TIMEOUT_SECONDS = 1800
+VERIFICATION_HARNESS_OBSERVED_HISTORY = (
+    b"verification-harness-audit fixture history v1\n"
+    b"configuration=python-3.13-linux\n"
+    b"outcomes=pass,fail,pass,fail,pass,fail\n"
+)
+VERIFICATION_HARNESS_FIXED_EVIDENCE = {
+    "observed-flakiness-history": [
+        {
+            "kind": "history",
+            "source_label": (
+                "Lead-owned bounded local history: six same-configuration runs "
+                "alternated between pass and failure."
+            ),
+            "source_sha256": hashlib.sha256(
+                VERIFICATION_HARNESS_OBSERVED_HISTORY
+            ).hexdigest(),
+            "observed_at": "2026-09-02T00:00:00Z",
+            "supplied_at": "2026-09-02T00:05:00Z",
+            "freshness": "fresh",
+            "freshness_basis": (
+                "The bounded history was supplied five minutes after the last "
+                "same-configuration observation."
+            ),
+        }
+    ]
+}
 CONTRACTS = {
     "review-guidance-audit/v1": {
         "skill": "review-guidance-audit",
@@ -80,6 +106,18 @@ CONTRACTS = {
         "reviewers": [
             {"reviewer": "project-review", "reviewer_version": "1.0.0"}
         ],
+    },
+    "verification-harness-audit/v1": {
+        "skill": "verification-harness-audit",
+        "context": "skills/verification-harness-audit/scripts/harness_context.py",
+        "validator": "skills/verification-harness-audit/scripts/harness_result.py",
+        "schema": "skills/verification-harness-audit/references/verification-harness-result.schema.json",
+        "context_kind": "verification-harness-audit",
+        "validator_kind": "simple",
+        "binding_kind": "verification-harness-audit",
+        "target_kinds": {"path", "part"},
+        "dependencies": [],
+        "reviewers": [],
     },
 }
 
@@ -803,6 +841,80 @@ def _contract(
     return result
 
 
+def _resolve_verification_harness_context(
+    case: dict[str, Any],
+    fixture: Path,
+    output: Path,
+    root: Path,
+    context_helper: Path,
+) -> dict[str, Any]:
+    target = case["target"]
+    command = [sys.executable, str(context_helper), "--repo", str(fixture)]
+    if target["kind"] == "part":
+        command.extend(
+            [
+                "--part",
+                f"{target['path']}:{target['start_line']}:{target['end_line']}",
+            ]
+        )
+    else:
+        command.extend(["--path", target["path"]])
+    command.extend(["--max-file-bytes", "4096"])
+
+    fixed_evidence = VERIFICATION_HARNESS_FIXED_EVIDENCE.get(case["id"])
+    if fixed_evidence is not None:
+        evidence_path = output.with_name(f".{output.name}.fixed-evidence.json")
+        _write_new_json(evidence_path, fixed_evidence)
+        command.extend(["--evidence-metadata", str(evidence_path)])
+
+    initial = subprocess.run(
+        command,
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=60,
+        check=False,
+    )
+    if initial.returncode != 0:
+        message = initial.stderr.decode("utf-8", "replace")[:2000]
+        raise EvalError(f"context resolver failed: {message}")
+    try:
+        metadata_context = _parse_agent_result_text(initial.stdout.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        raise EvalError(f"context resolver returned invalid UTF-8: {exc}") from exc
+    if not isinstance(metadata_context, dict):
+        raise EvalError("context resolver must return a JSON object")
+    inventory = metadata_context.get("inventory")
+    files = inventory.get("files") if isinstance(inventory, dict) else None
+    if not isinstance(files, list):
+        raise EvalError("harness context inventory must contain a files array")
+    inspections = sorted(
+        item["path"]
+        for item in files
+        if isinstance(item, dict)
+        and item.get("inspection_kind") == "not_inspected"
+        and isinstance(item.get("path"), str)
+    )
+    if not inspections:
+        _write_new_json(output, metadata_context)
+        return metadata_context
+    for path in inspections:
+        command.extend(["--inspect", path])
+    command.extend(["--output", str(output)])
+    completed = subprocess.run(
+        command,
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=60,
+        check=False,
+    )
+    if completed.returncode != 0:
+        message = completed.stderr.decode("utf-8", "replace")[:2000]
+        raise EvalError(f"context resolver failed: {message}")
+    return _load_json(output, "resolved context")
+
+
 def resolve_context(
     suite: dict[str, Any],
     case: dict[str, Any],
@@ -814,6 +926,10 @@ def resolve_context(
     contract_paths = _contract(suite, root, runtime_skills)
     contract = CONTRACTS[suite["result_contract"]]
     target = case["target"]
+    if contract["context_kind"] == "verification-harness-audit":
+        return _resolve_verification_harness_context(
+            case, fixture, output, root, contract_paths["context"]
+        )
     if contract["context_kind"] == "review-guidance-audit":
         command = [sys.executable, str(contract_paths["context"]), "--repo", str(fixture)]
         if target["kind"] == "part":
@@ -958,6 +1074,33 @@ def _project_review_guidance(context: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _verification_harness_guidance(context: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "chain_id": chain["chain_id"],
+            "target_ids": list(chain["target_ids"]),
+            "paths": list(chain["paths"]),
+            "sources": [
+                {
+                    key: source[key]
+                    for key in (
+                        "source_kind",
+                        "path",
+                        "revision",
+                        "sha256",
+                        "bytes",
+                        "lines",
+                        "loaded",
+                    )
+                }
+                for source in chain["sources"]
+            ],
+            "complete": chain["complete"],
+        }
+        for chain in context["guidance"]
+    ]
+
+
 def _bind_result_unchecked(
     suite: dict[str, Any],
     context: Any,
@@ -1027,11 +1170,34 @@ def _bind_result_unchecked(
         }
         if observed_changes is not None:
             expected["changes"] = observed_changes
+    elif contract["binding_kind"] == "verification-harness-audit":
+        if result.get("context_sha256") != _sha256_json(context):
+            return False, "result context digest does not match the lead-owned context"
+        expected = {
+            "target": context.get("target"),
+            "inventory": context.get("inventory"),
+            "context_inventory": context.get("context_inventory"),
+            "guidance": _verification_harness_guidance(context)
+            if isinstance(context.get("guidance"), list)
+            else None,
+            "execution": context.get("execution"),
+            "evidence_sources": context.get("evidence_sources"),
+        }
     else:  # pragma: no cover - fixed contract table owns this boundary
         return False, "unsupported result binding adapter"
     for key, value in expected.items():
         if result.get(key) != value:
             return False, f"result {key} does not match the lead-owned context"
+    if contract["binding_kind"] in {
+        "project-review",
+        "verification-harness-audit",
+    }:
+        result_limitations = result.get("limitations")
+        if not isinstance(result_limitations, list):
+            return False, "result limitations must be an array"
+        for limitation in context.get("limitations", []):
+            if limitation not in result_limitations:
+                return False, "result omits a resolver-owned limitation"
     return True, "result authority fields match the lead-owned context"
 
 
@@ -1270,6 +1436,62 @@ def _parse_event_commands(path: Path) -> list[str]:
     return commands
 
 
+def _event_delegation_summary(path: Path) -> dict[str, Any]:
+    data = _read_bytes(path, "Codex event stream", MAX_EVENT_BYTES)
+    calls: set[str] = set()
+    for line_number, line in enumerate(data.splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line.decode("utf-8"), object_pairs_hook=_reject_duplicates)
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+            raise EvalError(f"invalid Codex JSONL event at line {line_number}: {exc}") from exc
+        pending = [event]
+        while pending:
+            current = pending.pop()
+            if isinstance(current, dict):
+                item_type = current.get("type")
+                if item_type in {"function_call", "mcp_tool_call", "tool_call"}:
+                    tool_names = [
+                        current.get(key)
+                        for key in ("tool", "tool_name", "name", "method")
+                        if isinstance(current.get(key), str)
+                    ]
+                    if any(
+                        name.replace("::", ".")
+                        .replace("__", ".")
+                        .casefold()
+                        .endswith(".spawn_agent")
+                        or name.casefold() == "spawn_agent"
+                        for name in tool_names
+                    ):
+                        identifier = next(
+                            (
+                                current[key]
+                                for key in ("call_id", "id", "item_id")
+                                if isinstance(current.get(key), str) and current[key]
+                            ),
+                            None,
+                        )
+                        calls.add(identifier or _sha256_json(current))
+                for key, value in current.items():
+                    if key not in {
+                        "arguments",
+                        "args",
+                        "content",
+                        "input",
+                        "message",
+                        "output",
+                        "prompt",
+                        "result",
+                        "text",
+                    }:
+                        pending.append(value)
+            elif isinstance(current, list):
+                pending.extend(current)
+    return {"observed": True, "spawn_calls": len(calls)}
+
+
 def _command_segments(command: str) -> list[list[str]]:
     try:
         lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
@@ -1325,25 +1547,7 @@ def _forbidden_command_hits(
     return list(dict.fromkeys(hits))
 
 
-def _event_error_summary(path: Path) -> str:
-    data = _read_bytes(path, "Codex event stream", MAX_EVENT_BYTES)
-    messages: list[str] = []
-
-    def collect(value: Any) -> None:
-        pending = [value]
-        while pending:
-            current = pending.pop()
-            if isinstance(current, dict):
-                for key, nested in current.items():
-                    if key in {"message", "error", "detail", "reason"} and isinstance(
-                        nested, str
-                    ):
-                        messages.append(nested)
-                    else:
-                        pending.append(nested)
-            elif isinstance(current, list):
-                pending.extend(current)
-
+def _event_stream_reports_failure(data: bytes) -> bool:
     for line in data.splitlines():
         if not line.strip():
             continue
@@ -1355,9 +1559,28 @@ def _event_error_summary(path: Path) -> str:
         if isinstance(event_type, str) and any(
             marker in event_type.casefold() for marker in ("error", "fail")
         ):
-            collect(event)
-    summary = " | ".join(dict.fromkeys(message.strip() for message in messages if message.strip()))
-    return summary[:2000]
+            return True
+    return False
+
+
+def _runner_failure_evidence(errors: Path, events: Path) -> tuple[str, str | None]:
+    """Retain a generic failure category and digest, never raw runner output."""
+    stderr = _read_bytes(errors, "Codex error stream", MAX_RESULT_BYTES)
+    if stderr:
+        return (
+            "Codex exited with a non-empty error stream",
+            hashlib.sha256(stderr).hexdigest(),
+        )
+    event_data = _read_bytes(events, "Codex event stream", MAX_EVENT_BYTES)
+    if _event_stream_reports_failure(event_data):
+        return (
+            "Codex reported a failure event without a canonical result",
+            hashlib.sha256(event_data).hexdigest(),
+        )
+    return (
+        "Codex exited without a canonical result",
+        hashlib.sha256(event_data).hexdigest() if event_data else None,
+    )
 
 
 def _runner_prompt(
@@ -1974,9 +2197,12 @@ def command_run(args: argparse.Namespace) -> int:
                 forbidden = _forbidden_command_hits(
                     commands, case["forbidden_commands"]
                 )
+                delegation = _event_delegation_summary(events_path)
             except EvalError as exc:
                 forbidden = list(case["forbidden_commands"])
+                delegation = {"observed": False, "spawn_calls": 0}
                 isolation_errors.append(str(exc))
+            result_sha256 = None
             if execution["exit_code"] == 0 and result_path.is_file():
                 try:
                     envelope = _load_json(
@@ -2000,7 +2226,15 @@ def command_run(args: argparse.Namespace) -> int:
                         forbidden_commands=forbidden,
                     )
                     _write_new_json(case_directory / "context.json", context)
-                    _write_new_json(case_directory / "result.json", result)
+                    canonical_result_path = case_directory / "result.json"
+                    _write_new_json(canonical_result_path, result)
+                    result_sha256 = hashlib.sha256(
+                        _read_bytes(
+                            canonical_result_path,
+                            "retained canonical result",
+                            MAX_RESULT_BYTES,
+                        )
+                    ).hexdigest()
                 except EvalError as exc:
                     report = {
                         "schema_version": 1,
@@ -2018,16 +2252,16 @@ def command_run(args: argparse.Namespace) -> int:
                         "assertions": [],
                     }
             else:
-                stderr = _read_bytes(errors_path, "Codex error stream", MAX_RESULT_BYTES)
-                error_text = stderr.decode("utf-8", "replace")[:2000].strip()
-                if not error_text:
-                    error_text = _event_error_summary(events_path)
+                error_text, error_digest = _runner_failure_evidence(
+                    errors_path, events_path
+                )
                 report = {
                     "schema_version": 1,
                     "suite": suite["suite"],
                     "case": case["id"],
                     "passed": False,
-                    "runner_error": error_text or "Codex exited without a canonical result",
+                    "runner_error": error_text,
+                    "runner_error_sha256": error_digest,
                     "fixture_mutation": mutation_report,
                     "fixture_mutation_free": (
                         mutation_report["passed"] and not case["expected_mutations"]
@@ -2042,7 +2276,9 @@ def command_run(args: argparse.Namespace) -> int:
                 report["passed"] = False
             report["context_unchanged"] = context_unchanged
             report["fixture_sha256"] = _snapshot_digest(frozen_before)
+            report["result_sha256"] = result_sha256
             report["execution"] = execution
+            report["delegation"] = delegation
             _write_new_json(case_directory / "score.json", report)
             run_results.append(report)
             outcome = "passed" if report["passed"] else "failed"
@@ -2067,11 +2303,15 @@ def command_run(args: argparse.Namespace) -> int:
         "total": len(run_results),
         "passed": sum(item["passed"] for item in run_results),
         "failed": sum(not item["passed"] for item in run_results),
+        "delegation_spawn_calls": sum(
+            item["delegation"]["spawn_calls"] for item in run_results
+        ),
         "cases": [
             {
                 "id": item["case"],
                 "passed": item["passed"],
                 "fixture_sha256": item["fixture_sha256"],
+                "result_sha256": item["result_sha256"],
             }
             for item in run_results
         ],

@@ -213,6 +213,10 @@ def _has_symlink_component(root: Path, candidate: Path) -> bool:
 
 def _current_relative_path(root: Path, value: str) -> Path:
     supplied = Path(value)
+    if (not supplied.is_absolute() and "\\" in value) or any(
+        ord(character) < 32 or ord(character) == 127 for character in value
+    ):
+        raise ContextError(f"unsafe or non-portable explicit path: {value!r}")
     candidate = supplied if supplied.is_absolute() else root / supplied
     candidate = Path(os.path.abspath(candidate))
     try:

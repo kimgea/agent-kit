@@ -4,6 +4,50 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
+## 1.9.0 - 2026-09-02
+
+### Added
+
+- Add the independently installable, analysis-only
+  `verification-harness-audit` skill for assessing tests, assertions, fixtures,
+  linters, type checks, builds, validation scripts, command wiring, and locally
+  stored CI configuration.
+- Add a bounded current-filesystem resolver, hierarchical `REVIEW.md` context,
+  progressive harness inspection, a detailed provider-neutral audit rubric,
+  canonical JSON schema, deterministic result finalizer, and human renderer.
+- Add part, file, directory, and project scopes; evidence-backed recommendation
+  strength/readiness/tier classifications; and `PASS`, `IMPROVEMENTS`, and
+  `INCOMPLETE` status derivation.
+- Add descriptive and executable behavioral suites spanning 14 adversarial
+  local harness scenarios with fixed target/provenance grading and model-free
+  canonical validation.
+
+### Changed
+
+- Include verification-harness audit in the grouped `project-review` Codex
+  plugin while preserving its independent standalone skill archive and runtime.
+- Document generic `review-and-fix` normalization as an optional downstream
+  path without promising a deterministic adapter or automatic remediation.
+- Demonstrate conservative generic normalization of essential, advisory, and
+  incomplete audit outcomes while keeping fix and command authority separate.
+
+### Security
+
+- Keep targets, guidance, context, command authority, supplied evidence, IDs,
+  counts, and status outside semantic-draft control; bind finalization to fresh
+  resolver-owned filesystem provenance.
+- Reject link/reparse authority paths, ancestor and final-entry swap races,
+  output aliases, malformed or oversized JSON, inapplicable nested guidance,
+  unread evidence, and command execution lacking exact caller or user-global
+  authority.
+- Treat local CI as untrusted project data, keep provider APIs and remote state
+  out of scope, run no agent in CI, and emit portable UTF-8 human output.
+- Require the canonical repository command as one exact workflow run entry,
+  preserve resolver limitations in project-review behavioral grading, check for
+  validation-created source changes on failure paths with exact dirty-worktree
+  content digests, and retain only digests rather than raw local-runner error
+  text.
+
 ## 1.8.0 - 2026-08-31
 
 ### Added

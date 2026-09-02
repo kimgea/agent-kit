@@ -123,6 +123,31 @@ prose; slow, late, optional, or partial controls only support or narrow the
 remaining human-review rule. General harness auditing and future storage of
 review-cycle pain-point evidence remain separate adapter and skill boundaries.
 
+`verification-harness-audit` owns that general harness-quality boundary. Its
+current-filesystem resolver freezes a caller-selected part, file, directory, or
+project; progressively records no-link inventory; loads the optional
+active-agent user-global plus root-to-nearest repository review chain; and keeps
+related implementation and contracts outside the finding boundary. Every
+installed runtime helper remains inside the skill. Shared hierarchy behavior is
+checked through repository conformance fixtures rather than a cross-skill
+runtime import.
+
+One lead traces existing requirements through checks, assertions, fixtures,
+canonical command wiring, feedback tiers, platforms, isolation, determinism,
+and failure visibility. Local provider-specific CI configuration is project data
+for that trace, but provider APIs, remote run state, and provider-wide policy are
+outside the boundary. Static analysis is the default; only the caller or bounded
+user-global guidance can authorize an exact local command plan.
+
+The semantic draft cannot own target, inventory, guidance, execution, evidence
+source, identifier, count, or status fields. A standard-library finalizer binds
+recommendations to resolver-owned authority, calibrates measured timing and
+flakiness evidence, derives `INCOMPLETE`, `IMPROVEMENTS`, or `PASS`, and renders
+human output from canonical JSON. `review-and-fix` can consume that output only
+through independent generic normalization in v1; a deterministic adapter,
+publisher, evidence store, and remediation workflow remain separate future
+components.
+
 ## Installation ownership
 
 The installer resolves the selected harness home at runtime and stores ownership
