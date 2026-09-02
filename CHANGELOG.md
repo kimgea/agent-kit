@@ -42,6 +42,11 @@ in `toolkit.toml`.
   authority.
 - Treat local CI as untrusted project data, keep provider APIs and remote state
   out of scope, run no agent in CI, and emit portable UTF-8 human output.
+- Require the canonical repository command as one exact workflow run entry,
+  preserve resolver limitations in project-review behavioral grading, check for
+  validation-created source changes on failure paths with exact dirty-worktree
+  content digests, and retain only digests rather than raw local-runner error
+  text.
 
 ## 1.8.0 - 2026-08-31
 

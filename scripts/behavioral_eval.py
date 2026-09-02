@@ -1188,7 +1188,10 @@ def _bind_result_unchecked(
     for key, value in expected.items():
         if result.get(key) != value:
             return False, f"result {key} does not match the lead-owned context"
-    if contract["binding_kind"] == "verification-harness-audit":
+    if contract["binding_kind"] in {
+        "project-review",
+        "verification-harness-audit",
+    }:
         result_limitations = result.get("limitations")
         if not isinstance(result_limitations, list):
             return False, "result limitations must be an array"
@@ -1544,25 +1547,7 @@ def _forbidden_command_hits(
     return list(dict.fromkeys(hits))
 
 
-def _event_error_summary(path: Path) -> str:
-    data = _read_bytes(path, "Codex event stream", MAX_EVENT_BYTES)
-    messages: list[str] = []
-
-    def collect(value: Any) -> None:
-        pending = [value]
-        while pending:
-            current = pending.pop()
-            if isinstance(current, dict):
-                for key, nested in current.items():
-                    if key in {"message", "error", "detail", "reason"} and isinstance(
-                        nested, str
-                    ):
-                        messages.append(nested)
-                    else:
-                        pending.append(nested)
-            elif isinstance(current, list):
-                pending.extend(current)
-
+def _event_stream_reports_failure(data: bytes) -> bool:
     for line in data.splitlines():
         if not line.strip():
             continue
@@ -1574,9 +1559,28 @@ def _event_error_summary(path: Path) -> str:
         if isinstance(event_type, str) and any(
             marker in event_type.casefold() for marker in ("error", "fail")
         ):
-            collect(event)
-    summary = " | ".join(dict.fromkeys(message.strip() for message in messages if message.strip()))
-    return summary[:2000]
+            return True
+    return False
+
+
+def _runner_failure_evidence(errors: Path, events: Path) -> tuple[str, str | None]:
+    """Retain a generic failure category and digest, never raw runner output."""
+    stderr = _read_bytes(errors, "Codex error stream", MAX_RESULT_BYTES)
+    if stderr:
+        return (
+            "Codex exited with a non-empty error stream",
+            hashlib.sha256(stderr).hexdigest(),
+        )
+    event_data = _read_bytes(events, "Codex event stream", MAX_EVENT_BYTES)
+    if _event_stream_reports_failure(event_data):
+        return (
+            "Codex reported a failure event without a canonical result",
+            hashlib.sha256(event_data).hexdigest(),
+        )
+    return (
+        "Codex exited without a canonical result",
+        hashlib.sha256(event_data).hexdigest() if event_data else None,
+    )
 
 
 def _runner_prompt(
@@ -2248,16 +2252,16 @@ def command_run(args: argparse.Namespace) -> int:
                         "assertions": [],
                     }
             else:
-                stderr = _read_bytes(errors_path, "Codex error stream", MAX_RESULT_BYTES)
-                error_text = stderr.decode("utf-8", "replace")[:2000].strip()
-                if not error_text:
-                    error_text = _event_error_summary(events_path)
+                error_text, error_digest = _runner_failure_evidence(
+                    errors_path, events_path
+                )
                 report = {
                     "schema_version": 1,
                     "suite": suite["suite"],
                     "case": case["id"],
                     "passed": False,
-                    "runner_error": error_text or "Codex exited without a canonical result",
+                    "runner_error": error_text,
+                    "runner_error_sha256": error_digest,
                     "fixture_mutation": mutation_report,
                     "fixture_mutation_free": (
                         mutation_report["passed"] and not case["expected_mutations"]

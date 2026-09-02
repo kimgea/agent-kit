@@ -871,6 +871,30 @@ class ProjectReviewContractTests(unittest.TestCase):
             self.assertFalse(bound)
             self.assertIn("target", message)
 
+    def test_project_review_binding_requires_every_resolver_limitation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "fixture"
+            behavioral_eval.materialize_fixture(self.source, fixture)
+            context_path = base / "context.json"
+            context = behavioral_eval.resolve_context(
+                self.suite, self.case, fixture, context_path, ROOT
+            )
+            result = complete_project_review_result(context)
+            context["limitations"].append(
+                {
+                    "code": "scope_truncated",
+                    "message": "The resolver could not account for the complete selected scope.",
+                    "affected_paths": [context["target"]["requested_paths"][0]],
+                    "material": True,
+                }
+            )
+
+            bound, message = behavioral_eval._bind_result(self.suite, context, result)
+
+            self.assertFalse(bound)
+            self.assertIn("omits a resolver-owned limitation", message)
+
     def test_suite_has_pass_block_incomplete_nonblocking_and_command_boundary_cases(self):
         self.assertEqual(6, len(self.suite["cases"]))
         ids = {item["id"] for item in self.suite["cases"]}
@@ -1478,23 +1502,19 @@ class CodexRunnerTests(unittest.TestCase):
             ),
         )
 
-    def test_failed_event_is_summarized_without_retaining_the_stream(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / "events.jsonl"
-            path.write_text(
-                json.dumps(
-                    {
-                        "type": "turn.failed",
-                        "error": {"message": "structured output schema was rejected"},
-                        "unrelated": "do not retain this",
-                    }
-                )
-                + "\n",
-                encoding="utf-8",
+    def test_failed_event_is_detected_without_extracting_its_content(self):
+        data = (
+            json.dumps(
+                {
+                    "type": "turn.failed",
+                    "error": {"message": "secret-shaped failure detail"},
+                    "unrelated": "do not retain this",
+                }
             )
-            summary = behavioral_eval._event_error_summary(path)
-            self.assertEqual("structured output schema was rejected", summary)
-            self.assertNotIn("unrelated", summary)
+            + "\n"
+        ).encode("utf-8")
+
+        self.assertTrue(behavioral_eval._event_stream_reports_failure(data))
 
     def test_workflows_do_not_invoke_paid_behavioral_runs(self):
         for path in (ROOT / ".github" / "workflows").glob("*.yml"):
@@ -1776,6 +1796,79 @@ class CodexRunnerTests(unittest.TestCase):
             )
             self.assertFalse(score["passed"])
             self.assertIn("nesting", score["runner_error"])
+
+    def test_runner_failure_retains_only_category_and_digest(self):
+        secret = "token=secret-shaped-runner-output"
+
+        def failed_run(
+            suite,
+            case,
+            fixture,
+            work,
+            result,
+            events,
+            errors,
+            root,
+            runtime_skills,
+            model,
+            reasoning_effort,
+            timeout,
+            runner,
+        ):
+            events.write_text("", encoding="utf-8")
+            errors.write_text(secret, encoding="utf-8")
+            return {
+                "exit_code": 1,
+                "timed_out": False,
+                "started_at": "2026-08-30T20:00:00+00:00",
+                "finished_at": "2026-08-30T20:00:01+00:00",
+                "duration_seconds": 1.0,
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            output = base / "results"
+            output.mkdir()
+            args = argparse.Namespace(
+                suite="review-guidance-audit",
+                runner="codex",
+                case=["json-consumer-output"],
+                model="gpt-5.6-luna",
+                reasoning_effort="medium",
+                timeout=30,
+                output_dir=str(output),
+            )
+            runner = {
+                "command": [str(base / "codex")],
+                "kind": "test",
+                "sha256": "1" * 64,
+                "version": "codex-cli test",
+            }
+            printed = io.StringIO()
+            with mock.patch.object(
+                behavioral_eval, "_run_codex", side_effect=failed_run
+            ), mock.patch.object(
+                behavioral_eval, "discover_codex_runner", return_value=runner
+            ), contextlib.redirect_stdout(printed), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(1, behavioral_eval.command_run(args))
+
+            summary = json.loads(printed.getvalue())
+            score = json.loads(
+                (
+                    Path(summary["output_directory"])
+                    / "cases"
+                    / "json-consumer-output"
+                    / "score.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                "Codex exited with a non-empty error stream", score["runner_error"]
+            )
+            self.assertEqual(
+                hashlib.sha256(secret.encode("utf-8")).hexdigest(),
+                score["runner_error_sha256"],
+            )
+            self.assertNotIn(secret, json.dumps(score))
 
     def test_simulated_agent_mutation_fails_the_case(self):
         def mutating_run(

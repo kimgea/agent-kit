@@ -11,6 +11,10 @@
 Repository tooling requires Python 3.11 or newer because it uses the standard
 library `tomllib`. Git and GitHub CLI are optional for local discovery; publishing
 and GitHub reads require them.
+The canonical repository gate combines Git status with an exact digest of
+tracked and visible untracked source when it is inside a worktree, and fails
+closed if either snapshot is unavailable. Outside a worktree it compares an
+exact source-tree digest before and after validation instead.
 
 ## Harnesses
 

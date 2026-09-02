@@ -13,6 +13,7 @@ import platform
 import py_compile
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -486,6 +487,15 @@ def validate_generated_artifacts(root: Path) -> list[str]:
     return errors
 
 
+def workflow_has_exact_run_command(text: str, command: str) -> bool:
+    """Require one literal YAML run entry and no shadow occurrence elsewhere."""
+    exact = re.compile(rf"^\s*run:\s*{re.escape(command)}\s*$")
+    return (
+        sum(bool(exact.fullmatch(line)) for line in text.splitlines()) == 1
+        and text.count(command) == 1
+    )
+
+
 def validate_repository_controls(root: Path, catalog: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     required = (
@@ -530,21 +540,29 @@ def validate_repository_controls(root: Path, catalog: dict[str, Any]) -> list[st
             "windows-latest",
             '"3.11"',
             '"3.13"',
-            "python scripts/agent_kit.py check",
         ):
             if required_text not in text:
                 errors.append(f"{ci}: missing required matrix/gate value {required_text}")
+        canonical = "python scripts/agent_kit.py check"
+        if not workflow_has_exact_run_command(text, canonical):
+            errors.append(
+                f"{ci}: canonical gate must be exactly one run entry: {canonical}"
+            )
     release = workflow_root / "release.yml"
     if release.is_file():
         text = release.read_text(encoding="utf-8")
         for required_text in (
-            "python scripts/agent_kit.py check",
             "python scripts/agent_kit.py package --format all",
             "gh release create",
             "--verify-tag",
         ):
             if required_text not in text:
                 errors.append(f"{release}: missing release boundary {required_text}")
+        canonical = "python scripts/agent_kit.py check"
+        if not workflow_has_exact_run_command(text, canonical):
+            errors.append(
+                f"{release}: canonical gate must be exactly one run entry: {canonical}"
+            )
     return errors
 
 
@@ -837,9 +855,11 @@ def compile_repository(root: Path) -> list[str]:
 
 
 def git_status(root: Path) -> str | None:
+    if not (root / ".git").exists():
+        return None
     git = shutil.which("git")
     if git is None:
-        return None
+        raise AgentKitError("cannot inspect the Git working tree: git is unavailable")
     result = subprocess.run(
         [git, "status", "--porcelain=v1", "--untracked-files=all"],
         cwd=root,
@@ -848,7 +868,9 @@ def git_status(root: Path) -> str | None:
         stderr=subprocess.DEVNULL,
         check=False,
     )
-    return result.stdout if result.returncode == 0 else None
+    if result.returncode != 0:
+        raise AgentKitError("cannot inspect the Git working tree: git status failed")
+    return result.stdout
 
 
 def run_tests(root: Path) -> int:
@@ -902,6 +924,231 @@ def ownership_digest_matches(path: Path, entry: dict[str, Any]) -> bool:
     else:
         raise AgentKitError(f"unsupported ownership digest version: {version!r}")
     return actual == entry.get("digest")
+
+
+def _git_source_paths(root: Path, *arguments: str) -> list[bytes]:
+    git = shutil.which("git")
+    if git is None:
+        raise AgentKitError("cannot inspect the Git working tree: git is unavailable")
+    result = subprocess.run(
+        [git, "ls-files", "-z", *arguments],
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise AgentKitError("cannot inspect the Git working tree: git ls-files failed")
+    return sorted(item for item in result.stdout.split(b"\0") if item)
+
+
+def _validation_file_signature(value: os.stat_result) -> tuple[int, ...]:
+    return (
+        stat.S_IFMT(value.st_mode),
+        stat.S_IMODE(value.st_mode),
+        value.st_dev,
+        value.st_ino,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+    )
+
+
+def _validation_link_like(value: os.stat_result) -> bool:
+    return stat.S_ISLNK(value.st_mode) or bool(
+        getattr(value, "st_file_attributes", 0)
+        & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    )
+
+
+def _validation_ancestor_signatures(
+    root: Path, relative: Path
+) -> tuple[tuple[str, tuple[int, ...] | None], ...]:
+    signatures: list[tuple[str, tuple[int, ...] | None]] = []
+    components = (Path("."), *relative.parents[:-1][::-1])
+    for component in components:
+        candidate = root if component == Path(".") else root / component
+        try:
+            info = candidate.lstat()
+        except FileNotFoundError:
+            signatures.append((component.as_posix(), None))
+            continue
+        except OSError as exc:
+            raise AgentKitError(
+                f"cannot inspect validation source ancestor: {component}"
+            ) from exc
+        if _validation_link_like(info) or not stat.S_ISDIR(info.st_mode):
+            raise AgentKitError(
+                f"refusing link-like or non-directory validation source ancestor: {component}"
+            )
+        signatures.append((component.as_posix(), _validation_file_signature(info)))
+    return tuple(signatures)
+
+
+def _assert_validation_path_unchanged(
+    root: Path,
+    relative: Path,
+    ancestors: tuple[tuple[str, tuple[int, ...] | None], ...],
+    final_signature: tuple[int, ...] | None,
+) -> None:
+    if _validation_ancestor_signatures(root, relative) != ancestors:
+        raise AgentKitError(f"validation source ancestors changed while inspecting: {relative}")
+    candidate = root / relative
+    try:
+        current = candidate.lstat()
+    except FileNotFoundError:
+        current_signature = None
+    except OSError as exc:
+        raise AgentKitError(f"cannot inspect validation source: {relative}") from exc
+    else:
+        current_signature = _validation_file_signature(current)
+    if current_signature != final_signature:
+        raise AgentKitError(f"validation source changed while inspecting: {relative}")
+
+
+def _hash_validation_path(digest: Any, root: Path, raw_path: bytes) -> None:
+    relative = Path(os.fsdecode(raw_path))
+    if relative.is_absolute() or ".." in relative.parts:
+        raise AgentKitError("git reported an unsafe source path")
+    candidate = root / relative
+    digest.update(raw_path)
+    digest.update(b"\0")
+    ancestors = _validation_ancestor_signatures(root, relative)
+    try:
+        before = candidate.lstat()
+    except FileNotFoundError:
+        _assert_validation_path_unchanged(root, relative, ancestors, None)
+        digest.update(b"missing\0")
+        return
+    except OSError as exc:
+        raise AgentKitError(f"cannot inspect validation source: {relative}") from exc
+
+    before_signature = _validation_file_signature(before)
+    file_type = stat.S_IFMT(before.st_mode)
+    digest.update(str(file_type).encode("ascii"))
+    digest.update(b":")
+    digest.update(str(stat.S_IMODE(before.st_mode)).encode("ascii"))
+    digest.update(b"\0")
+    if stat.S_ISLNK(before.st_mode):
+        try:
+            target = os.readlink(candidate)
+        except OSError as exc:
+            raise AgentKitError(f"cannot inspect validation source: {relative}") from exc
+        digest.update(b"link\0")
+        digest.update(os.fsencode(target))
+        digest.update(b"\0")
+        _assert_validation_path_unchanged(
+            root, relative, ancestors, before_signature
+        )
+        return
+    if _validation_link_like(before):
+        raise AgentKitError(f"refusing reparse-point validation source: {relative}")
+    if stat.S_ISDIR(before.st_mode):
+        digest.update(b"directory\0")
+        _assert_validation_path_unchanged(
+            root, relative, ancestors, before_signature
+        )
+        return
+    if not stat.S_ISREG(before.st_mode):
+        raise AgentKitError(f"refusing non-regular validation source: {relative}")
+
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(candidate, flags)
+    except OSError as exc:
+        raise AgentKitError(f"cannot inspect validation source: {relative}") from exc
+    try:
+        opened = os.fstat(descriptor)
+        if _validation_file_signature(opened) != before_signature:
+            raise AgentKitError(f"validation source changed while inspecting: {relative}")
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        after = os.fstat(descriptor)
+        if _validation_file_signature(after) != _validation_file_signature(opened):
+            raise AgentKitError(f"validation source changed while inspecting: {relative}")
+    finally:
+        os.close(descriptor)
+    _assert_validation_path_unchanged(root, relative, ancestors, before_signature)
+    digest.update(b"\0")
+
+
+def git_source_digest(root: Path) -> str:
+    """Hash exact tracked and visible untracked working-tree source bytes."""
+    digest = hashlib.sha256()
+    groups = (
+        (b"tracked", _git_source_paths(root, "--cached")),
+        (b"untracked", _git_source_paths(root, "--others", "--exclude-standard")),
+    )
+    for label, paths in groups:
+        for raw_path in paths:
+            digest.update(label)
+            digest.update(b"\0")
+            _hash_validation_path(digest, root, raw_path)
+    return digest.hexdigest()
+
+
+def validation_tree_digest(root: Path) -> str:
+    """Hash every included non-Git source entry without changing ownership digests."""
+
+    def ignored(relative: Path) -> bool:
+        return is_generated_relative_path(relative) or (
+            bool(relative.parts) and relative.parts[0] == ".eval-results"
+        )
+
+    def inventory() -> tuple[bytes, ...]:
+        try:
+            root_info = root.lstat()
+        except OSError as exc:
+            raise AgentKitError("cannot inspect the validation source root") from exc
+        if _validation_link_like(root_info) or not stat.S_ISDIR(root_info.st_mode):
+            raise AgentKitError("refusing link-like or non-directory validation source root")
+        try:
+            entries = (
+                item.relative_to(root)
+                for item in root.rglob("*")
+            )
+            return tuple(
+                sorted(
+                    os.fsencode(relative.as_posix())
+                    for relative in entries
+                    if not ignored(relative)
+                )
+            )
+        except OSError as exc:
+            raise AgentKitError("cannot enumerate the validation source tree") from exc
+
+    try:
+        root_before = root.lstat()
+    except OSError as exc:
+        raise AgentKitError("cannot inspect the validation source root") from exc
+    if _validation_link_like(root_before) or not stat.S_ISDIR(root_before.st_mode):
+        raise AgentKitError("refusing link-like or non-directory validation source root")
+    paths = inventory()
+    digest = hashlib.sha256()
+    digest.update(b"root\0")
+    digest.update(str(stat.S_IMODE(root_before.st_mode)).encode("ascii"))
+    digest.update(b"\0")
+    for raw_path in paths:
+        _hash_validation_path(digest, root, raw_path)
+    try:
+        root_after = root.lstat()
+    except OSError as exc:
+        raise AgentKitError("cannot inspect the validation source root") from exc
+    if _validation_file_signature(root_after) != _validation_file_signature(root_before):
+        raise AgentKitError("validation source root changed while inspecting")
+    if inventory() != paths:
+        raise AgentKitError("validation source tree changed while inspecting")
+    return digest.hexdigest()
+
+
+def validation_snapshot(root: Path) -> tuple[str, ...]:
+    """Freeze validation-visible state with Git and exact source content."""
+    status = git_status(root)
+    if status is not None:
+        return ("git", status, git_source_digest(root))
+
+    return ("tree", validation_tree_digest(root))
 
 
 def agent_home(agent: str) -> Path:
@@ -1657,20 +1904,30 @@ def command_doctor(args: argparse.Namespace) -> int:
 
 
 def command_check(args: argparse.Namespace) -> int:
-    before = git_status(ROOT)
-    errors = validate_repository()
-    errors.extend(compile_repository(ROOT))
-    if errors:
-        print(f"agent-kit check failed with {len(errors)} error(s):", file=sys.stderr)
-        for error in errors:
-            print(f"  - {error}", file=sys.stderr)
-        return 1
-    if not args.skip_tests and run_tests(ROOT) != 0:
-        print("agent-kit check failed: unit tests failed", file=sys.stderr)
-        return 1
-    after = git_status(ROOT)
-    if before is not None and after != before:
-        print("agent-kit check failed: validation changed the working tree", file=sys.stderr)
+    before = validation_snapshot(ROOT)
+    failed = False
+    changed = False
+    try:
+        errors = validate_repository()
+        errors.extend(compile_repository(ROOT))
+        if errors:
+            print(f"agent-kit check failed with {len(errors)} error(s):", file=sys.stderr)
+            for error in errors:
+                print(f"  - {error}", file=sys.stderr)
+            failed = True
+        elif not args.skip_tests and run_tests(ROOT) != 0:
+            print("agent-kit check failed: unit tests failed", file=sys.stderr)
+            failed = True
+    finally:
+        changed = validation_snapshot(ROOT) != before
+        if changed:
+            print(
+                "agent-kit check failed: validation changed the working tree",
+                file=sys.stderr,
+            )
+    if changed:
+        failed = True
+    if failed:
         return 1
     print("agent-kit check passed")
     return 0

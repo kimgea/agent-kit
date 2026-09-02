@@ -93,7 +93,9 @@ context and output plus per-assertion and mutation grading. When the runner expo
 events, scores also retain only the deduplicated count of `spawn_agent` calls so
 delegation-oriented cases can distinguish an observed local orchestration path
 from a single-agent result. Tool arguments, subagent prompts, raw event streams,
-stderr, prompts, and reasoning are not retained.
+stderr, prompts, and reasoning are not retained. A failed runner retains only a
+generic failure category and a digest of the bounded transient error or event
+stream.
 
 Results are local evidence, not universal proof. A useful claim names the exact
 configuration, for example: "16 of 16 cases passed with this skill and suite
