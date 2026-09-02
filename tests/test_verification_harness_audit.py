@@ -320,9 +320,9 @@ class ResolverTests(unittest.TestCase):
             root = Path(temporary) / "repo"
             root.mkdir()
             target = root / "target.py"
-            target.write_text("VALUE = 1\n", encoding="utf-8")
+            target.write_bytes(b"VALUE = 1\n")
             replacement = root / "replacement.py"
-            replacement.write_text("VALUE = 222\n", encoding="utf-8")
+            replacement.write_bytes(b"VALUE = 222\n")
             original_read = harness_context._read_regular
             replaced = False
 
