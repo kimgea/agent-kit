@@ -79,7 +79,10 @@ candidate, `strong` and `moderate` become suggestions, and `optional` becomes a
 nit. Producer `INCOMPLETE` results and material limitations remain partial.
 Decision-required recommendations stop for upstream triage; after the user
 resolves the policy choice, the same audit must return a fresh ready result
-before planning.
+before planning. For remediation, any remaining non-`keep` guidance
+recommendation or harness recommendation keeps canonical source outcome
+`changes_requested`, even when the audit's display status permits advisory
+findings. A fresh round can pass only when no requested audit change remains.
 
 The exact fixer-owned target remains separate from audit scope. A project or
 directory audit may discover useful work, and a guidance audit may identify a

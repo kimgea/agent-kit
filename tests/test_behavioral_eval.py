@@ -180,16 +180,15 @@ def guidance_audit_review_envelope(context, result):
         result, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
     status = result["status"]
-    has_essential_change = any(
-        item["action"] != "keep" and item["strength"] == "essential"
-        for item in result["recommendations"]
+    has_requested_change = any(
+        item["action"] != "keep" for item in result["recommendations"]
     )
     completed = status == "COMPLETE"
     outcome = (
         "incomplete"
         if not completed
         else "changes_requested"
-        if has_essential_change
+        if has_requested_change
         else "pass"
     )
     return {
@@ -503,12 +502,14 @@ def verification_audit_review_envelope(context, result):
         result, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
     status = result["status"]
-    outcomes = {
-        "INCOMPLETE": (False, "incomplete"),
-        "IMPROVEMENTS": (True, "changes_requested"),
-        "PASS": (True, "pass"),
-    }
-    completed, outcome = outcomes[status]
+    completed = status != "INCOMPLETE"
+    outcome = (
+        "incomplete"
+        if not completed
+        else "changes_requested"
+        if result["recommendations"]
+        else "pass"
+    )
     return {
         "target": {
             "kind": "paths",
@@ -1193,6 +1194,7 @@ class GuidanceAuditReviewAndFixContractTests(unittest.TestCase):
                 guidance_audit_review_envelope(context, incomplete_result),
                 context["target"],
             )
+            clear_result = complete_result(context)
 
             for batch in (ready, essential, keep, decision, incomplete):
                 self.assertEqual(batch, review_workflow.validate_batch(batch))
@@ -1203,6 +1205,14 @@ class GuidanceAuditReviewAndFixContractTests(unittest.TestCase):
             self.assertEqual("suggestion", ready["findings"][0]["disposition"])
             self.assertEqual("actionable", ready["findings"][0]["actionability"])
             self.assertEqual("high", ready["findings"][0]["confidence"])
+            self.assertEqual("changes_requested", ready["source"]["outcome"])
+            self.assertEqual("COMPLETE", ready["source"]["verdict"])
+            self.assertEqual(
+                "pass",
+                guidance_audit_review_envelope(context, clear_result)["source"][
+                    "outcome"
+                ],
+            )
             self.assertEqual("blocker", essential["findings"][0]["disposition"])
             self.assertEqual("changes_requested", essential["source"]["outcome"])
             self.assertEqual("informational", keep["findings"][0]["actionability"])
@@ -1216,6 +1226,40 @@ class GuidanceAuditReviewAndFixContractTests(unittest.TestCase):
                     item["code"] == "source_incomplete" and item["material"]
                     for item in incomplete["limitations"]
                 )
+            )
+
+            omitted_draft = {
+                "normalization": {
+                    "confidence": "high",
+                    "notes": ["The normalizer omitted the advisory finding."],
+                },
+                "findings": [],
+                "limitations": [],
+            }
+            with self.assertRaisesRegex(
+                review_workflow.WorkflowError,
+                "changes_requested source without findings",
+            ):
+                review_workflow.finalize_batch(
+                    omitted_draft,
+                    guidance_audit_review_envelope(context, ready_result),
+                )
+            assessment = review_workflow.assess_round(
+                {
+                    "round": 1,
+                    "expected_reviewers": [
+                        {
+                            "reviewer": "review-guidance-audit",
+                            "reviewer_version": "1.1.0",
+                        }
+                    ],
+                    "previous_batches": [ready],
+                    "current_batches": [ready],
+                }
+            )
+            self.assertEqual(
+                ("stop", "reviewer_not_passed"),
+                (assessment["action"], assessment["reason"]),
             )
 
             wrong_target = json.loads(json.dumps(context["target"]))
@@ -1508,6 +1552,7 @@ class VerificationHarnessAuditContractTests(unittest.TestCase):
             decision_result = verification_audit_result(
                 context, strength="strong", decision="decision_required"
             )
+            clear_result = complete_verification_harness_result(context)
             essential = normalize_verification_audit_for_review_and_fix(
                 essential_result,
                 verification_audit_review_envelope(context, essential_result),
@@ -1560,7 +1605,14 @@ class VerificationHarnessAuditContractTests(unittest.TestCase):
             self.assertEqual("suggestion", strong["findings"][0]["disposition"])
             self.assertEqual("nit", optional["findings"][0]["disposition"])
             self.assertEqual("high", essential["findings"][0]["confidence"])
-            self.assertEqual("pass", advisory["source"]["outcome"])
+            self.assertEqual("changes_requested", advisory["source"]["outcome"])
+            self.assertEqual("PASS", advisory["source"]["verdict"])
+            self.assertEqual(
+                "pass",
+                verification_audit_review_envelope(context, clear_result)["source"][
+                    "outcome"
+                ],
+            )
             self.assertEqual("partial", incomplete["status"])
             self.assertTrue(incomplete["limitations"][0]["material"])
             self.assertEqual("source_incomplete", incomplete["limitations"][0]["code"])

@@ -313,6 +313,12 @@
           "value": "completed"
         },
         {
+          "id": "initial-audit-changes-requested",
+          "path": "/rounds/0/batches/*/source/outcome",
+          "operator": "any",
+          "value": "changes_requested"
+        },
+        {
           "id": "fresh-pass-stop",
           "path": "/stop_reason",
           "operator": "equals",
@@ -381,6 +387,12 @@
           "path": "/status",
           "operator": "equals",
           "value": "incomplete"
+        },
+        {
+          "id": "initial-audit-changes-requested",
+          "path": "/rounds/0/batches/*/source/outcome",
+          "operator": "any",
+          "value": "changes_requested"
         },
         {
           "id": "workflow-stop",

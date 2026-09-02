@@ -27,6 +27,8 @@ in `toolkit.toml`.
   and freshly audited before planning.
 - Make decision-required audit recommendations material triage limitations so
   they cannot route into automatic fixes.
+- Prevent fresh acceptance while any audit change recommendation remains,
+  including non-blocking advice that round assessment does not fingerprint.
 
 ## 1.9.0 - 2026-09-02
 

@@ -40,15 +40,19 @@ source fields as follows:
 | Producer | Canonical status | `completed` | `outcome` |
 | --- | --- | --- | --- |
 | Guidance audit | `INCOMPLETE` | `false` | `incomplete` |
-| Guidance audit | `COMPLETE` with an `essential` non-`keep` recommendation | `true` | `changes_requested` |
-| Guidance audit | Other `COMPLETE` result | `true` | `pass` |
+| Guidance audit | `COMPLETE` with any non-`keep` recommendation | `true` | `changes_requested` |
+| Guidance audit | `COMPLETE` with only `keep` recommendations or none | `true` | `pass` |
 | Harness audit | `INCOMPLETE` | `false` | `incomplete` |
 | Harness audit | `IMPROVEMENTS` | `true` | `changes_requested` |
-| Harness audit | `PASS` | `true` | `pass` |
+| Harness audit | `PASS` with any recommendation | `true` | `changes_requested` |
+| Harness audit | `PASS` with no recommendations | `true` | `pass` |
 
 If a validated result contradicts these rules, stop with a material
 `contradictory_output` limitation. Never let the normalizer choose the envelope
-or its outcome.
+or its outcome. These remediation outcomes are deliberately stricter than an
+audit's display status: a fresh round passes only when no requested change
+remains. This prevents an omitted or ineffective selected suggestion from being
+accepted merely because round assessment tracks blocker progress separately.
 
 ## Shared recommendation mappings
 
