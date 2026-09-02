@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import hashlib
 import json
@@ -43,6 +44,13 @@ MAX_PATH_BYTES = 4 * 1024 * 1024
 MAX_CONTEXT_JSON_BYTES = 16 * 1024 * 1024
 MAX_INPUT_JSON_BYTES = 1024 * 1024
 MAX_LIMITATIONS = 128
+SAFE_POSIX_DIR_FD = (
+    os.name == "posix"
+    and hasattr(os, "O_NOFOLLOW")
+    and hasattr(os, "O_DIRECTORY")
+    and os.open in os.supports_dir_fd
+    and os.stat in os.supports_dir_fd
+)
 MAX_LIMITATION_PATHS = 20000
 
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
@@ -105,6 +113,264 @@ def _assert_no_link_components(path: Path, *, include_final: bool) -> None:
         current /= part
         if _is_link_like(current):
             raise ContextError(f"refusing link-like path component: {current}")
+
+
+@contextlib.contextmanager
+def _posix_bound_parent(path: Path):
+    """Yield a directory fd and basename without following ancestor links."""
+    if not SAFE_POSIX_DIR_FD:
+        raise ContextError("safe descriptor-relative path handling is unavailable")
+    absolute = path.absolute()
+    if not absolute.name:
+        raise ContextError(f"path must name a file: {path}")
+    flags = (
+        os.O_RDONLY
+        | os.O_DIRECTORY
+        | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    descriptor = -1
+    try:
+        descriptor = os.open(absolute.anchor, flags)
+        current = Path(absolute.anchor)
+        for part in absolute.parent.parts[1:]:
+            current /= part
+            try:
+                child = os.open(part, flags, dir_fd=descriptor)
+            except OSError as exc:
+                raise ContextError(
+                    f"cannot bind safe parent directory {current}: {exc}"
+                ) from exc
+            os.close(descriptor)
+            descriptor = child
+            if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+                raise ContextError(f"input/output parent is not a directory: {current}")
+        yield descriptor, absolute.name, absolute
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _windows_extended_path(path: Path) -> str:
+    value = str(path.absolute())
+    if value.startswith("\\\\?\\"):
+        return value
+    if value.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + value[2:]
+    return "\\\\?\\" + value
+
+
+def _windows_create_handle(
+    path: Path,
+    *,
+    access: int,
+    creation: int,
+    flags: int,
+) -> int:
+    if os.name != "nt":
+        raise ContextError("Windows handle operation requested on another platform")
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    create_file.restype = wintypes.HANDLE
+    handle = create_file(
+        _windows_extended_path(path),
+        access,
+        0x00000001 | 0x00000002,
+        None,
+        creation,
+        flags,
+        None,
+    )
+    invalid = ctypes.c_void_p(-1).value
+    if handle in (None, invalid):
+        error = ctypes.get_last_error()
+        raise OSError(error, ctypes.FormatError(error), str(path))
+    return int(handle)
+
+
+def _windows_close_handle(handle: int) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+    close_handle(handle)
+
+
+def _windows_handle_attributes(handle: int) -> tuple[int, int, int, int]:
+    import ctypes
+    from ctypes import wintypes
+
+    class FileTime(ctypes.Structure):
+        _fields_ = [("low", wintypes.DWORD), ("high", wintypes.DWORD)]
+
+    class FileInformation(ctypes.Structure):
+        _fields_ = [
+            ("attributes", wintypes.DWORD),
+            ("creation_time", FileTime),
+            ("access_time", FileTime),
+            ("write_time", FileTime),
+            ("volume_serial", wintypes.DWORD),
+            ("size_high", wintypes.DWORD),
+            ("size_low", wintypes.DWORD),
+            ("links", wintypes.DWORD),
+            ("file_index_high", wintypes.DWORD),
+            ("file_index_low", wintypes.DWORD),
+        ]
+
+    information = FileInformation()
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    get_information = kernel32.GetFileInformationByHandle
+    get_information.argtypes = [wintypes.HANDLE, ctypes.POINTER(FileInformation)]
+    get_information.restype = wintypes.BOOL
+    if not get_information(handle, ctypes.byref(information)):
+        error = ctypes.get_last_error()
+        raise OSError(error, ctypes.FormatError(error))
+    return (
+        int(information.attributes),
+        int(information.links),
+        int(information.volume_serial),
+        (int(information.file_index_high) << 32) | int(information.file_index_low),
+    )
+
+
+@contextlib.contextmanager
+def _windows_locked_parent(path: Path):
+    """Lock every ancestor against rename/delete while a full-path call runs."""
+    supplied = path.absolute()
+    try:
+        absolute = supplied.parent.resolve(strict=True) / supplied.name
+    except OSError as exc:
+        raise ContextError(f"cannot resolve safe Windows parent for {path}: {exc}") from exc
+    if not absolute.name:
+        raise ContextError(f"path must name a file: {path}")
+    current = Path(absolute.anchor)
+    directories = [current]
+    for part in absolute.parent.parts[1:]:
+        current /= part
+        directories.append(current)
+    handles: list[int] = []
+    try:
+        for directory in directories:
+            handle = _windows_create_handle(
+                directory,
+                access=0x00000080,
+                creation=3,
+                flags=0x02000000 | 0x00200000,
+            )
+            try:
+                attributes, _, _, _ = _windows_handle_attributes(handle)
+            except Exception:
+                _windows_close_handle(handle)
+                raise
+            if attributes & 0x00000400 or not attributes & 0x00000010:
+                _windows_close_handle(handle)
+                raise ContextError(
+                    f"refusing link-like or non-directory parent: {directory}"
+                )
+            handles.append(handle)
+        yield absolute
+    finally:
+        for handle in reversed(handles):
+            _windows_close_handle(handle)
+
+
+def _windows_file_descriptor(
+    path: Path,
+    *,
+    access: int,
+    creation: int,
+    descriptor_flags: int,
+) -> int:
+    import msvcrt
+
+    handle = _windows_create_handle(
+        path,
+        access=access,
+        creation=creation,
+        flags=0x00000080 | 0x00200000,
+    )
+    try:
+        attributes, _, _, _ = _windows_handle_attributes(handle)
+        if attributes & 0x00000400 or attributes & 0x00000010:
+            raise ContextError(f"refusing link-like or non-file path: {path}")
+        return msvcrt.open_osfhandle(handle, descriptor_flags)
+    except Exception:
+        _windows_close_handle(handle)
+        raise
+
+
+def _filesystem_alias_identity(
+    path: Path, metadata: os.stat_result | None = None
+) -> tuple[Any, ...]:
+    """Return an identity stable across Windows hard-link path aliases."""
+    if os.name != "nt":
+        return _filesystem_identity(path, metadata)
+    handle = _windows_create_handle(
+        path,
+        access=0x00000080,
+        creation=3,
+        flags=0x02000000 | 0x00200000,
+    )
+    try:
+        attributes, _, volume, file_index = _windows_handle_attributes(handle)
+        if attributes & 0x00000400:
+            raise ContextError(f"refusing link-like filesystem alias: {path}")
+        return ("windows_file", volume, file_index)
+    except OSError as exc:
+        raise ContextError(f"cannot identify filesystem path {path}: {exc}") from exc
+    finally:
+        _windows_close_handle(handle)
+
+
+@contextlib.contextmanager
+def _bound_read_descriptor(path: Path):
+    """Open one regular file while binding all ancestors to trusted objects."""
+    if os.name == "nt":
+        with _windows_locked_parent(path) as absolute:
+            try:
+                descriptor = _windows_file_descriptor(
+                    absolute,
+                    access=0x80000000,
+                    creation=3,
+                    descriptor_flags=os.O_RDONLY | getattr(os, "O_BINARY", 0),
+                )
+            except OSError as exc:
+                raise ContextError(f"cannot open {path}: {exc}") from exc
+            try:
+                yield descriptor, absolute
+            finally:
+                os.close(descriptor)
+        return
+    with _posix_bound_parent(path) as (parent, name, absolute):
+        flags = (
+            os.O_RDONLY
+            | os.O_NOFOLLOW
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        try:
+            descriptor = os.open(name, flags, dir_fd=parent)
+        except OSError as exc:
+            raise ContextError(f"cannot open {absolute}: {exc}") from exc
+        try:
+            yield descriptor, absolute
+        finally:
+            os.close(descriptor)
 
 
 def _canonical_path(value: Any, *, allow_root: bool = False) -> str:
@@ -187,6 +453,17 @@ def _filesystem_snapshot(
     )
 
 
+def _filesystem_open_binding(
+    path: Path, metadata: os.stat_result
+) -> tuple[Any, ...]:
+    """Return the portable identity shared by path and descriptor stat APIs."""
+    return (
+        _filesystem_identity(path, metadata),
+        stat.S_IFMT(metadata.st_mode),
+        int(metadata.st_size),
+    )
+
+
 def _path_within(candidate: Path, boundary: Path) -> bool:
     try:
         candidate_text = os.path.normcase(str(candidate.resolve(strict=True)))
@@ -203,23 +480,24 @@ def _read_regular(
     expected_snapshot: tuple[Any, ...] | None = None,
     require_single_link: bool = False,
 ) -> tuple[os.stat_result, bytes]:
-    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    try:
-        descriptor = os.open(path, flags)
-    except OSError as exc:
-        raise ContextError(f"cannot open {path}: {exc}") from exc
-    try:
+    with _bound_read_descriptor(path) as (descriptor, bound_path):
         metadata = os.fstat(descriptor)
         if not stat.S_ISREG(metadata.st_mode):
-            raise ContextError(f"not a regular file: {path}")
-        if expected_snapshot is not None and _filesystem_snapshot(path, metadata) != expected_snapshot:
-            raise ContextError(f"file snapshot changed before inspection: {path}")
+            raise ContextError(f"not a regular file: {bound_path}")
+        if expected_snapshot is not None:
+            expected_binding = (
+                expected_snapshot[0],
+                stat.S_IFREG,
+                expected_snapshot[1],
+            )
+            if _filesystem_open_binding(bound_path, metadata) != expected_binding:
+                raise ContextError(f"file snapshot changed before inspection: {bound_path}")
         if require_single_link and metadata.st_nlink != 1:
-            raise ContextError(f"authority input became hard-linked before inspection: {path}")
+            raise ContextError(
+                f"authority input became hard-linked before inspection: {bound_path}"
+            )
         if metadata.st_size > maximum:
-            raise ContextError(f"file exceeds {maximum} bytes: {path}")
+            raise ContextError(f"file exceeds {maximum} bytes: {bound_path}")
         chunks: list[bytes] = []
         total = 0
         while True:
@@ -229,7 +507,7 @@ def _read_regular(
             chunks.append(chunk)
             total += len(chunk)
             if total > maximum:
-                raise ContextError(f"file exceeds {maximum} bytes: {path}")
+                raise ContextError(f"file exceeds {maximum} bytes: {bound_path}")
         final_metadata = os.fstat(descriptor)
         initial_signature = (
             metadata.st_dev,
@@ -246,10 +524,21 @@ def _read_regular(
             getattr(final_metadata, "st_ctime_ns", final_metadata.st_ctime),
         )
         if final_signature != initial_signature:
-            raise ContextError(f"file changed during inspection: {path}")
+            raise ContextError(f"file changed during inspection: {bound_path}")
+        if expected_snapshot is not None:
+            try:
+                path_metadata = bound_path.lstat()
+            except OSError as exc:
+                raise ContextError(
+                    f"file snapshot changed during inspection: {bound_path}"
+                ) from exc
+            if _is_link_like(bound_path) or (
+                _filesystem_snapshot(bound_path, path_metadata) != expected_snapshot
+            ):
+                raise ContextError(
+                    f"file snapshot changed during inspection: {bound_path}"
+                )
         return final_metadata, b"".join(chunks)
-    finally:
-        os.close(descriptor)
 
 
 def _canonical_text(data: bytes, label: str) -> tuple[str, bytes]:
@@ -499,7 +788,7 @@ def _enumerate_broad(
             if stat.S_ISDIR(metadata.st_mode):
                 next_directories.append(relative)
             elif stat.S_ISREG(metadata.st_mode):
-                identity = _filesystem_identity(Path(entry.path), metadata)
+                identity = _filesystem_alias_identity(Path(entry.path), metadata)
                 if relative in excluded_candidates:
                     continue
                 if identity in excluded_identities:
@@ -737,7 +1026,7 @@ def _requested(args: argparse.Namespace, root: Path) -> list[dict[str, Any]]:
         }
     identities: dict[tuple[Any, ...], str] = {}
     for item in values:
-        identity = _filesystem_identity(_safe_repo_path(root, item["path"]))
+        identity = _filesystem_alias_identity(_safe_repo_path(root, item["path"]))
         prior = identities.get(identity)
         if prior is not None and prior != item["path"]:
             raise ContextError(
@@ -786,8 +1075,8 @@ def _owners(root: Path, requested: list[dict[str, Any]], path: str) -> list[str]
                 owners.append(item["target_id"])
             else:
                 if candidate_identity is None:
-                    candidate_identity = _filesystem_identity(candidate)
-                if candidate_identity == _filesystem_identity(
+                    candidate_identity = _filesystem_alias_identity(candidate)
+                if candidate_identity == _filesystem_alias_identity(
                     _safe_repo_path(root, item["path"])
                 ):
                     owners.append(item["target_id"])
@@ -1066,7 +1355,19 @@ def _command_plan(
                 raise ContextError("user_global command authority requires --global-review-file")
             source = global_source["path"]
             source_sha256 = global_source["sha256"]
-            if item["authorization_source"] != source:
+            supplied_source = _filesystem_path(
+                item["authorization_source"],
+                f"command plan entry {index}.authorization_source",
+                expand_user=True,
+            )
+            _assert_no_link_components(supplied_source, include_final=True)
+            try:
+                resolved_source = supplied_source.resolve(strict=True)
+            except OSError as exc:
+                raise ContextError(
+                    "user_global command authority must reference the resolved global source path"
+                ) from exc
+            if os.path.normcase(str(resolved_source)) != os.path.normcase(source):
                 raise ContextError("user_global command authority must reference the resolved global source path")
         else:
             source = _text(item["authorization_source"], f"command plan entry {index}.authorization_source", maximum=2000)
@@ -1191,7 +1492,8 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
 
     explicit = sorted({item["path"] for item in requested if item["kind"] in {"file", "part"}})
     explicit_identities = {
-        _filesystem_identity(_safe_repo_path(root, path)): path for path in explicit
+        _filesystem_alias_identity(_safe_repo_path(root, path)): path
+        for path in explicit
     }
     broad_roots = [item["path"] for item in requested if item["kind"] in {"directory", "project"}]
     if len(explicit) > args.max_files:
@@ -1275,12 +1577,12 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
     if len(context_paths) > args.max_context_files:
         raise ContextError("context selection exceeds max-context-files")
     inventory_identities = {
-        _filesystem_identity(_safe_repo_path(root, path)): path
+        _filesystem_alias_identity(_safe_repo_path(root, path)): path
         for path in selected_paths
     }
     context_identities: dict[tuple[Any, ...], str] = {}
     for path in context_paths:
-        identity = _filesystem_identity(_safe_repo_path(root, path))
+        identity = _filesystem_alias_identity(_safe_repo_path(root, path))
         if identity in inventory_identities and inventory_identities[identity] != path:
             raise ContextError(
                 "harness and context aliases resolve to the same filesystem object: "
@@ -1374,6 +1676,72 @@ def _serialized(value: dict[str, Any]) -> bytes:
     return (json.dumps(value, ensure_ascii=True, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
+def _write_descriptor(descriptor: int, data: bytes) -> None:
+    remaining = memoryview(data)
+    while remaining:
+        written = os.write(descriptor, remaining)
+        if written <= 0:
+            raise ContextError("output write made no progress")
+        remaining = remaining[written:]
+    os.fsync(descriptor)
+
+
+def _write_created_output(path: Path, data: bytes) -> None:
+    if os.name == "nt":
+        with _windows_locked_parent(path) as absolute:
+            try:
+                descriptor = _windows_file_descriptor(
+                    absolute,
+                    access=0x40000000 | 0x00000080,
+                    creation=1,
+                    descriptor_flags=os.O_WRONLY | getattr(os, "O_BINARY", 0),
+                )
+            except OSError as exc:
+                raise ContextError(f"cannot create output {absolute}: {exc}") from exc
+            try:
+                metadata = os.fstat(descriptor)
+                if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                    raise ContextError(f"refusing unsafe new output: {absolute}")
+                _write_descriptor(descriptor, data)
+                final = absolute.lstat()
+                if (
+                    not stat.S_ISREG(final.st_mode)
+                    or _filesystem_identity(absolute, final)
+                    != _filesystem_identity(absolute, metadata)
+                ):
+                    raise ContextError(f"output entry changed while being written: {absolute}")
+            finally:
+                os.close(descriptor)
+        return
+    with _posix_bound_parent(path) as (parent, name, absolute):
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | os.O_NOFOLLOW
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        try:
+            descriptor = os.open(name, flags, 0o600, dir_fd=parent)
+        except OSError as exc:
+            raise ContextError(f"cannot create output {absolute}: {exc}") from exc
+        try:
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                raise ContextError(f"refusing unsafe new output: {absolute}")
+            _write_descriptor(descriptor, data)
+            final = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            if (
+                not stat.S_ISREG(final.st_mode)
+                or _filesystem_identity(absolute, final)
+                != _filesystem_identity(absolute, metadata)
+            ):
+                raise ContextError(f"output entry changed while being written: {absolute}")
+        finally:
+            os.close(descriptor)
+
+
 def _write(value: dict[str, Any], destination: str | None) -> None:
     data = _serialized(value)
     if len(data) > MAX_CONTEXT_JSON_BYTES:
@@ -1385,13 +1753,7 @@ def _write(value: dict[str, Any], destination: str | None) -> None:
     _assert_no_link_components(path, include_final=False)
     if not path.parent.is_dir():
         raise ContextError(f"output parent does not exist: {path.parent}")
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
-    try:
-        descriptor = os.open(path, flags, 0o600)
-    except OSError as exc:
-        raise ContextError(f"cannot create output {path}: {exc}") from exc
-    with os.fdopen(descriptor, "wb") as handle:
-        handle.write(data)
+    _write_created_output(path, data)
 
 
 def build_parser() -> argparse.ArgumentParser:

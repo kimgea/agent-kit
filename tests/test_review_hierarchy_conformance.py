@@ -196,7 +196,7 @@ class ReviewHierarchyConformanceTests(unittest.TestCase):
                         ],
                     )
                     global_source = chain["sources"][1]
-                    self.assertEqual(str(global_review), global_source["path"])
+                    self.assertTrue(Path(global_source["path"]).samefile(global_review))
                     self.assertIsNone(global_source["revision"])
                     self.assertEqual(
                         hashlib.sha256(b"Global rule.\n").hexdigest(),

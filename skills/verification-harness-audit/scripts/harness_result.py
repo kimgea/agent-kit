@@ -284,6 +284,16 @@ def _file_signature(metadata: os.stat_result) -> tuple[Any, ...]:
     )
 
 
+def _file_open_binding_signature(metadata: os.stat_result) -> tuple[Any, ...]:
+    """Return metadata that must agree between path and handle stat APIs."""
+    return (
+        stat.S_IFMT(metadata.st_mode),
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_size,
+    )
+
+
 def _file_identity(metadata: os.stat_result) -> tuple[int, int]:
     return (metadata.st_dev, metadata.st_ino)
 
@@ -418,7 +428,11 @@ def _windows_handle_attributes(handle: int) -> tuple[int, int]:
 @contextlib.contextmanager
 def _windows_locked_parent(path: Path):
     """Lock every ancestor against rename/delete while a full-path call runs."""
-    absolute = path.absolute()
+    supplied = path.absolute()
+    try:
+        absolute = supplied.parent.resolve(strict=True) / supplied.name
+    except OSError as exc:
+        raise ResultError(f"cannot resolve safe Windows parent for {path}: {exc}") from exc
     if not absolute.name:
         raise ResultError(f"path must name a file: {path}")
     current = Path(absolute.anchor)
@@ -494,7 +508,9 @@ def _bound_read_descriptor(path: Path, label: str):
                 metadata = os.fstat(descriptor)
                 if not stat.S_ISREG(metadata.st_mode):
                     raise ResultError(f"{label} must be a regular file: {path}")
-                if _file_signature(metadata) != _file_signature(preflight):
+                if _file_open_binding_signature(metadata) != (
+                    _file_open_binding_signature(preflight)
+                ):
                     raise ResultError(f"{label} changed before being opened: {path}")
                 yield descriptor, metadata
             finally:
@@ -523,7 +539,9 @@ def _bound_read_descriptor(path: Path, label: str):
             metadata = os.fstat(descriptor)
             if not stat.S_ISREG(metadata.st_mode):
                 raise ResultError(f"{label} must be a regular file: {absolute}")
-            if _file_signature(metadata) != _file_signature(preflight):
+            if _file_open_binding_signature(metadata) != (
+                _file_open_binding_signature(preflight)
+            ):
                 raise ResultError(f"{label} changed before being opened: {absolute}")
             yield descriptor, metadata
         finally:
@@ -2352,7 +2370,8 @@ def _write_output_posix(
                 raise ResultError(f"cannot safely open output {absolute}: {exc}") from exc
             metadata = os.fstat(descriptor)
             if (
-                _file_signature(metadata) != _file_signature(existing)
+                _file_open_binding_signature(metadata)
+                != _file_open_binding_signature(existing)
                 or not stat.S_ISREG(metadata.st_mode)
                 or metadata.st_nlink != 1
                 or _file_identity(metadata) in input_identities
@@ -2421,7 +2440,9 @@ def _write_output_windows(
         created = preflight is None
         try:
             metadata = os.fstat(descriptor)
-            if preflight is not None and _file_signature(metadata) != _file_signature(preflight):
+            if preflight is not None and _file_open_binding_signature(metadata) != (
+                _file_open_binding_signature(preflight)
+            ):
                 raise ResultError(f"output changed before being opened: {absolute}")
             if (
                 not stat.S_ISREG(metadata.st_mode)

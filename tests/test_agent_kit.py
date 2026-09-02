@@ -207,6 +207,8 @@ class CatalogAndValidationTests(unittest.TestCase):
                 agent_kit.validation_snapshot(fixture)
 
     def test_source_digest_detects_ancestor_swap_after_open(self):
+        if os.name == "nt":
+            self.skipTest("Windows denies renaming an ancestor with an open child handle")
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             fixture = base / "repository"

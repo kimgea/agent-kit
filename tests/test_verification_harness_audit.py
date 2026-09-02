@@ -59,6 +59,12 @@ def context_args(root, **overrides):
     return Namespace(**values)
 
 
+def same_path(left, right):
+    return os.path.normcase(str(Path(left).resolve())) == os.path.normcase(
+        str(Path(right).resolve())
+    )
+
+
 def make_fixture(root):
     (root / "src").mkdir(parents=True)
     (root / "tests" / "nested").mkdir(parents=True)
@@ -318,7 +324,7 @@ class ResolverTests(unittest.TestCase):
 
             def replace_before_open(path, maximum, **kwargs):
                 nonlocal replaced
-                if Path(path) == target and not replaced:
+                if same_path(path, target) and not replaced:
                     os.replace(replacement, target)
                     replaced = True
                 return original_read(path, maximum, **kwargs)
@@ -383,7 +389,7 @@ class ResolverTests(unittest.TestCase):
 
                     def rewrite_before_open(path, maximum, **kwargs):
                         nonlocal changed
-                        if Path(path) == changed_path and not changed:
+                        if same_path(path, changed_path) and not changed:
                             replacement = (
                                 "VALUE = 2\n"
                                 if changed_path == target
@@ -503,6 +509,24 @@ class ResolverTests(unittest.TestCase):
                     )
                 )
 
+    def test_single_hard_link_alias_target_remains_inspectable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            (root / "target.py").write_text("VALUE = 1\n", encoding="utf-8")
+            try:
+                os.link(root / "target.py", root / "unselected-alias.py")
+            except OSError:
+                self.skipTest("hard links unavailable")
+
+            context = harness_context.resolve(
+                context_args(root, paths=["target.py"])
+            )
+            self.assertEqual(
+                ["target.py"],
+                [item["path"] for item in context["inventory"]["files"]],
+            )
+
     def test_git_classifies_tracked_untracked_and_excludes_ignored(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "repo"
@@ -583,7 +607,7 @@ class ResolverTests(unittest.TestCase):
 
             def replace_before_open(path, maximum, **kwargs):
                 nonlocal replaced
-                if Path(path) == global_review and not replaced:
+                if same_path(path, global_review) and not replaced:
                     global_review.write_text("Modified rule.\n", encoding="utf-8")
                     os.utime(
                         global_review,
@@ -848,6 +872,122 @@ class ResolverTests(unittest.TestCase):
 
             with self.assertRaisesRegex(harness_context.ContextError, "cannot resolve"):
                 harness_context.resolve(context_args(root / "missing"))
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(os, "O_NOFOLLOW"),
+        "descriptor-relative race probe requires POSIX no-follow support",
+    )
+    def test_context_reads_and_output_remain_bound_during_parent_swap(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            trusted = base / "trusted"
+            moved = base / "moved"
+            outside = base / "outside"
+            trusted.mkdir()
+            outside.mkdir()
+            source = trusted / "source.txt"
+            source.write_text("trusted\n", encoding="utf-8")
+            (outside / "source.txt").write_text("outside\n", encoding="utf-8")
+            snapshot = harness_context._filesystem_snapshot(source, source.lstat())
+            original_open = os.open
+            raced = False
+
+            def swap_before_read(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal raced
+                if path == "source.txt" and dir_fd is not None and not raced:
+                    raced = True
+                    trusted.rename(moved)
+                    trusted.symlink_to(outside, target_is_directory=True)
+                return original_open(path, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch.object(
+                harness_context.os, "open", side_effect=swap_before_read
+            ):
+                with self.assertRaisesRegex(
+                    harness_context.ContextError, "snapshot changed"
+                ):
+                    harness_context._read_regular(
+                        source,
+                        64,
+                        expected_snapshot=snapshot,
+                    )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            trusted = base / "trusted"
+            moved = base / "moved"
+            outside = base / "outside"
+            trusted.mkdir()
+            outside.mkdir()
+            original_open = os.open
+            raced = False
+
+            def swap_before_write(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal raced
+                if path == "context.json" and dir_fd is not None and not raced:
+                    raced = True
+                    trusted.rename(moved)
+                    trusted.symlink_to(outside, target_is_directory=True)
+                return original_open(path, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch.object(
+                harness_context.os, "open", side_effect=swap_before_write
+            ):
+                harness_context._write_created_output(
+                    trusted / "context.json", b"bound\n"
+                )
+            self.assertEqual(
+                b"bound\n", (moved / "context.json").read_bytes()
+            )
+            self.assertFalse((outside / "context.json").exists())
+
+    @unittest.skipUnless(os.name == "nt", "Windows handle-boundary probe")
+    def test_windows_context_parent_handles_block_swaps_and_release(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            trusted = base / "trusted"
+            moved = base / "moved"
+            trusted.mkdir()
+            source = trusted / "source.txt"
+            source.write_text("trusted\n", encoding="utf-8")
+            original_descriptor = harness_context._windows_file_descriptor
+            swap_attempts = []
+
+            def attempt_swap_before_open(*args, **kwargs):
+                try:
+                    trusted.rename(moved)
+                except OSError:
+                    swap_attempts.append("blocked")
+                else:  # pragma: no cover - indicates the Windows lock failed
+                    swap_attempts.append("escaped")
+                return original_descriptor(*args, **kwargs)
+
+            with mock.patch.object(
+                harness_context,
+                "_windows_file_descriptor",
+                side_effect=attempt_swap_before_open,
+            ):
+                _, data = harness_context._read_regular(source, 64)
+            self.assertEqual(b"trusted\n", data)
+            self.assertEqual(["blocked"], swap_attempts)
+            trusted.rename(moved)
+            moved.rename(trusted)
+
+            swap_attempts.clear()
+            with mock.patch.object(
+                harness_context,
+                "_windows_file_descriptor",
+                side_effect=attempt_swap_before_open,
+            ):
+                harness_context._write_created_output(
+                    trusted / "context.json", b"bound\n"
+                )
+            self.assertEqual(["blocked"], swap_attempts)
+            self.assertEqual(
+                b"bound\n", (trusted / "context.json").read_bytes()
+            )
+            trusted.rename(moved)
+            moved.rename(trusted)
 
     def test_read_only_target_and_canonical_output_preserve_platform_state(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1204,7 +1344,7 @@ class ResultTests(unittest.TestCase):
                 for source in chain["sources"]
                 if source["source_kind"] == "user_global"
             )
-            self.assertEqual(str(global_review), global_source["path"])
+            self.assertEqual(str(global_review.resolve()), global_source["path"])
             self.assertRegex(global_source["sha256"], r"^[0-9a-f]{64}$")
             self.assertNotIn("content", global_source)
 
@@ -1254,7 +1394,7 @@ class ResultTests(unittest.TestCase):
             )
             authorization = context["execution"][0]["authorization"]
             self.assertEqual("user_global", authorization["kind"])
-            self.assertEqual(str(global_review), authorization["source"])
+            self.assertEqual(str(global_review.resolve()), authorization["source"])
             self.assertEqual(global_source["sha256"], authorization["source_sha256"])
 
             result = harness_result.finalize(context, audit_draft())
