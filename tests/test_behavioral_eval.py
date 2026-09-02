@@ -1,5 +1,6 @@
 import argparse
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -37,6 +38,14 @@ project_review_result = load_module(
 review_workflow = load_module(
     "behavioral_eval_review_workflow",
     ROOT / "skills" / "review-and-fix" / "scripts" / "review_workflow.py",
+)
+verification_harness_result = load_module(
+    "behavioral_eval_verification_harness_result",
+    ROOT
+    / "skills"
+    / "verification-harness-audit"
+    / "scripts"
+    / "harness_result.py",
 )
 
 
@@ -100,6 +109,243 @@ def complete_project_review_result(context):
             "findings": [],
             "limitations": [],
         }
+    )
+
+
+def complete_verification_harness_result(context):
+    inspected = [
+        item["path"]
+        for item in context["inventory"]["files"]
+        if item["inspection_kind"] == "text"
+    ]
+    excluded = [
+        {
+            "path": item["path"],
+            "reason": f"The resolver classified this path as {item['inspection_kind']}.",
+            "material": True,
+        }
+        for item in context["inventory"]["files"]
+        if item["inspection_kind"] != "text"
+    ]
+    complete = context["inventory"]["complete"] and not excluded and all(
+        chain["complete"] for chain in context["guidance"]
+    )
+    return verification_harness_result.finalize(
+        context,
+        {
+            "summary": {"conclusion": "The selected harness is fully accounted for."},
+            "coverage": {
+                "complete": complete,
+                "inspected_targets": [
+                    item["target_id"] for item in context["target"]["requested"]
+                ],
+                "inspected_harness_paths": inspected,
+                "classified_non_harness_paths": [],
+                "excluded": excluded,
+                "context_paths": [],
+            },
+            "recommendations": [],
+            "limitations": [],
+        },
+    )
+
+
+def verification_audit_result(context, *, strength, decision="ready", incomplete=False):
+    path = context["target"]["requested"][0]["path"]
+    recommendation = {
+        "kind": "weak_assertion",
+        "action": "strengthen",
+        "strength": strength,
+        "impact": "high" if strength == "essential" else "medium",
+        "confidence": "high",
+        "decision": decision,
+        "decision_reason": (
+            "The existing required workflow fixes the intended outcome."
+            if decision == "ready"
+            else "The proposed requirement would select new policy."
+        ),
+        "claim": "observed_defect" if strength == "essential" else "improvement_opportunity",
+        "basis": "required_workflow" if decision == "ready" else "new_policy",
+        "basis_reference": "The selected test is the documented routine check.",
+        "title": "Strengthen the selected assertion",
+        "problem": "The selected assertion does not protect the stated verification outcome.",
+        "reason": "The existing check can remain green without proving its intended outcome.",
+        "impact_summary": "A regression can escape the selected verification boundary.",
+        "affected_targets": [context["target"]["requested"][0]["target_id"]],
+        "affected_locations": [{"path": path, "start_line": 1, "end_line": 2}],
+        "related_context": [],
+        "evidence": [
+            {
+                "kind": "test",
+                "description": "The selected test contains the shallow assertion.",
+                "location": {"path": path, "start_line": 1, "end_line": 2},
+                "source_id": None,
+            }
+        ],
+        "current_tier": "routine",
+        "recommended_tier": "routine",
+        "safe_direction": {
+            "outcome": "Make the selected assertion prove the documented outcome.",
+            "acceptance_evidence": ["The existing regression counterexample fails the check."],
+            "alternatives": [],
+            "suggested_paths": [path],
+        },
+    }
+    draft = {
+        "summary": {"conclusion": "The selected harness has one bounded recommendation."},
+        "coverage": {
+            "complete": not incomplete,
+            "inspected_targets": [
+                item["target_id"] for item in context["target"]["requested"]
+            ],
+            "inspected_harness_paths": [path],
+            "classified_non_harness_paths": [],
+            "excluded": [],
+            "context_paths": [],
+        },
+        "recommendations": [recommendation],
+        "limitations": (
+            [
+                {
+                    "code": "evidence_missing",
+                    "message": "Required evidence was unavailable.",
+                    "affected_paths": [path],
+                    "material": True,
+                }
+            ]
+            if incomplete
+            else []
+        ),
+    }
+    return verification_harness_result.finalize(context, draft)
+
+
+def verification_audit_review_envelope(context, result):
+    requested_paths = list(
+        dict.fromkeys(item["path"] for item in context["target"]["requested"])
+    )
+    output_bytes = json.dumps(
+        result, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    status = result["status"]
+    outcomes = {
+        "INCOMPLETE": (False, "incomplete"),
+        "IMPROVEMENTS": (True, "changes_requested"),
+        "PASS": (True, "pass"),
+    }
+    completed, outcome = outcomes[status]
+    return {
+        "target": {
+            "kind": "paths",
+            "repository_root": context["target"]["repository_root"],
+            "base_revision": None,
+            "head_revision": None,
+            "working_tree_mode": None,
+            "requested_paths": requested_paths,
+        },
+        "source": {
+            "reviewer": "verification-harness-audit",
+            "reviewer_version": "1.0.0",
+            "output_format": "structured",
+            "output_sha256": hashlib.sha256(output_bytes).hexdigest(),
+            "completed": completed,
+            "verdict": status,
+            "outcome": outcome,
+        },
+    }
+
+
+def normalize_verification_audit_for_review_and_fix(
+    result, envelope, expected_audit_target
+):
+    requested_paths = envelope["target"]["requested_paths"]
+    incomplete = envelope["source"]["outcome"] == "incomplete"
+    findings = []
+    for recommendation in result["recommendations"]:
+        primary = recommendation["affected_locations"][0]
+        exact_primary = primary if primary["path"] in requested_paths else None
+        decision_ready = recommendation["decision"] == "ready"
+        actionable = decision_ready and exact_primary is not None
+        findings.append(
+            {
+                "source_id": recommendation["recommendation_id"],
+                "source_fingerprint": recommendation["fingerprint"],
+                "disposition": (
+                    "blocker"
+                    if recommendation["strength"] == "essential"
+                    else "nit"
+                    if recommendation["strength"] == "optional"
+                    else "suggestion"
+                ),
+                "severity": recommendation["impact"],
+                "confidence": recommendation["confidence"],
+                "scope_relation": "unknown",
+                "actionability": "actionable" if actionable else "needs_triage",
+                "title": recommendation["title"],
+                "problem": recommendation["problem"],
+                "impact": recommendation["impact_summary"],
+                "evidence": [
+                    {
+                        "kind": "reviewer_statement",
+                        "description": item["description"],
+                        "location": item["location"],
+                    }
+                    for item in recommendation["evidence"]
+                ],
+                "primary_location": exact_primary,
+                "related_locations": recommendation["related_context"],
+                "safe_direction": (
+                    recommendation["safe_direction"]["outcome"]
+                    if actionable
+                    else None
+                ),
+                "field_provenance": {
+                    "disposition": "inferred",
+                    "severity": "inferred",
+                    "confidence": "explicit",
+                    "scope_relation": "missing",
+                    "actionability": "inferred" if actionable else "missing",
+                    "safe_direction": "explicit" if actionable else "missing",
+                },
+                "normalization_confidence": "high" if actionable else "medium",
+                "normalization_notes": [
+                    "Strength was conservatively mapped to review disposition; the audit grants no fix or command authority."
+                ],
+            }
+        )
+    limitations = []
+    if result.get("target") != expected_audit_target:
+        limitations.append(
+            {
+                "code": "target_mismatch",
+                "message": "The audit result target differs from the lead-owned audit target.",
+                "source_ids": [
+                    item["recommendation_id"] for item in result["recommendations"]
+                ],
+                "material": True,
+            }
+        )
+    if incomplete:
+        limitations.append(
+            {
+                "code": "source_incomplete",
+                "message": "The verification harness audit was incomplete and cannot enter fix planning.",
+                "source_ids": [item["recommendation_id"] for item in result["recommendations"]],
+                "material": True,
+            }
+        )
+    return review_workflow.finalize_batch(
+        {
+            "normalization": {
+                "confidence": "high" if not incomplete else "medium",
+                "notes": [
+                    "A fresh non-editing normalizer mapped the structured audit while preserving lead-owned target metadata."
+                ],
+            },
+            "findings": findings,
+            "limitations": limitations,
+        },
+        envelope,
     )
 
 
@@ -638,6 +884,245 @@ class ProjectReviewContractTests(unittest.TestCase):
         self.assertEqual(["scripts/expensive-check"], command_case["forbidden_commands"])
 
 
+class VerificationHarnessAuditContractTests(unittest.TestCase):
+    def setUp(self):
+        self.suite = behavioral_eval.load_suite(ROOT, "verification-harness-audit")
+        self.case = behavioral_eval._case_by_id(
+            self.suite, "sound-single-agent-harness"
+        )
+        self.source = (
+            ROOT / "evals" / "verification-harness-audit" / self.case["fixture"]
+        )
+
+    def test_context_result_validation_and_authority_binding(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "fixture"
+            behavioral_eval.materialize_fixture(self.source, fixture)
+            context_path = base / "context.json"
+            context = behavioral_eval.resolve_context(
+                self.suite, self.case, fixture, context_path, ROOT
+            )
+            result = complete_verification_harness_result(context)
+            result_path = base / "result.json"
+            result_path.write_text(json.dumps(result), encoding="utf-8")
+
+            valid, message = behavioral_eval.validate_result_contract(
+                self.suite, result_path, context_path, ROOT
+            )
+            self.assertTrue(valid, message)
+            bound, message = behavioral_eval._bind_result(
+                self.suite, context, result
+            )
+            self.assertTrue(bound, message)
+
+            mutations = {
+                "target": lambda value: value["target"]["requested"][0].update(
+                    {"path": "tests/other.py"}
+                ),
+                "inventory": lambda value: value["inventory"]["files"].clear(),
+                "guidance": lambda value: value["guidance"].clear(),
+                "execution": lambda value: value["execution"].append({}),
+                "evidence_sources": lambda value: value["evidence_sources"].append({}),
+                "context_sha256": lambda value: value.update(
+                    {"context_sha256": "0" * 64}
+                ),
+            }
+            for field, mutate in mutations.items():
+                with self.subTest(field=field):
+                    forged = json.loads(json.dumps(result))
+                    mutate(forged)
+                    bound, message = behavioral_eval._bind_result(
+                        self.suite, context, forged
+                    )
+                    self.assertFalse(bound, message)
+
+    def test_broad_context_is_deterministically_inspected_under_fixed_limit(self):
+        case = behavioral_eval._case_by_id(
+            self.suite, "bounded-subsystem-calibration"
+        )
+        source = ROOT / "evals" / "verification-harness-audit" / case["fixture"]
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "fixture"
+            behavioral_eval.materialize_fixture(source, fixture)
+            context = behavioral_eval.resolve_context(
+                self.suite, case, fixture, base / "context.json", ROOT
+            )
+
+            self.assertEqual(4096, context["inventory"]["limits"]["maximum_file_bytes"])
+            self.assertTrue(context["inventory"]["complete"])
+            self.assertTrue(context["inventory"]["files"])
+            self.assertEqual(
+                {"text"},
+                {item["inspection_kind"] for item in context["inventory"]["files"]},
+            )
+            result = complete_verification_harness_result(context)
+            self.assertEqual("PASS", result["status"])
+            self.assertIs(result, verification_harness_result._validate_result(result))
+
+    def test_material_resolver_limit_is_bound_and_cannot_be_dropped(self):
+        case = behavioral_eval._case_by_id(
+            self.suite, "material-inspection-limit"
+        )
+        source = ROOT / "evals" / "verification-harness-audit" / case["fixture"]
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "fixture"
+            behavioral_eval.materialize_fixture(source, fixture)
+            context = behavioral_eval.resolve_context(
+                self.suite, case, fixture, base / "context.json", ROOT
+            )
+            result = complete_verification_harness_result(context)
+
+            self.assertEqual("INCOMPLETE", result["status"])
+            self.assertTrue(any(item["material"] for item in context["limitations"]))
+            bound, message = behavioral_eval._bind_result(
+                self.suite, context, result
+            )
+            self.assertTrue(bound, message)
+            result["limitations"] = []
+            bound, message = behavioral_eval._bind_result(
+                self.suite, context, result
+            )
+            self.assertFalse(bound)
+            self.assertIn("omits", message)
+
+    def test_observed_flakiness_history_is_fixed_lead_owned_evidence(self):
+        case = behavioral_eval._case_by_id(
+            self.suite, "observed-flakiness-history"
+        )
+        source = ROOT / "evals" / "verification-harness-audit" / case["fixture"]
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "fixture"
+            behavioral_eval.materialize_fixture(source, fixture)
+            context = behavioral_eval.resolve_context(
+                self.suite, case, fixture, base / "context.json", ROOT
+            )
+
+            self.assertEqual(1, len(context["evidence_sources"]))
+            evidence = context["evidence_sources"][0]
+            self.assertEqual("S001", evidence["evidence_source_id"])
+            self.assertEqual("history", evidence["kind"])
+            self.assertEqual("fresh", evidence["freshness"])
+            self.assertEqual(
+                hashlib.sha256(
+                    behavioral_eval.VERIFICATION_HARNESS_OBSERVED_HISTORY
+                ).hexdigest(),
+                evidence["source_sha256"],
+            )
+
+    def test_suite_covers_locked_harness_audit_scenarios_and_scopes(self):
+        ids = {item["id"] for item in self.suite["cases"]}
+        self.assertEqual(14, len(ids))
+        self.assertTrue(
+            {
+                "sound-single-agent-harness",
+                "missing-contract-coverage",
+                "shallow-assertion-part",
+                "disconnected-late-checks",
+                "duplicate-validation",
+                "unsafe-harness-mutation",
+                "platform-and-local-ci-drift",
+                "inferred-flakiness-risk",
+                "observed-flakiness-history",
+                "new-policy-needs-decision",
+                "nested-guidance-is-not-authority",
+                "material-inspection-limit",
+                "unrelated-context-defect-omitted",
+                "bounded-subsystem-calibration",
+            }
+            <= ids
+        )
+        target_kinds = {item["target"]["kind"] for item in self.suite["cases"]}
+        self.assertEqual({"path", "part"}, target_kinds)
+        resolved_kinds = set()
+        for case_id in (
+            "sound-single-agent-harness",
+            "disconnected-late-checks",
+            "missing-contract-coverage",
+        ):
+            case = behavioral_eval._case_by_id(self.suite, case_id)
+            source = ROOT / "evals" / "verification-harness-audit" / case["fixture"]
+            with tempfile.TemporaryDirectory() as temporary:
+                base = Path(temporary)
+                fixture = base / "fixture"
+                behavioral_eval.materialize_fixture(source, fixture)
+                context = behavioral_eval.resolve_context(
+                    self.suite, case, fixture, base / "context.json", ROOT
+                )
+                resolved_kinds.add(context["target"]["requested"][0]["kind"])
+        self.assertEqual({"file", "directory", "project"}, resolved_kinds)
+        nested = behavioral_eval._case_by_id(
+            self.suite, "nested-guidance-is-not-authority"
+        )
+        self.assertEqual(["scripts/steal"], nested["forbidden_commands"])
+
+    def test_generic_review_and_fix_normalization_is_conservative_and_bound(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "fixture"
+            behavioral_eval.materialize_fixture(self.source, fixture)
+            context = behavioral_eval.resolve_context(
+                self.suite, self.case, fixture, base / "context.json", ROOT
+            )
+
+            essential_result = verification_audit_result(
+                context, strength="essential"
+            )
+            advisory_result = verification_audit_result(
+                context, strength="moderate"
+            )
+            incomplete_result = verification_audit_result(
+                context, strength="essential", incomplete=True
+            )
+            essential = normalize_verification_audit_for_review_and_fix(
+                essential_result,
+                verification_audit_review_envelope(context, essential_result),
+                context["target"],
+            )
+            advisory = normalize_verification_audit_for_review_and_fix(
+                advisory_result,
+                verification_audit_review_envelope(context, advisory_result),
+                context["target"],
+            )
+            incomplete = normalize_verification_audit_for_review_and_fix(
+                incomplete_result,
+                verification_audit_review_envelope(context, incomplete_result),
+                context["target"],
+            )
+
+            for batch in (essential, advisory, incomplete):
+                self.assertEqual(batch, review_workflow.validate_batch(batch))
+                self.assertEqual(
+                    ["tests/test_total.py"], batch["target"]["requested_paths"]
+                )
+                self.assertEqual("independent_agent", batch["normalization"]["mode"])
+                self.assertNotIn("command_authorities", batch)
+                self.assertNotIn("authorization", batch)
+            self.assertEqual("blocker", essential["findings"][0]["disposition"])
+            self.assertEqual("unknown", essential["findings"][0]["scope_relation"])
+            self.assertEqual("suggestion", advisory["findings"][0]["disposition"])
+            self.assertEqual("pass", advisory["source"]["outcome"])
+            self.assertEqual("partial", incomplete["status"])
+            self.assertTrue(incomplete["limitations"][0]["material"])
+            self.assertEqual("source_incomplete", incomplete["limitations"][0]["code"])
+
+            forged = json.loads(json.dumps(essential_result))
+            forged["target"]["requested"][0]["path"] = "tests/other.py"
+            mismatched = normalize_verification_audit_for_review_and_fix(
+                forged,
+                verification_audit_review_envelope(context, forged),
+                context["target"],
+            )
+            self.assertEqual("partial", mismatched["status"])
+            self.assertEqual(
+                ["tests/test_total.py"], mismatched["target"]["requested_paths"]
+            )
+            self.assertEqual("target_mismatch", mismatched["limitations"][0]["code"])
+
+
 class ReviewAndFixContractTests(unittest.TestCase):
     def setUp(self):
         self.suite = behavioral_eval.load_suite(ROOT, "review-and-fix")
@@ -926,6 +1411,51 @@ class CodexRunnerTests(unittest.TestCase):
                 behavioral_eval._parse_event_commands(path),
             )
 
+    def test_delegation_events_are_counted_without_retaining_arguments(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "events.jsonl"
+            events = [
+                {
+                    "type": "item.started",
+                    "item": {
+                        "id": "call-1",
+                        "type": "tool_call",
+                        "tool": "collaboration.spawn_agent",
+                        "arguments": {"secret": "do not retain"},
+                    },
+                },
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "call-1",
+                        "type": "tool_call",
+                        "tool": "collaboration.spawn_agent",
+                    },
+                },
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "call-2",
+                        "type": "tool_call",
+                        "tool": "send_message",
+                        "arguments": {
+                            "type": "tool_call",
+                            "name": "spawn_agent",
+                            "id": "spoofed-call",
+                        },
+                    },
+                },
+            ]
+            path.write_text(
+                "".join(json.dumps(event) + "\n" for event in events),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                {"observed": True, "spawn_calls": 1},
+                behavioral_eval._event_delegation_summary(path),
+            )
+
     def test_forbidden_execution_distinguishes_reading_from_running(self):
         forbidden = ["scripts/expensive-check"]
         commands = [
@@ -1162,6 +1692,9 @@ class CodexRunnerTests(unittest.TestCase):
             self.assertRegex(summary["harness_sha256"], r"^[0-9a-f]{64}$")
             self.assertRegex(
                 summary["cases"][0]["fixture_sha256"], r"^[0-9a-f]{64}$"
+            )
+            self.assertRegex(
+                summary["cases"][0]["result_sha256"], r"^[0-9a-f]{64}$"
             )
             self.assertEqual(
                 "[1/1] json-consumer-output: running\n"

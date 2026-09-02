@@ -1,0 +1,7 @@
+name: check
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: python scripts/check.py --unit

@@ -10,6 +10,7 @@ python scripts/agent_kit.py check
 python scripts/behavioral_eval.py check --suite review-guidance-audit
 python scripts/behavioral_eval.py check --suite project-review
 python scripts/behavioral_eval.py check --suite review-and-fix
+python scripts/behavioral_eval.py check --suite verification-harness-audit
 ```
 
 GitHub Actions runs only that deterministic path. It does not invoke Codex,
@@ -87,9 +88,12 @@ Local runs create a new ignored directory under `.eval-results/` by default:
 
 The summary binds the observation to the frozen suite, skill, fixed dependency
 digests, harness, runner, Codex version, explicit model, reasoning effort, and
-each fixture digest. Case records preserve canonical context and output plus
-per-assertion and mutation grading. Raw event streams, stderr, prompts, and
-reasoning are not retained.
+each fixture and canonical-result digest. Case records preserve canonical
+context and output plus per-assertion and mutation grading. When the runner exposes bounded agent-tool
+events, scores also retain only the deduplicated count of `spawn_agent` calls so
+delegation-oriented cases can distinguish an observed local orchestration path
+from a single-agent result. Tool arguments, subagent prompts, raw event streams,
+stderr, prompts, and reasoning are not retained.
 
 Results are local evidence, not universal proof. A useful claim names the exact
 configuration, for example: "16 of 16 cases passed with this skill and suite
@@ -158,11 +162,19 @@ The executable suites currently cover:
 | `review-guidance-audit` | Guidance-audit result | No mutations |
 | `project-review` | Project-review result | No mutations |
 | `review-and-fix` | Review-and-fix workflow result | Exact declared existing files only |
+| `verification-harness-audit` | Verification-harness audit result | No mutations |
 
 `review-and-fix` fixes its reviewer set to `project-review` v1 and freezes that
 complete dependency beside the evaluated skill. Its cases can use multiple
 fresh agent contexts and are therefore slower and more allowance-intensive than
 single-pass review cases.
+
+The verification-harness suite uses a fixed 4 KiB semantic-inspection ceiling
+for compact fixtures. Its adapter performs metadata resolution first, then
+deterministically inspects every eligible file in a broad selected inventory.
+This makes oversized and unread content explicit material evidence rather than
+letting a model silently sample a directory or project. Suite data cannot add a
+command plan, user-global authority, external evidence source, or context path.
 
 ## Add another skill
 

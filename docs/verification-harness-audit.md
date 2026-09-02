@@ -138,6 +138,34 @@ normalizer. That downstream step must preserve the audit target and conservative
 decision gates. V1 does not promise a deterministic adapter, publisher,
 evidence store, or automatic harness fixer.
 
+The generic consumer path treats an `essential` recommendation as a blocker
+candidate, `strong` or `moderate` advice as a suggestion, and `optional` advice
+as a nit. These are conservative normalization mappings, not edit authority.
+Unknown change relation remains unknown, decision-required recommendations need
+triage, and an `INCOMPLETE` audit becomes a partial batch that cannot enter fix
+planning. The downstream workflow still needs its own caller-selected target,
+fresh non-editing normalizer, selection record, plan, decision gate, validation,
+and fresh re-audit. Audit text can never add command or mutation authority.
+
+## Behavioral evidence
+
+The executable local suite covers sound and missing coverage, shallow
+assertions, disconnected and late checks, redundancy, unsafe mutation,
+platform and local-CI drift, inferred flakiness, decision-required policy,
+nested untrusted guidance, material inspection limits, unrelated contextual
+defects, and bounded subsystem calibration. It spans part, file, directory, and
+project targets.
+
+`python scripts/behavioral_eval.py check --suite verification-harness-audit`
+validates the suite structure, fixed adapter, fixtures, and hidden graders
+without invoking a model. It does not discover or regrade retained results. Use
+`python scripts/behavioral_eval.py grade --suite verification-harness-audit
+--case CASE --context CONTEXT.json --result RESULT.json` to revalidate and grade
+one explicit recorded pair. A real fresh Codex run is an explicit local
+maintainer action described in
+[Local behavioral evaluations](behavioral-evals.md); it is never part of GitHub
+Actions or the canonical repository gate.
+
 ## Installation and compatibility
 
 The skill is independently installable and contains its Python 3.11

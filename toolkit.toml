@@ -182,7 +182,9 @@ installable = true
 setup_requires_approval = false
 data_sensitivity = "repository source, active-agent review guidance, caller-supplied evidence metadata, command summaries, and generated recommendations"
 docs = "docs/verification-harness-audit.md"
-tests = ["tests/test_verification_harness_audit.py", "tests/test_review_hierarchy_conformance.py", "tests/test_agent_kit.py"]
+tests = ["tests/test_verification_harness_audit.py", "tests/test_review_hierarchy_conformance.py", "tests/test_behavioral_eval.py", "tests/test_agent_kit.py"]
+evals = "evals/verification-harness-audit/cases.json"
+behavioral_evals = "evals/verification-harness-audit/suite.json"
 
 [[resources]]
 id = "serve-artifacts"

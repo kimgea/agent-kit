@@ -18,6 +18,9 @@ in `toolkit.toml`.
 - Add part, file, directory, and project scopes; evidence-backed recommendation
   strength/readiness/tier classifications; and `PASS`, `IMPROVEMENTS`, and
   `INCOMPLETE` status derivation.
+- Add descriptive and executable behavioral suites spanning 14 adversarial
+  local harness scenarios with fixed target/provenance grading and model-free
+  canonical validation.
 
 ### Changed
 
@@ -25,6 +28,8 @@ in `toolkit.toml`.
   plugin while preserving its independent standalone skill archive and runtime.
 - Document generic `review-and-fix` normalization as an optional downstream
   path without promising a deterministic adapter or automatic remediation.
+- Demonstrate conservative generic normalization of essential, advisory, and
+  incomplete audit outcomes while keeping fix and command authority separate.
 
 ### Security
 
