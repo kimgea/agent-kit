@@ -1,9 +1,9 @@
 ---
 name: review-audit-fix-integration
-status: in-progress
+status: completed
 created: 2026-09-02T09:12:50Z
-updated: 2026-09-02T10:20:50Z
-progress: 75%
+updated: 2026-09-02T13:04:17+02:00
+progress: 100%
 prd: .claude/prds/review-audit-fix-integration.md
 github: null
 ---
@@ -90,7 +90,7 @@ changelog, packaging expectations, and tracking artifacts.
 - [x] 001.md - Define runtime reviewer integration guidance
 - [x] 002.md - Extend fixed local behavioral reviewer resolution
 - [x] 003.md - Add mapping tests and cross-skill behavioral cases
-- [ ] 004.md - Align releases surfaces and deliver through review
+- [x] 004.md - Align releases surfaces and deliver through review
 
 Total tasks: 4
 Parallel tasks: 0

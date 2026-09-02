@@ -1,7 +1,7 @@
 ---
 name: review-audit-fix-integration
 description: Make review-and-fix safely and consistently consume canonical guidance and verification audit results.
-status: active
+status: completed
 created: 2026-09-02T09:12:50Z
 ---
 
