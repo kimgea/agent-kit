@@ -1,5 +1,5 @@
 schema_version = 2
-toolkit_version = "1.9.0"
+toolkit_version = "1.10.0"
 minimum_python = "3.11"
 
 [plugin_marketplace]
@@ -46,7 +46,7 @@ skills = ["project-review", "review-and-fix", "review-guidance-audit", "verifica
 category = "Developer Tools"
 installation = "AVAILABLE"
 authentication = "ON_INSTALL"
-version = "1.4.0"
+version = "1.5.0"
 description = "Review bounded project changes, safely remediate findings, improve hierarchical guidance, and audit local verification harnesses."
 display_name = "Project Review Workflow"
 short_description = "Review, remediate, and audit verification"
@@ -139,7 +139,7 @@ behavioral_evals = "evals/project-review/suite.json"
 id = "review-and-fix"
 kind = "skill"
 path = "skills/review-and-fix"
-version = "1.1.0"
+version = "1.2.0"
 summary = "Turn local review findings into bounded fixes through conservative decision gates and fresh re-review."
 agents = ["codex", "claude"]
 platforms = ["linux", "windows", "macos"]

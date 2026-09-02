@@ -42,6 +42,12 @@ a rerunnable reviewer may be normalized and summarized, but it cannot enter the
 fix loop. Reviewer disagreement remains explicit; do not silently choose the
 most convenient result.
 
+When `review-guidance-audit` or `verification-harness-audit` is selected, read
+[audit-reviewers.md](references/audit-reviewers.md) before resolving the final
+fix target or normalizing its result. Audit scope and edit scope are different
+authorities: a broad or related audit path never becomes editable until the
+caller selects exact repository paths and the same audit is rerun over them.
+
 ## Normalize the findings
 
 Use `scripts/review_workflow.py` from the installed skill directory:
@@ -58,16 +64,17 @@ command with the separately recorded lead-owned target. Conversion rejects a
 review result whose target differs from that expected target. An already
 canonical neutral batch uses `validate-batch`. For every other structured or
 prose result, read [normalization.md](references/normalization.md) and give the
-raw output, exact target metadata, and batch contract to a fresh non-editing
-subagent. The lead separately writes an immutable envelope containing the exact
-target, reviewer identity/version, format, raw-output digest, completion state,
-raw verdict, and canonical outcome. Use outcome `pass` only for an explicit
-affirmative reviewer result, `changes_requested` for an explicit non-pass change
-request, `incomplete` for an unfinished reviewer, and `unknown` when the outcome
-is ambiguous. The normalizer returns only semantic normalization confidence and
-notes, findings, and limitations; it must not copy or choose the envelope,
-outcome, or normalization mode. Finalize its draft with that envelope before the
-fixing context receives it.
+raw output, exact target metadata, batch contract, and any applicable trusted
+reviewer profile to a fresh non-editing subagent. The lead separately writes an
+immutable envelope containing the exact target, reviewer identity/version,
+format, raw-output digest, completion state, raw verdict, and canonical outcome.
+Use outcome `pass` only for an explicit affirmative reviewer result,
+`changes_requested` for an explicit non-pass change request, `incomplete` for an
+unfinished reviewer, and `unknown` when the outcome is ambiguous. The normalizer
+returns only semantic normalization confidence and notes, findings, and
+limitations; it must not copy or choose the envelope, outcome, or normalization
+mode. Finalize its draft with that envelope before the fixing context receives
+it.
 
 If finalization rejects an independent draft, return only the exact validator
 error and rejected draft to that independent normalizer for one structure-only

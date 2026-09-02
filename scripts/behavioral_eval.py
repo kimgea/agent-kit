@@ -95,17 +95,34 @@ CONTRACTS = {
     },
     "review-and-fix/v1": {
         "skill": "review-and-fix",
-        "context": "skills/project-review/scripts/review_context.py",
+        "context": None,
         "validator": "skills/review-and-fix/scripts/review_workflow.py",
         "schema": "skills/review-and-fix/references/review-fix-result.schema.json",
         "context_kind": "review-and-fix",
         "validator_kind": "review-and-fix",
         "binding_kind": "review-and-fix",
         "target_kinds": {"path"},
-        "dependencies": ["project-review"],
-        "reviewers": [
-            {"reviewer": "project-review", "reviewer_version": "1.0.0"}
+        "dependencies": [
+            "project-review",
+            "review-guidance-audit",
+            "verification-harness-audit",
         ],
+        "default_reviewer": "project-review",
+        "reviewer_contracts": {
+            "project-review": {
+                "reviewer_version": "1.0.0",
+                "result_contract": "project-review/v1",
+            },
+            "review-guidance-audit": {
+                "reviewer_version": "1.1.0",
+                "result_contract": "review-guidance-audit/v1",
+            },
+            "verification-harness-audit": {
+                "reviewer_version": "1.0.0",
+                "result_contract": "verification-harness-audit/v1",
+            },
+        },
+        "reviewers": [],
     },
     "verification-harness-audit/v1": {
         "skill": "verification-harness-audit",
@@ -527,7 +544,7 @@ def _load_suite_bundle(
             raw_case,
             f"cases[{index}]",
             {"id", "fixture", "target", "prompt", "assertions", "forbidden_commands"},
-            {"expected_mutations"},
+            {"expected_mutations", "reviewer"},
         )
         case_id = _resource_id(case["id"], f"cases[{index}].id")
         if case_id in case_ids:
@@ -545,6 +562,20 @@ def _load_suite_bundle(
                 f"cases[{index}].target kind is unsupported by {contract_id}"
             )
         case["target"] = target
+        if contract["context_kind"] == "review-and-fix":
+            reviewer = _resource_id(
+                case.get("reviewer", contract["default_reviewer"]),
+                f"cases[{index}].reviewer",
+            )
+            if reviewer not in contract["reviewer_contracts"]:
+                raise EvalError(
+                    f"cases[{index}].reviewer is not a fixed supported reviewer"
+                )
+            case["reviewer"] = reviewer
+        elif "reviewer" in case:
+            raise EvalError(
+                f"cases[{index}].reviewer is valid only for review-and-fix"
+            )
         case["expected_mutations"] = _validate_expected_mutations(
             case.get("expected_mutations", []),
             target,
@@ -825,6 +856,8 @@ def _contract(
     result: dict[str, Path] = {}
     for key in CONTRACT_PATH_KEYS:
         value = raw[key]
+        if value is None:
+            continue
         relative = _relative_path(value, key)
         parts = PurePosixPath(relative).parts
         if (
@@ -839,6 +872,27 @@ def _contract(
             continue
         result[key] = _safe_repository_path(root, relative, key)
     return result
+
+
+def _review_and_fix_reviewer(
+    suite: dict[str, Any], case: dict[str, Any]
+) -> tuple[str, dict[str, str]]:
+    contract = CONTRACTS[suite["result_contract"]]
+    if contract["context_kind"] != "review-and-fix":
+        raise EvalError("reviewer selection is valid only for review-and-fix")
+    reviewer = case.get("reviewer", contract["default_reviewer"])
+    profile = contract["reviewer_contracts"].get(reviewer)
+    if profile is None:
+        raise EvalError("review-and-fix case selects an unsupported reviewer")
+    return reviewer, profile
+
+
+def _case_dependencies(suite: dict[str, Any], case: dict[str, Any]) -> list[str]:
+    contract = CONTRACTS[suite["result_contract"]]
+    if contract["context_kind"] != "review-and-fix":
+        return list(contract["dependencies"])
+    reviewer, _ = _review_and_fix_reviewer(suite, case)
+    return [reviewer]
 
 
 def _resolve_verification_harness_context(
@@ -923,9 +977,48 @@ def resolve_context(
     root: Path,
     runtime_skills: dict[str, Path] | None = None,
 ) -> dict[str, Any]:
-    contract_paths = _contract(suite, root, runtime_skills)
     contract = CONTRACTS[suite["result_contract"]]
     target = case["target"]
+    if contract["context_kind"] == "review-and-fix":
+        reviewer, profile = _review_and_fix_reviewer(suite, case)
+        reviewer_suite = {"result_contract": profile["result_contract"]}
+        reviewer_output = output.with_name(f".{output.name}.{reviewer}.json")
+        reviewer_context = resolve_context(
+            reviewer_suite,
+            case,
+            fixture,
+            reviewer_output,
+            root,
+            runtime_skills,
+        )
+        if reviewer == "project-review":
+            neutral_target = reviewer_context.get("target")
+        else:
+            neutral_target = {
+                "kind": "paths",
+                "repository_root": str(fixture.resolve()),
+                "base_revision": None,
+                "head_revision": None,
+                "working_tree_mode": None,
+                "requested_paths": [target["path"]],
+            }
+        context = {
+            "schema_version": "1.0.0",
+            "target": neutral_target,
+            "command_authorities": [],
+            "reviewers": [
+                {
+                    "reviewer": reviewer,
+                    "reviewer_version": profile["reviewer_version"],
+                    "context_sha256": _sha256_json(reviewer_context),
+                    "context": reviewer_context,
+                }
+            ],
+        }
+        _write_new_json(output, context)
+        return context
+
+    contract_paths = _contract(suite, root, runtime_skills)
     if contract["context_kind"] == "verification-harness-audit":
         return _resolve_verification_harness_context(
             case, fixture, output, root, contract_paths["context"]
@@ -972,20 +1065,6 @@ def resolve_context(
         raise EvalError("context resolver must return a JSON object")
     if contract["context_kind"] == "project-review":
         context = review_context
-    elif contract["context_kind"] == "review-and-fix":
-        context = {
-            "schema_version": "1.0.0",
-            "target": review_context.get("target"),
-            "command_authorities": [],
-            "reviewers": [
-                {
-                    **identity,
-                    "context_sha256": _sha256_json(review_context),
-                    "context": review_context,
-                }
-                for identity in contract["reviewers"]
-            ],
-        }
     else:  # pragma: no cover - fixed contract table owns this boundary
         raise EvalError("unsupported context adapter")
     _write_new_json(output, context)
@@ -1596,7 +1675,7 @@ def _runner_prompt(
     draft = work / "draft.json"
     dependencies = [
         f"- {skill_id}: {runtime_skills[skill_id] / 'SKILL.md'}"
-        for skill_id in CONTRACTS[suite["result_contract"]]["dependencies"]
+        for skill_id in _case_dependencies(suite, case)
     ]
     dependency_text = (
         "\nThe fixed trusted skill dependencies for this evaluation are:\n"
@@ -2096,7 +2175,14 @@ def command_run(args: argparse.Namespace) -> int:
         65536,
     )
     contract = CONTRACTS[suite["result_contract"]]
-    skill_ids = [suite["skill"], *contract["dependencies"]]
+    selected_dependencies = sorted(
+        {
+            skill_id
+            for case in selected
+            for skill_id in _case_dependencies(suite, case)
+        }
+    )
+    skill_ids = [suite["skill"], *selected_dependencies]
     if len(skill_ids) != len(set(skill_ids)):
         raise EvalError("evaluated skill dependencies must not contain duplicates")
     frozen_skills = {
@@ -2114,7 +2200,7 @@ def command_run(args: argparse.Namespace) -> int:
     skill_sha256 = _snapshot_digest(frozen_skills[suite["skill"]])
     dependency_sha256 = {
         skill_id: _snapshot_digest(frozen_skills[skill_id])
-        for skill_id in contract["dependencies"]
+        for skill_id in selected_dependencies
     }
     suite_sha256 = hashlib.sha256(suite_bytes).hexdigest()
     harness_sha256 = hashlib.sha256(harness_bytes).hexdigest()
@@ -2135,8 +2221,9 @@ def command_run(args: argparse.Namespace) -> int:
             host.mkdir(mode=0o700)
             skill_parent = base / "evaluated-skills"
             skill_parent.mkdir(mode=0o700)
+            case_skill_ids = [suite["skill"], *_case_dependencies(suite, case)]
             runtime_skills = {
-                skill_id: skill_parent / skill_id for skill_id in skill_ids
+                skill_id: skill_parent / skill_id for skill_id in case_skill_ids
             }
             for skill_id, runtime_skill in runtime_skills.items():
                 _materialize_snapshot(frozen_skills[skill_id], runtime_skill)

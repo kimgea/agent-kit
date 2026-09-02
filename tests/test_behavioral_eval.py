@@ -80,6 +80,280 @@ def complete_result(context):
     )
 
 
+def guidance_audit_result(
+    context,
+    *,
+    action="remove",
+    strength="strong",
+    decision="ready",
+    intent_effect="preserved",
+    incomplete=False,
+):
+    target = context["target"]["requested"][0]
+    target_path = target["path"]
+    chain = next(
+        item for item in context["guidance"] if target_path in item["applies_to"]
+    )
+    source = next(
+        item for item in chain["sources"] if item["source_kind"] == "repository"
+    )
+    destination = (
+        {"source_kind": "repository", "path": source["path"]}
+        if action in {"rewrite", "move", "merge"}
+        else None
+    )
+    proposed_text = (
+        "Review the selected behavior against the established project contract."
+        if destination is not None
+        else None
+    )
+    recommendation = {
+        "action": action,
+        "strength": strength,
+        "decision": decision,
+        "intent_effect": intent_effect,
+        "title": "Remove duplicated review guidance",
+        "reason": "The same instruction appears twice and one copy preserves the full intent.",
+        "current_guidance": [
+            {
+                "source_kind": "repository",
+                "path": source["path"],
+                "sha256": source["sha256"],
+                "start_line": 1,
+                "end_line": 1,
+            }
+        ],
+        "destination": destination,
+        "affected_targets": [target["target_id"]],
+        "affected_paths": [target_path],
+        "evidence": [
+            {
+                "kind": "guidance",
+                "description": "The selected repository guidance contains the duplicated instruction.",
+                "location": {
+                    "path": source["path"],
+                    "start_line": 1,
+                    "end_line": 1,
+                },
+            }
+        ],
+        "estimated_savings": {
+            "words": 8,
+            "bytes": None,
+            "basis": "One duplicate sentence can be removed.",
+        },
+        "proposed_text": proposed_text,
+        "harness_changes": [],
+    }
+    inspected = [
+        item["path"]
+        for item in context["target"]["files"]
+        if item["inspection_kind"] == "text"
+    ]
+    limitation = {
+        "code": "evidence_missing",
+        "message": "The complete guidance intent could not be established.",
+        "affected_paths": [target_path],
+        "material": True,
+    }
+    return guidance_result.finalize(
+        context,
+        {
+            "summary": {"conclusion": "The selected guidance has one recommendation."},
+            "coverage": {
+                "complete": True,
+                "inspected_paths": inspected,
+                "excluded": [],
+                "context_paths": [],
+            },
+            "recommendations": [recommendation],
+            "limitations": [limitation] if incomplete else [],
+        },
+    )
+
+
+def guidance_audit_review_envelope(context, result):
+    requested_paths = list(
+        dict.fromkeys(item["path"] for item in context["target"]["requested"])
+    )
+    output_bytes = json.dumps(
+        result, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    status = result["status"]
+    has_requested_change = any(
+        item["action"] != "keep" for item in result["recommendations"]
+    )
+    completed = status == "COMPLETE"
+    outcome = (
+        "incomplete"
+        if not completed
+        else "changes_requested"
+        if has_requested_change
+        else "pass"
+    )
+    return {
+        "target": {
+            "kind": "paths",
+            "repository_root": context["target"]["repository_root"],
+            "base_revision": None,
+            "head_revision": None,
+            "working_tree_mode": None,
+            "requested_paths": requested_paths,
+        },
+        "source": {
+            "reviewer": "review-guidance-audit",
+            "reviewer_version": "1.1.0",
+            "output_format": "structured",
+            "output_sha256": hashlib.sha256(output_bytes).hexdigest(),
+            "completed": completed,
+            "verdict": status,
+            "outcome": outcome,
+        },
+    }
+
+
+def normalize_guidance_audit_for_review_and_fix(
+    result, envelope, expected_audit_target
+):
+    requested_paths = envelope["target"]["requested_paths"]
+    incomplete = envelope["source"]["outcome"] == "incomplete"
+    findings = []
+    limitations = []
+    for recommendation in result["recommendations"]:
+        keep = recommendation["action"] == "keep"
+        edit_path = (
+            recommendation["destination"]["path"]
+            if recommendation["destination"] is not None
+            else recommendation["current_guidance"][0]["path"]
+        )
+        exact_path = edit_path in requested_paths
+        decision_ready = recommendation["decision"] == "ready"
+        intent_preserved = recommendation["intent_effect"] == "preserved"
+        actionable = not keep and decision_ready and intent_preserved and exact_path
+        primary = None
+        if exact_path:
+            source = recommendation["current_guidance"][0]
+            primary = {
+                "path": edit_path,
+                "start_line": source["start_line"],
+                "end_line": source["end_line"],
+            }
+        findings.append(
+            {
+                "source_id": recommendation["recommendation_id"],
+                "source_fingerprint": recommendation["fingerprint"],
+                "disposition": (
+                    "blocker"
+                    if recommendation["strength"] == "essential"
+                    else "nit"
+                    if recommendation["strength"] == "optional"
+                    else "suggestion"
+                ),
+                "severity": "unknown",
+                "confidence": "high" if actionable else "unknown",
+                "scope_relation": "unknown",
+                "actionability": (
+                    "actionable"
+                    if actionable
+                    else "informational"
+                    if keep
+                    else "needs_triage"
+                ),
+                "title": recommendation["title"],
+                "problem": recommendation["reason"],
+                "impact": "The audit reports avoidable review-guidance cost or risk.",
+                "evidence": [
+                    {
+                        "kind": "reviewer_statement",
+                        "description": item["description"],
+                        "location": item["location"],
+                    }
+                    for item in recommendation["evidence"]
+                ],
+                "primary_location": primary,
+                "related_locations": [],
+                "safe_direction": (
+                    recommendation["proposed_text"]
+                    if recommendation["proposed_text"] is not None
+                    else recommendation["reason"]
+                )
+                if actionable
+                else None,
+                "field_provenance": {
+                    "disposition": "inferred",
+                    "severity": "missing",
+                    "confidence": "inferred" if actionable else "missing",
+                    "scope_relation": "missing",
+                    "actionability": (
+                        "inferred" if actionable or keep else "missing"
+                    ),
+                    "safe_direction": "inferred" if actionable else "missing",
+                },
+                "normalization_confidence": (
+                    "high" if actionable or keep else "medium"
+                ),
+                "normalization_notes": [
+                    "Readiness, intent preservation, and exact edit scope were kept separate from recommendation strength."
+                ],
+            }
+        )
+        if keep:
+            continue
+        if not decision_ready:
+            limitations.append(
+                {
+                    "code": "source_limitation",
+                    "message": "The guidance audit requires a policy decision before fix planning.",
+                    "source_ids": [recommendation["recommendation_id"]],
+                    "material": True,
+                }
+            )
+        elif not intent_preserved or not exact_path:
+            limitations.append(
+                {
+                    "code": "target_mismatch" if not exact_path else "source_limitation",
+                    "message": "The recommendation is not an exact intent-preserving edit in the lead-owned target.",
+                    "source_ids": [recommendation["recommendation_id"]],
+                    "material": True,
+                }
+            )
+    if result.get("target") != expected_audit_target:
+        limitations.append(
+            {
+                "code": "target_mismatch",
+                "message": "The guidance audit result target differs from the lead-owned audit target.",
+                "source_ids": [
+                    item["recommendation_id"] for item in result["recommendations"]
+                ],
+                "material": True,
+            }
+        )
+    if incomplete:
+        limitations.append(
+            {
+                "code": "source_incomplete",
+                "message": "The guidance audit was incomplete and cannot enter fix planning.",
+                "source_ids": [
+                    item["recommendation_id"] for item in result["recommendations"]
+                ],
+                "material": True,
+            }
+        )
+    return review_workflow.finalize_batch(
+        {
+            "normalization": {
+                "confidence": "high" if not limitations else "medium",
+                "notes": [
+                    "A fresh non-editing normalizer mapped the validated audit under the fixed reviewer profile."
+                ],
+            },
+            "findings": findings,
+            "limitations": limitations,
+        },
+        envelope,
+    )
+
+
 def complete_project_review_result(context):
     guidance = behavioral_eval._project_review_guidance(context)
     groups = [
@@ -228,12 +502,14 @@ def verification_audit_review_envelope(context, result):
         result, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
     status = result["status"]
-    outcomes = {
-        "INCOMPLETE": (False, "incomplete"),
-        "IMPROVEMENTS": (True, "changes_requested"),
-        "PASS": (True, "pass"),
-    }
-    completed, outcome = outcomes[status]
+    completed = status != "INCOMPLETE"
+    outcome = (
+        "incomplete"
+        if not completed
+        else "changes_requested"
+        if result["recommendations"]
+        else "pass"
+    )
     return {
         "target": {
             "kind": "paths",
@@ -331,6 +607,22 @@ def normalize_verification_audit_for_review_and_fix(
                 "code": "source_incomplete",
                 "message": "The verification harness audit was incomplete and cannot enter fix planning.",
                 "source_ids": [item["recommendation_id"] for item in result["recommendations"]],
+                "material": True,
+            }
+        )
+    decision_required = [
+        item
+        for item in result["recommendations"]
+        if item["decision"] == "decision_required"
+    ]
+    if decision_required:
+        limitations.append(
+            {
+                "code": "source_limitation",
+                "message": "The verification harness audit requires a policy decision before fix planning.",
+                "source_ids": [
+                    item["recommendation_id"] for item in decision_required
+                ],
                 "material": True,
             }
         )
@@ -834,6 +1126,158 @@ class RecordedGradingTests(unittest.TestCase):
             self.assertIn("missing", message)
 
 
+class GuidanceAuditReviewAndFixContractTests(unittest.TestCase):
+    def setUp(self):
+        self.suite = behavioral_eval.load_suite(ROOT, "review-guidance-audit")
+        self.source = (
+            ROOT
+            / "evals"
+            / "review-and-fix"
+            / "fixtures"
+            / "guidance-duplicate-cleanup"
+        )
+        self.case = {
+            "id": "guidance-duplicate-cleanup",
+            "target": {
+                "kind": "path",
+                "path": "REVIEW.md",
+                "start_line": None,
+                "end_line": None,
+            },
+        }
+
+    def test_ready_keep_decision_incomplete_and_target_mapping(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "fixture"
+            behavioral_eval.materialize_fixture(self.source, fixture)
+            context = behavioral_eval.resolve_context(
+                self.suite, self.case, fixture, base / "context.json", ROOT
+            )
+
+            ready_result = guidance_audit_result(context)
+            ready = normalize_guidance_audit_for_review_and_fix(
+                ready_result,
+                guidance_audit_review_envelope(context, ready_result),
+                context["target"],
+            )
+            essential_result = guidance_audit_result(
+                context, strength="essential"
+            )
+            essential = normalize_guidance_audit_for_review_and_fix(
+                essential_result,
+                guidance_audit_review_envelope(context, essential_result),
+                context["target"],
+            )
+            keep_result = guidance_audit_result(
+                context, action="keep", strength="optional"
+            )
+            keep = normalize_guidance_audit_for_review_and_fix(
+                keep_result,
+                guidance_audit_review_envelope(context, keep_result),
+                context["target"],
+            )
+            decision_result = guidance_audit_result(
+                context,
+                action="rewrite",
+                decision="decision_required",
+                intent_effect="changed",
+            )
+            decision = normalize_guidance_audit_for_review_and_fix(
+                decision_result,
+                guidance_audit_review_envelope(context, decision_result),
+                context["target"],
+            )
+            incomplete_result = guidance_audit_result(context, incomplete=True)
+            incomplete = normalize_guidance_audit_for_review_and_fix(
+                incomplete_result,
+                guidance_audit_review_envelope(context, incomplete_result),
+                context["target"],
+            )
+            clear_result = complete_result(context)
+
+            for batch in (ready, essential, keep, decision, incomplete):
+                self.assertEqual(batch, review_workflow.validate_batch(batch))
+                self.assertEqual(["REVIEW.md"], batch["target"]["requested_paths"])
+                self.assertEqual("independent_agent", batch["normalization"]["mode"])
+                self.assertNotIn("command_authorities", batch)
+                self.assertNotIn("authorization", batch)
+            self.assertEqual("suggestion", ready["findings"][0]["disposition"])
+            self.assertEqual("actionable", ready["findings"][0]["actionability"])
+            self.assertEqual("high", ready["findings"][0]["confidence"])
+            self.assertEqual("changes_requested", ready["source"]["outcome"])
+            self.assertEqual("COMPLETE", ready["source"]["verdict"])
+            self.assertEqual(
+                "pass",
+                guidance_audit_review_envelope(context, clear_result)["source"][
+                    "outcome"
+                ],
+            )
+            self.assertEqual("blocker", essential["findings"][0]["disposition"])
+            self.assertEqual("changes_requested", essential["source"]["outcome"])
+            self.assertEqual("informational", keep["findings"][0]["actionability"])
+            self.assertEqual("pass", keep["source"]["outcome"])
+            self.assertEqual("partial", decision["status"])
+            self.assertEqual("needs_triage", decision["findings"][0]["actionability"])
+            self.assertEqual("source_limitation", decision["limitations"][0]["code"])
+            self.assertEqual("partial", incomplete["status"])
+            self.assertTrue(
+                any(
+                    item["code"] == "source_incomplete" and item["material"]
+                    for item in incomplete["limitations"]
+                )
+            )
+
+            omitted_draft = {
+                "normalization": {
+                    "confidence": "high",
+                    "notes": ["The normalizer omitted the advisory finding."],
+                },
+                "findings": [],
+                "limitations": [],
+            }
+            with self.assertRaisesRegex(
+                review_workflow.WorkflowError,
+                "changes_requested source without findings",
+            ):
+                review_workflow.finalize_batch(
+                    omitted_draft,
+                    guidance_audit_review_envelope(context, ready_result),
+                )
+            assessment = review_workflow.assess_round(
+                {
+                    "round": 1,
+                    "expected_reviewers": [
+                        {
+                            "reviewer": "review-guidance-audit",
+                            "reviewer_version": "1.1.0",
+                        }
+                    ],
+                    "previous_batches": [ready],
+                    "current_batches": [ready],
+                }
+            )
+            self.assertEqual(
+                ("stop", "reviewer_not_passed"),
+                (assessment["action"], assessment["reason"]),
+            )
+
+            wrong_target = json.loads(json.dumps(context["target"]))
+            wrong_target["requested"][0]["path"] = "OTHER.md"
+            mismatched = normalize_guidance_audit_for_review_and_fix(
+                ready_result,
+                guidance_audit_review_envelope(context, ready_result),
+                wrong_target,
+            )
+            self.assertEqual("partial", mismatched["status"])
+            self.assertTrue(
+                any(
+                    item["code"] == "target_mismatch" and item["material"]
+                    for item in mismatched["limitations"]
+                )
+            )
+
+
 class ProjectReviewContractTests(unittest.TestCase):
     def setUp(self):
         self.suite = behavioral_eval.load_suite(ROOT, "project-review")
@@ -1098,9 +1542,17 @@ class VerificationHarnessAuditContractTests(unittest.TestCase):
             advisory_result = verification_audit_result(
                 context, strength="moderate"
             )
+            strong_result = verification_audit_result(context, strength="strong")
+            optional_result = verification_audit_result(
+                context, strength="optional"
+            )
             incomplete_result = verification_audit_result(
                 context, strength="essential", incomplete=True
             )
+            decision_result = verification_audit_result(
+                context, strength="strong", decision="decision_required"
+            )
+            clear_result = complete_verification_harness_result(context)
             essential = normalize_verification_audit_for_review_and_fix(
                 essential_result,
                 verification_audit_review_envelope(context, essential_result),
@@ -1111,13 +1563,35 @@ class VerificationHarnessAuditContractTests(unittest.TestCase):
                 verification_audit_review_envelope(context, advisory_result),
                 context["target"],
             )
+            strong = normalize_verification_audit_for_review_and_fix(
+                strong_result,
+                verification_audit_review_envelope(context, strong_result),
+                context["target"],
+            )
+            optional = normalize_verification_audit_for_review_and_fix(
+                optional_result,
+                verification_audit_review_envelope(context, optional_result),
+                context["target"],
+            )
             incomplete = normalize_verification_audit_for_review_and_fix(
                 incomplete_result,
                 verification_audit_review_envelope(context, incomplete_result),
                 context["target"],
             )
+            decision = normalize_verification_audit_for_review_and_fix(
+                decision_result,
+                verification_audit_review_envelope(context, decision_result),
+                context["target"],
+            )
 
-            for batch in (essential, advisory, incomplete):
+            for batch in (
+                essential,
+                advisory,
+                strong,
+                optional,
+                incomplete,
+                decision,
+            ):
                 self.assertEqual(batch, review_workflow.validate_batch(batch))
                 self.assertEqual(
                     ["tests/test_total.py"], batch["target"]["requested_paths"]
@@ -1128,10 +1602,23 @@ class VerificationHarnessAuditContractTests(unittest.TestCase):
             self.assertEqual("blocker", essential["findings"][0]["disposition"])
             self.assertEqual("unknown", essential["findings"][0]["scope_relation"])
             self.assertEqual("suggestion", advisory["findings"][0]["disposition"])
-            self.assertEqual("pass", advisory["source"]["outcome"])
+            self.assertEqual("suggestion", strong["findings"][0]["disposition"])
+            self.assertEqual("nit", optional["findings"][0]["disposition"])
+            self.assertEqual("high", essential["findings"][0]["confidence"])
+            self.assertEqual("changes_requested", advisory["source"]["outcome"])
+            self.assertEqual("PASS", advisory["source"]["verdict"])
+            self.assertEqual(
+                "pass",
+                verification_audit_review_envelope(context, clear_result)["source"][
+                    "outcome"
+                ],
+            )
             self.assertEqual("partial", incomplete["status"])
             self.assertTrue(incomplete["limitations"][0]["material"])
             self.assertEqual("source_incomplete", incomplete["limitations"][0]["code"])
+            self.assertEqual("partial", decision["status"])
+            self.assertEqual("needs_triage", decision["findings"][0]["actionability"])
+            self.assertEqual("source_limitation", decision["limitations"][0]["code"])
 
             forged = json.loads(json.dumps(essential_result))
             forged["target"]["requested"][0]["path"] = "tests/other.py"
@@ -1212,10 +1699,7 @@ class ReviewAndFixContractTests(unittest.TestCase):
             for skill_id, destination in runtime_skills.items():
                 behavioral_eval.materialize_skill(ROOT / "skills" / skill_id, destination)
             paths = behavioral_eval._contract(self.suite, ROOT, runtime_skills)
-            self.assertEqual(
-                runtime_skills["project-review"] / "scripts" / "review_context.py",
-                paths["context"],
-            )
+            self.assertNotIn("context", paths)
             self.assertEqual(
                 runtime_skills["review-and-fix"] / "scripts" / "review_workflow.py",
                 paths["validator"],
@@ -1235,6 +1719,94 @@ class ReviewAndFixContractTests(unittest.TestCase):
             self.assertNotIn("suite.json", prompt)
             self.assertIn(str(host_context), prompt)
             self.assertNotIn("do not write inside\nthe repository", prompt)
+
+    def test_review_and_fix_reviewer_selection_is_fixed_and_case_scoped(self):
+        selected = {
+            "project-review": "project-review/v1",
+            "review-guidance-audit": "review-guidance-audit/v1",
+            "verification-harness-audit": "verification-harness-audit/v1",
+        }
+        for reviewer, result_contract in selected.items():
+            with self.subTest(reviewer=reviewer):
+                case = {**self.case, "reviewer": reviewer}
+                resolved, profile = behavioral_eval._review_and_fix_reviewer(
+                    self.suite, case
+                )
+                self.assertEqual(reviewer, resolved)
+                self.assertEqual(result_contract, profile["result_contract"])
+                self.assertEqual(
+                    [reviewer], behavioral_eval._case_dependencies(self.suite, case)
+                )
+
+        with self.assertRaisesRegex(
+            behavioral_eval.EvalError, "unsupported reviewer"
+        ):
+            behavioral_eval._review_and_fix_reviewer(
+                self.suite, {**self.case, "reviewer": "caller-plugin"}
+            )
+
+    def test_audit_reviewer_contexts_are_frozen_beneath_neutral_target(self):
+        scenarios = [
+            (
+                "review-guidance-audit",
+                ROOT
+                / "evals"
+                / "review-guidance-audit"
+                / "fixtures"
+                / "small-but-useless-guidance",
+                "src/example.py",
+            ),
+            (
+                "verification-harness-audit",
+                ROOT
+                / "evals"
+                / "verification-harness-audit"
+                / "fixtures"
+                / "sound-single-agent-harness",
+                "tests/test_total.py",
+            ),
+        ]
+        for reviewer, source, target_path in scenarios:
+            with self.subTest(reviewer=reviewer), tempfile.TemporaryDirectory() as temporary:
+                base = Path(temporary)
+                fixture = base / "fixture"
+                behavioral_eval.materialize_fixture(source, fixture)
+                (base / "skills").mkdir()
+                runtime_skills = {
+                    "review-and-fix": base / "skills" / "review-and-fix",
+                    reviewer: base / "skills" / reviewer,
+                }
+                for skill_id, destination in runtime_skills.items():
+                    behavioral_eval.materialize_skill(
+                        ROOT / "skills" / skill_id, destination
+                    )
+                case = {
+                    **self.case,
+                    "reviewer": reviewer,
+                    "target": {
+                        "kind": "path",
+                        "path": target_path,
+                        "start_line": None,
+                        "end_line": None,
+                    },
+                }
+                context_path = base / "host" / "context.json"
+                context_path.parent.mkdir()
+                context = behavioral_eval.resolve_context(
+                    self.suite,
+                    case,
+                    fixture,
+                    context_path,
+                    ROOT,
+                    runtime_skills,
+                )
+                self.assertEqual([target_path], context["target"]["requested_paths"])
+                self.assertEqual(reviewer, context["reviewers"][0]["reviewer"])
+                self.assertEqual(
+                    behavioral_eval._sha256_json(context["reviewers"][0]["context"]),
+                    context["reviewers"][0]["context_sha256"],
+                )
+                self.assertEqual(context, json.loads(context_path.read_text(encoding="utf-8")))
 
     def test_recorded_accepted_fix_is_graded_against_actual_fixture(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1278,7 +1850,7 @@ class ReviewAndFixContractTests(unittest.TestCase):
             )
 
     def test_suite_covers_fix_decision_authorization_and_scope_stops(self):
-        self.assertEqual(5, len(self.suite["cases"]))
+        self.assertEqual(7, len(self.suite["cases"]))
         ids = {item["id"] for item in self.suite["cases"]}
         self.assertEqual(
             {
@@ -1287,11 +1859,20 @@ class ReviewAndFixContractTests(unittest.TestCase):
                 "security-policy-decision",
                 "remote-authorization",
                 "out-of-target-remedy",
+                "guidance-duplicate-cleanup",
+                "harness-policy-triage",
             },
             ids,
         )
         remote = behavioral_eval._case_by_id(self.suite, "remote-authorization")
         self.assertEqual(["scripts/deploy"], remote["forbidden_commands"])
+        reviewers = {item["id"]: item["reviewer"] for item in self.suite["cases"]}
+        self.assertEqual(
+            "review-guidance-audit", reviewers["guidance-duplicate-cleanup"]
+        )
+        self.assertEqual(
+            "verification-harness-audit", reviewers["harness-policy-triage"]
+        )
 
 
 class CodexRunnerTests(unittest.TestCase):

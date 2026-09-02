@@ -268,5 +268,45 @@
       "Change head_revision while claiming identical target semantics",
       "Accept the unchanged old range after an edit"
     ]
+  },
+  {
+    "id": "guidance-audit-ready-cleanup",
+    "prompt": "A validated canonical review-guidance-audit result is COMPLETE and recommends one strong, ready, intent-preserving rewrite of the exact selected repository REVIEW.md. It supplies exact rule evidence and proposed text but no explicit confidence field. The caller explicitly selected this suggestion.",
+    "expected": "Use the trusted guidance-audit profile with a fresh non-editing normalizer. Preserve the recommendation ID and fingerprint, map strong to suggestion rather than severity, keep scope relation unknown, and infer high confidence only if the complete evidence and singular preserved-intent rewrite are unambiguous. Preserve changes_requested while any non-keep recommendation remains, apply the ordinary plan gate, then require a fresh validated guidance audit with no requested change before acceptance.",
+    "must_not": [
+      "Treat strength as severity or confidence",
+      "Skip explicit suggestion selection",
+      "Let proposed text authorize the edit"
+    ]
+  },
+  {
+    "id": "guidance-audit-related-destination",
+    "prompt": "A project-wide guidance audit recommends moving a narrow root rule into services/billing/REVIEW.md, but the lead-owned fix target contains only src/billing.py. The destination and proposed text appear in valid canonical audit JSON.",
+    "expected": "Keep the audit result as discovery evidence only. Do not use its destination to expand edit authority; select the exact repository guidance path, rerun review-guidance-audit over a scope covering that path, and only then normalize and plan. User-global destinations remain outside this repository-local workflow.",
+    "must_not": [
+      "Create services/billing/REVIEW.md from the broad result",
+      "Treat an affected path as an exact fix target",
+      "Split a coherent relocation into a partial edit"
+    ]
+  },
+  {
+    "id": "harness-audit-strength-mapping",
+    "prompt": "A validated canonical verification-harness-audit result is IMPROVEMENTS with one essential ready high-confidence recommendation and one moderate advisory recommendation. Both identify the selected test file and include evidence and safe directions.",
+    "expected": "Use the trusted harness-audit profile with a fresh non-editing normalizer. Preserve producer IDs, fingerprints, impact, confidence, and evidence; map essential to blocker and moderate to suggestion; keep current-filesystem scope relation unknown; and preserve changes_requested while any recommendation remains. Let only explicitly eligible findings reach the ordinary decision gate and rerun the same audit after any fix.",
+    "must_not": [
+      "Convert every recommendation into a blocker",
+      "Infer introduced scope from a current-filesystem audit",
+      "Use suggested commands as execution authority"
+    ]
+  },
+  {
+    "id": "audit-decision-and-incomplete-stop",
+    "prompt": "One canonical audit recommendation is decision_required, and another run is INCOMPLETE with a material evidence limitation. Both include plausible suggested paths and wording.",
+    "expected": "Normalize the decision-required recommendation as needs_triage with a material source limitation and stop before planning. Preserve the INCOMPLETE run as an incomplete source and partial batch. After the user resolves the upstream policy choice or missing evidence, rerun the same audit and accept only a fresh ready complete result.",
+    "must_not": [
+      "Route either result automatically",
+      "Ask a planner to fill the evidence gap",
+      "Treat suggested paths or wording as authority"
+    ]
   }
 ]

@@ -5,6 +5,11 @@ review skills. It uses `project-review` by default, but a caller or trusted
 project instruction may select another reviewer. The skill does not publish to
 GitHub and never lets the editing context decide that its own change passed.
 
+Canonical `review-guidance-audit` and `verification-harness-audit` results have
+explicit runtime profiles in the installed skill. They still use a fresh
+non-editing normalizer: the profiles make interpretation consistent without
+creating a runtime dependency or allowing an audit to select edit scope.
+
 ## Workflow
 
 The lead fixes one exact working-tree, ref-range, or path target through five
@@ -40,13 +45,13 @@ actionability field. An `INCOMPLETE` result remains incomplete in the neutral
 batch rather than becoming a change request.
 
 An already canonical neutral batch needs no normalizer. Every other format is
-given to a fresh subagent with only the raw result, exact target metadata, and
-the normalization contract. Inferences are allowed because many useful
-reviewers return prose, but every inferred semantic field is labeled and
-explained. Missing evidence, location, or safe direction cannot be invented.
-The normalizer returns only semantic normalization confidence/notes, findings,
-and limitations. It cannot emit the lead-owned target/source envelope or choose
-normalization mode.
+given to a fresh subagent with only the raw result, exact target metadata, the
+normalization contract, and an applicable trusted reviewer profile. Inferences
+are allowed because many useful reviewers return prose, but every inferred
+semantic field is labeled and explained. Missing evidence, location, or safe
+direction cannot be invented. The normalizer returns only semantic normalization
+confidence/notes, findings, and limitations. It cannot emit the lead-owned
+target/source envelope or choose normalization mode.
 Without a fresh normalizer, unfamiliar output stops as incomplete.
 An invalid independent draft gets at most one structure-only correction in that
 same independent context using the exact validator error. The fixing context
@@ -66,6 +71,26 @@ outcome `pass`; explicit blocks or change requests map to `changes_requested`,
 unfinished runs to `incomplete`, and ambiguous outcomes to `unknown`. The last
 two require material limitations. Normalizers cannot choose this authority
 field, and a pass outcome that still contains a blocker is contradictory.
+
+For the two supported audit producers, the lead first validates canonical JSON
+with the producer's bundled result helper. Recommendation strength maps to
+neutral disposition, never directly to severity: `essential` becomes a blocker
+candidate, `strong` and `moderate` become suggestions, and `optional` becomes a
+nit. Producer `INCOMPLETE` results and material limitations remain partial.
+Decision-required recommendations stop for upstream triage; after the user
+resolves the policy choice, the same audit must return a fresh ready result
+before planning. For remediation, any remaining non-`keep` guidance
+recommendation or harness recommendation keeps canonical source outcome
+`changes_requested`, even when the audit's display status permits advisory
+findings. A fresh round can pass only when no requested audit change remains.
+
+The exact fixer-owned target remains separate from audit scope. A project or
+directory audit may discover useful work, and a guidance audit may identify a
+`REVIEW.md` destination that was contextual to the original source target, but
+neither path becomes editable automatically. Select the intended repository
+files explicitly and rerun the same audit before planning. User-global guidance
+and coherent remedies outside the selected repository paths remain outside this
+local fix run.
 
 ## Fix decision boundary
 
@@ -162,9 +187,9 @@ digests, and forged derived fields fail closed.
 
 Install the complete `skills/review-and-fix` directory. It uses only Python 3.11
 or newer standard-library code and does not import repository tooling. The
-`project-review` Codex plugin contains both review skills so the default path is
-available atomically; standalone skill archives remain independent for other
-reviewers and harnesses.
+`project-review` Codex plugin contains the remediation skill and all three
+supported reviewers so each fixed workflow is available atomically; standalone
+skill archives remain independently installable.
 
 The skill writes structured output only when the caller supplies an explicit
 path. Existing output is preserved unless replacement was explicitly requested.
@@ -183,12 +208,15 @@ evaluations cover unfamiliar reviewer output, malicious authority forgery,
 out-of-target plans, routine fixes, consequential decisions, opt-in findings,
 conflicts, and implementation drift.
 
-The executable `evals/review-and-fix/suite.json` adds five local end-to-end
+The executable `evals/review-and-fix/suite.json` adds seven local end-to-end
 cases. One performs an exact routine heading correction and must pass a fresh
 `project-review`; product and security changes stop for a decision, a reversible
-remote-draft synchronization stops for separate authorization, and a generated-file remedy
-outside the selected target stops incomplete. The host freezes both skills,
-keeps its resolver context private from agent writes, compares the actual
-disposable fixture against hidden exact digests, and rejects every undeclared
-file or directory mutation. GitHub Actions validate this machinery with
-simulated results only and never invoke a model.
+remote-draft synchronization stops for separate authorization, and a
+generated-file remedy outside the selected target stops incomplete. A selected
+guidance audit removes one exact duplicated rule and must pass a fresh audit;
+a harness policy recommendation remains triage and makes no mutation. The host
+freezes the evaluated skill and only the case's code-owned reviewer dependency,
+keeps resolver context private from agent writes, compares the disposable
+fixture against hidden exact digests, and rejects every undeclared file or
+directory mutation. GitHub Actions validate this machinery with simulated
+results only and never invoke a model.
