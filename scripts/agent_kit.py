@@ -954,6 +954,22 @@ def _validation_file_signature(value: os.stat_result) -> tuple[int, ...]:
     )
 
 
+def _validation_open_binding_signature(value: os.stat_result) -> tuple[int, ...]:
+    """Return metadata that must agree between path and handle stat APIs.
+
+    Windows can expose permission and timestamp metadata differently through
+    ``lstat`` and ``fstat`` for the same file.  Object identity, type, and size
+    remain the portable binding; path metadata is compared again with ``lstat``
+    after the descriptor has been read.
+    """
+    return (
+        stat.S_IFMT(value.st_mode),
+        value.st_dev,
+        value.st_ino,
+        value.st_size,
+    )
+
+
 def _validation_link_like(value: os.stat_result) -> bool:
     return stat.S_ISLNK(value.st_mode) or bool(
         getattr(value, "st_file_attributes", 0)
@@ -1059,7 +1075,9 @@ def _hash_validation_path(digest: Any, root: Path, raw_path: bytes) -> None:
         raise AgentKitError(f"cannot inspect validation source: {relative}") from exc
     try:
         opened = os.fstat(descriptor)
-        if _validation_file_signature(opened) != before_signature:
+        if _validation_open_binding_signature(opened) != (
+            _validation_open_binding_signature(before)
+        ):
             raise AgentKitError(f"validation source changed while inspecting: {relative}")
         with os.fdopen(descriptor, "rb", closefd=False) as handle:
             for chunk in iter(lambda: handle.read(1024 * 1024), b""):

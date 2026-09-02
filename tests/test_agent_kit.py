@@ -241,6 +241,35 @@ class CatalogAndValidationTests(unittest.TestCase):
             except OSError as exc:
                 self.skipTest(f"directory symlinks are unavailable: {exc}")
 
+    def test_source_digest_tolerates_descriptor_metadata_representation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary)
+            source = fixture / "source.txt"
+            source.write_text("stable\n", encoding="utf-8")
+            real_fstat = agent_kit.os.fstat
+
+            def fstat_with_api_variance(descriptor):
+                value = real_fstat(descriptor)
+                return type(
+                    "DescriptorStat",
+                    (),
+                    {
+                        "st_mode": value.st_mode ^ stat.S_IXUSR,
+                        "st_dev": value.st_dev,
+                        "st_ino": value.st_ino,
+                        "st_size": value.st_size,
+                        "st_mtime_ns": value.st_mtime_ns + 1,
+                        "st_ctime_ns": value.st_ctime_ns + 1,
+                    },
+                )()
+
+            with mock.patch.object(
+                agent_kit.os, "fstat", side_effect=fstat_with_api_variance
+            ):
+                agent_kit._hash_validation_path(
+                    hashlib.sha256(), fixture, b"source.txt"
+                )
+
     def test_git_worktree_snapshot_fails_closed_when_git_is_unavailable(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = Path(temporary)
