@@ -252,6 +252,7 @@ def _windows_relative_handle(
     access: int,
     creation: int,
     display_path: Path,
+    directory: bool = False,
 ) -> int:
     """Open or create one non-link file relative to a bound parent handle."""
     import ctypes
@@ -325,7 +326,9 @@ def _windows_relative_handle(
         0x00000080,
         0x00000001 | 0x00000002,
         disposition,
-        0x00000020 | 0x00000040 | 0x00200000,
+        0x00000020
+        | (0x00000001 if directory else 0x00000040)
+        | 0x00200000,
         None,
         0,
     )
@@ -454,6 +457,7 @@ def _filesystem_alias_identity(
     """Return an identity stable across Windows hard-link path aliases."""
     if os.name != "nt":
         return _filesystem_identity(path, metadata)
+    path_metadata = metadata if metadata is not None else path.lstat()
     with _windows_locked_parent(path) as (absolute, parent_handle):
         try:
             handle = _windows_relative_handle(
@@ -462,6 +466,7 @@ def _filesystem_alias_identity(
                 access=0x00000080,
                 creation=3,
                 display_path=absolute,
+                directory=stat.S_ISDIR(path_metadata.st_mode),
             )
         except OSError as exc:
             raise ContextError(f"cannot identify filesystem path {path}: {exc}") from exc

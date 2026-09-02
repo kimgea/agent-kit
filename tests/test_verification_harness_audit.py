@@ -328,7 +328,11 @@ class ResolverTests(unittest.TestCase):
 
             def replace_before_open(path, maximum, **kwargs):
                 nonlocal replaced
-                if same_path(path, target) and not replaced:
+                if (
+                    os.path.normcase(Path(path).name)
+                    == os.path.normcase(target.name)
+                    and not replaced
+                ):
                     os.replace(replacement, target)
                     replaced = True
                 return original_read(path, maximum, **kwargs)
@@ -951,14 +955,16 @@ class ResolverTests(unittest.TestCase):
             base = Path(temporary)
             trusted = base / "trusted"
             moved = base / "moved"
-            outside_text = "outside\n"
+            outside_data = b"outside\n"
             trusted.mkdir()
             source = trusted / "source.txt"
-            source.write_text("trusted\n", encoding="utf-8")
+            source.write_bytes(b"trusted\n")
             original_descriptor = harness_context._windows_file_descriptor
             swap_attempts = []
 
             def attempt_swap_before_open(*args, **kwargs):
+                if swap_attempts:
+                    return original_descriptor(*args, **kwargs)
                 try:
                     trusted.rename(moved)
                 except OSError:
@@ -966,9 +972,7 @@ class ResolverTests(unittest.TestCase):
                 else:
                     swap_attempts.append("escaped")
                     trusted.mkdir()
-                    (trusted / "source.txt").write_text(
-                        outside_text, encoding="utf-8"
-                    )
+                    (trusted / "source.txt").write_bytes(outside_data)
                 return original_descriptor(*args, **kwargs)
 
             with mock.patch.object(
@@ -980,7 +984,7 @@ class ResolverTests(unittest.TestCase):
             self.assertEqual(b"trusted\n", data)
             self.assertIn(swap_attempts, (["blocked"], ["escaped"]))
             if swap_attempts == ["escaped"]:
-                self.assertEqual(outside_text, source.read_text(encoding="utf-8"))
+                self.assertEqual(outside_data, source.read_bytes())
                 source.unlink()
                 trusted.rmdir()
                 moved.rename(trusted)
@@ -2192,6 +2196,8 @@ class ResultTests(unittest.TestCase):
             swap_attempts = []
 
             def attempt_swap_before_open(*args, **kwargs):
+                if swap_attempts:
+                    return original_descriptor(*args, **kwargs)
                 try:
                     trusted.rename(moved)
                 except OSError:
