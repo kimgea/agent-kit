@@ -86,10 +86,12 @@ fix the cause inside this skill.
 
 ### Promotion gate
 
-Create the `verify-project` PRD after this ecosystem design is accepted. Its
-design phase must settle the exact target model, verification-evidence schema,
-command-plan authority, mutation detection, progressive tier semantics, and
-integration with `review-and-fix` before implementation.
+The accepted design is tracked in `.claude/prds/verify-project.md` and the
+implementation plan in `.claude/epics/verify-project/`. The design fixes the
+current-filesystem target model, separate plan and result contracts, command
+authority, mutation detection, progressive tier semantics, optional
+hierarchical `VERIFY.md`, and staged integration with `review-and-fix` before
+implementation begins.
 
 ## Likely: verification-failure triage
 
@@ -197,7 +199,7 @@ one coordinated migration.
 |---|---|---|
 | Catalog role and effect metadata | Safer capability discovery and workflow bundle tooling | At least one new orchestrator needs machine-readable discovery |
 | Common envelope specification | Less repeated routing and provenance interpretation | Two result families need the same control-plane semantics |
-| Shared hierarchy conformance expansion | Consistent `REVIEW.md` behavior in `verify-project` | The new review-aware capability has an accepted target model |
+| Shared hierarchy conformance expansion | Consistent root-to-nearest `VERIFY.md` behavior in `verify-project` | The new verifier has an accepted target and trusted-guidance model |
 | `review-and-fix` verification adapter | Replace ad hoc validation records with canonical evidence | `verify-project` schema and standalone behavior are stable |
 | Observation to `todo-capture` bridge | Preserve selected actionable workflow improvements | Repeated manual conversion is observed |
 | Canonical-result diagram bridge | Make complex review and verification outcomes easier to understand | Multiple real results benefit from the same visual grammar |
