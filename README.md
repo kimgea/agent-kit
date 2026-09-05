@@ -52,6 +52,10 @@ inspection, evidence calibration, and canonical output.
 The [local behavioral evaluation guide](docs/behavioral-evals.md) explains how
 maintainers can run fresh-agent skill evaluations locally while keeping paid
 model calls out of the canonical gate and GitHub Actions.
+The [skill ecosystem guide](docs/skill-ecosystem.md) maps current capability
+roles, safe handoffs, workflow bundles, and supporting infrastructure. Its
+[roadmap](docs/skill-roadmap.md) separates the next local capability from likely
+and exploratory ideas without treating them as shipped features.
 
 ## Install a skill
 
