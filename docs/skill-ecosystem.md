@@ -363,13 +363,13 @@ metadata or workflow observations are not implemented.
 | `agent-context` | Context provider | Provenance resolver | Human or JSON context; reads explicitly registered private sources | No | `agent-context` | Aligned composable |
 | `build-interactive-diagram` | Presenter | Artifact producer | Writes a selected self-contained web directory; can hand the directory to the host | No | `artifacts` | Aligned composable |
 | `grill-me` | Decision support | Plan and artifact pressure-testing | Prose questioning and synthesis; no runtime data or mutation | No | `grill-me` | Aligned standalone |
-| `project-review` | Reviewer | Finding producer | Canonical findings plus deterministic human rendering; analysis-only | Yes | `project-review` | Aligned composable |
-| `review-and-fix` | Orchestrator | Planner and remediator | Consumes reviews, normalizes, plans, edits bounded local files, validates, and reruns reviewers | Through selected reviewers | `project-review` | Aligned composable |
-| `review-guidance-audit` | Reviewer | Policy auditor | Canonical recommendations plus deterministic human rendering; analysis-only | Yes | `project-review` | Aligned composable |
-| `verification-harness-audit` | Reviewer | Harness auditor and bounded executor | Canonical recommendations; optional exactly authorized local commands; no fixes | Yes | `project-review` | Aligned composable |
+| `project-review` | Reviewer | Finding producer | Canonical findings; may run separately authorized local diagnostics and write an explicitly selected result file; no target edits | Yes | `project-review` | Aligned composable |
+| `review-and-fix` | Orchestrator | Planner and remediator | Consumes reviews, normalizes, plans, edits bounded local files, can run separately authorized local validation, reruns reviewers, and can write an explicitly selected result file | Through selected reviewers | `project-review` | Aligned composable |
+| `review-guidance-audit` | Reviewer | Policy auditor | Canonical recommendations; may run separately authorized local diagnostics and write an explicitly selected result file; no target edits | Yes | `project-review` | Aligned composable |
+| `verification-harness-audit` | Reviewer | Harness auditor and bounded executor | Canonical recommendations; may run exactly authorized local commands and write an explicitly selected result file; no target edits | Yes | `project-review` | Aligned composable |
 | `serve-artifacts` | Delivery capability | Artifact lifecycle manager | JSON CLI and browser URLs; private copies, lifecycle state, and optional temporary service or adapter effects | No | `artifacts` | Aligned composable |
 | `todo-capture` | Work-state manager | Deferred-work archive | Validated private pickup-pointer store with JSON query support | No | `todo-capture` | Aligned standalone |
-| `tool-audit` | Reviewer | Local inventory and usage analyzer | Fixed local reports over inventory, aggregate usage, friction, and permission candidates | No | `tool-audit` | Aligned standalone |
+| `tool-audit` | Reviewer | Local inventory and usage analyzer | Reads local inventory, configuration, and aggregate transcript metadata; snapshot profiles write bounded private local state | No | `tool-audit` | Aligned standalone |
 
 ## Supporting infrastructure
 
