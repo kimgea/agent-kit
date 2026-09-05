@@ -22,6 +22,13 @@ Non-skill resources stay organized by asset type:
 - tools are reusable executables or wrappers;
 - evaluations are behavioral fixtures outside installed skills.
 
+The [skill ecosystem](skill-ecosystem.md) provides the cross-skill view: role
+families, explicit handoffs, authority ownership, third-party compatibility, and
+the current capability inventory. The separate
+[skill roadmap](skill-roadmap.md) records non-binding next, likely, and
+exploratory directions. Skill-specific guides remain authoritative for detailed
+runtime behavior and maintenance.
+
 Executable behavioral evaluation remains repository-maintainer infrastructure.
 The provider-neutral core materializes synthetic repositories, resolves
 lead-owned target context in host-private storage, grades canonical JSON,
