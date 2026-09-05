@@ -1,7 +1,7 @@
 ---
 name: skill-ecosystem-alignment
 description: Define how Agent Kit capabilities compose, remain independently useful, and grow through evidence-backed future skills.
-status: active
+status: completed
 created: 2026-09-03T18:45:24Z
 ---
 
