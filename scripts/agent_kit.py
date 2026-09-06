@@ -497,6 +497,60 @@ def workflow_has_exact_run_command(text: str, command: str) -> bool:
     )
 
 
+def workflow_step_blocks(text: str) -> list[list[str]]:
+    """Return named workflow steps without interpreting project-owned YAML."""
+    lines = text.splitlines()
+    starts: list[tuple[int, str]] = []
+    for index, line in enumerate(lines):
+        match = re.fullmatch(r"(?P<indent>[ \t]*)-\s+name:\s*\S.*", line)
+        if match:
+            starts.append((index, match.group("indent")))
+    blocks: list[list[str]] = []
+    for index, indent in starts:
+        end = len(lines)
+        next_step = re.compile(rf"^{re.escape(indent)}-\s+")
+        for candidate in range(index + 1, len(lines)):
+            if next_step.match(lines[candidate]):
+                end = candidate
+                break
+        blocks.append(lines[index:end])
+    return blocks
+
+
+def workflow_step_has_exact_lines(text: str, *required: str) -> bool:
+    """Require exact active lines to occur together in exactly one named step."""
+    matches = 0
+    for block in workflow_step_blocks(text):
+        active = {
+            line.strip()
+            for line in block
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        if all(line in active for line in required):
+            matches += 1
+    return matches == 1
+
+
+def workflow_checkout_has_full_history(text: str) -> bool:
+    """Bind full-history configuration to one immutable checkout step."""
+    matches = 0
+    for block in workflow_step_blocks(text):
+        active = {
+            line.strip()
+            for line in block
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        checkout = any(
+            re.fullmatch(
+                r"uses: actions/checkout@[0-9a-f]{40}(?:\s+#.*)?", line
+            )
+            for line in active
+        )
+        if checkout and "with:" in active and "fetch-depth: 0" in active:
+            matches += 1
+    return matches == 1
+
+
 def validate_repository_controls(root: Path, catalog: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     required = (
@@ -545,27 +599,37 @@ def validate_repository_controls(root: Path, catalog: dict[str, Any]) -> list[st
             if required_text not in text:
                 errors.append(f"{ci}: missing required matrix/gate value {required_text}")
         canonical = "python scripts/agent_kit.py check"
-        if not workflow_has_exact_run_command(text, canonical):
+        canonical_condition = "if: github.event_name != 'pull_request'"
+        if not (
+            workflow_has_exact_run_command(text, canonical)
+            and workflow_step_has_exact_lines(
+                text, canonical_condition, f"run: {canonical}"
+            )
+        ):
             errors.append(
-                f"{ci}: canonical gate must be exactly one run entry: {canonical}"
+                f"{ci}: canonical gate must have one exact guarded run entry: "
+                f"{canonical_condition}; run: {canonical}"
             )
         focused = (
             "python scripts/agent_kit.py validate-range --base "
             "${{ github.event.pull_request.base.sha }} --head "
             "${{ github.event.pull_request.head.sha }}"
         )
-        if not workflow_has_exact_run_command(text, focused):
-            errors.append(
-                f"{ci}: focused pull-request gate must be exactly one run entry: "
-                f"{focused}"
+        focused_condition = "if: github.event_name == 'pull_request'"
+        if not (
+            workflow_has_exact_run_command(text, focused)
+            and workflow_step_has_exact_lines(
+                text, focused_condition, f"run: {focused}"
             )
-        for required_text in (
-            "fetch-depth: 0",
-            "if: github.event_name == 'pull_request'",
-            "if: github.event_name != 'pull_request'",
         ):
-            if required_text not in text:
-                errors.append(f"{ci}: missing focused validation boundary {required_text}")
+            errors.append(
+                f"{ci}: focused pull-request gate must have one exact guarded "
+                f"run entry: {focused_condition}; run: {focused}"
+            )
+        if not workflow_checkout_has_full_history(text):
+            errors.append(
+                f"{ci}: one immutable checkout step must set exact fetch-depth: 0"
+            )
     release = workflow_root / "release.yml"
     if release.is_file():
         text = release.read_text(encoding="utf-8")

@@ -89,7 +89,7 @@ class CatalogAndValidationTests(unittest.TestCase):
             )
             errors = agent_kit.validate_repository_controls(fixture, catalog)
             self.assertTrue(
-                any("ci.yml: canonical gate must be exactly one run entry" in item for item in errors),
+                any("ci.yml: canonical gate must have one exact guarded run entry" in item for item in errors),
                 errors,
             )
 
@@ -102,18 +102,54 @@ class CatalogAndValidationTests(unittest.TestCase):
             )
             errors = agent_kit.validate_repository_controls(fixture, catalog)
             self.assertTrue(
-                any("focused pull-request gate must be exactly one run entry" in item for item in errors),
+                any("focused pull-request gate must have one exact guarded" in item for item in errors),
                 errors,
             )
 
             shutil.copy2(ROOT / ".github" / "workflows" / "ci.yml", ci)
             ci.write_text(
-                ci.read_text(encoding="utf-8").replace("fetch-depth: 0\n", ""),
+                ci.read_text(encoding="utf-8").replace(
+                    "fetch-depth: 0", "# fetch-depth: 0"
+                ),
                 encoding="utf-8",
             )
             errors = agent_kit.validate_repository_controls(fixture, catalog)
             self.assertTrue(
-                any("missing focused validation boundary fetch-depth: 0" in item for item in errors),
+                any("checkout step must set exact fetch-depth: 0" in item for item in errors),
+                errors,
+            )
+
+            shutil.copy2(ROOT / ".github" / "workflows" / "ci.yml", ci)
+            text = ci.read_text(encoding="utf-8")
+            text = text.replace(
+                "if: github.event_name == 'pull_request'",
+                "if: github.event_name == 'pull_request' && false",
+            )
+            ci.write_text(text, encoding="utf-8")
+            errors = agent_kit.validate_repository_controls(fixture, catalog)
+            self.assertTrue(
+                any("focused pull-request gate must have one exact guarded" in item for item in errors),
+                errors,
+            )
+
+            shutil.copy2(ROOT / ".github" / "workflows" / "ci.yml", ci)
+            text = ci.read_text(encoding="utf-8")
+            text = text.replace(
+                "if: github.event_name == 'pull_request'", "if: __focused__"
+            ).replace(
+                "if: github.event_name != 'pull_request'",
+                "if: github.event_name == 'pull_request'",
+            ).replace(
+                "if: __focused__", "if: github.event_name != 'pull_request'"
+            )
+            ci.write_text(text, encoding="utf-8")
+            errors = agent_kit.validate_repository_controls(fixture, catalog)
+            self.assertTrue(
+                any("focused pull-request gate must have one exact guarded" in item for item in errors),
+                errors,
+            )
+            self.assertTrue(
+                any("canonical gate must have one exact guarded" in item for item in errors),
                 errors,
             )
 
