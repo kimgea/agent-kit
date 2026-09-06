@@ -1,9 +1,9 @@
 ---
 name: verify-project
-status: in-progress
+status: completed
 created: 2026-09-05T19:50:10Z
-updated: 2026-09-06T05:28:53Z
-progress: 87%
+updated: 2026-09-06T10:20:19+02:00
+progress: 100%
 prd: .claude/prds/verify-project.md
 github: (will be set on sync)
 ---
@@ -134,7 +134,7 @@ tests, behavioral evidence, consumer integration, and delivery remain gated.
 - [x] 005.md - Add deterministic and hierarchy-conformance coverage (parallel: false)
 - [x] 006.md - Add behavioral evaluations and fresh local evidence (parallel: false)
 - [x] 007.md - Integrate verify-project with review-and-fix (parallel: false)
-- [ ] 008.md - Validate, review, and deliver the capability (parallel: false)
+- [x] 008.md - Validate, review, and deliver the capability (parallel: false)
 
 Total tasks: 8
 Parallel tasks: 3
