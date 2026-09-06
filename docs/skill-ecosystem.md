@@ -27,6 +27,7 @@ skills/
 |-- build-interactive-diagram/
 |-- project-review/
 |-- review-and-fix/
+|-- verify-project/
 `-- ...
 ```
 
@@ -364,9 +365,10 @@ metadata or workflow observations are not implemented.
 | `build-interactive-diagram` | Presenter | Artifact producer | Writes a selected self-contained web directory; can hand the directory to the host | No | `artifacts` | Aligned composable |
 | `grill-me` | Decision support | Plan and artifact pressure-testing | Prose questioning and synthesis; no runtime data or mutation | No | `grill-me` | Aligned standalone |
 | `project-review` | Reviewer | Finding producer | Canonical findings; may run separately authorized local diagnostics and write an explicitly selected result file; no target edits | Yes | `project-review` | Aligned composable |
-| `review-and-fix` | Orchestrator | Planner and remediator | Consumes reviews, normalizes, plans, edits bounded local files, can run separately authorized local validation, reruns reviewers, and can write an explicitly selected result file | Through selected reviewers | `project-review` | Aligned composable |
+| `review-and-fix` | Orchestrator | Planner and remediator | Consumes reviews, normalizes, plans, edits bounded local files, gates fresh review on validated `verify-project` evidence or an explicit weaker fallback, and can write an explicitly selected result file | Through selected reviewers | `project-review` | Aligned composable |
 | `review-guidance-audit` | Reviewer | Policy auditor | Canonical recommendations; may run separately authorized local diagnostics and write an explicitly selected result file; no target edits | Yes | `project-review` | Aligned composable |
 | `verification-harness-audit` | Reviewer | Harness auditor and bounded executor | Canonical recommendations; may run exactly authorized local commands and write an explicitly selected result file; no target edits | Yes | `project-review` | Aligned composable |
+| `verify-project` | Verifier | Evidence planner and producer | Canonical plans/results; may run exact authorized local checks and create only frozen disposable outputs; no review, diagnosis, or target edits | Yes, through `VERIFY.md` | `project-review` | Aligned composable |
 | `serve-artifacts` | Delivery capability | Artifact lifecycle manager | JSON CLI and browser URLs; private copies, lifecycle state, and optional temporary service or adapter effects | No | `artifacts` | Aligned composable |
 | `todo-capture` | Work-state manager | Deferred-work archive | Validated private pickup-pointer store with JSON query support | No | `todo-capture` | Aligned standalone |
 | `tool-audit` | Reviewer | Local inventory and usage analyzer | Reads private local transcripts and configuration to produce aggregate reports; the `snapshot` profile appends compact metrics to bounded private local state | No | `tool-audit` | Aligned standalone |

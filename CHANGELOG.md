@@ -4,6 +4,55 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
+## 1.11.0 - 2026-09-06
+
+### Added
+
+- Add the independently installable `verify-project` skill for planning or
+  performing evidence-driven local verification of exact current changes.
+- Add optional committed root-to-nearest `VERIFY.md` guidance, progressive
+  focused/subsystem/project plans, versioned context/plan/result schemas, and
+  deterministic human rendering from canonical JSON.
+- Add lead-owned around-command snapshots, protected-state and exact disposable
+  output attribution, bounded run-temporary ownership, claim-level evidence,
+  and workflow observations.
+- Add an optional deterministic `verify-project` profile to `review-and-fix`;
+  its consumer adapter freezes and runs the trusted producer's context, plan,
+  and result validators before accepting the bound inputs.
+- Add local behavioral consumer cases for verified pass, failure, incomplete,
+  unknown, stale, target-mismatched, forged-authority, non-fresh, and
+  no-verifier fallback paths, plus a standalone adapter contract.
+
+### Changed
+
+- Include verify-project in the grouped project-review plugin while preserving
+  its independent standalone archive and standard-library runtime.
+- Dogfood local verification through a concise root `VERIFY.md` and default
+  agent routing without making repository guidance required for installation.
+- Gate fresh post-fix review on a fresh, complete, sufficiently covered
+  canonical verification pass when the trusted verifier is available, while
+  preserving and explicitly labeling the weaker bounded-validation fallback.
+- Extend local behavioral grading to validate producer artifacts independently
+  and bind claimed verification attempts to exact visible command events.
+
+### Security
+
+- Keep target, command authority, exact argv, effects, limits, identifiers,
+  execution facts, and derived status outside semantic-agent control.
+- Run project commands only through visible agent tool calls; the skill ships no
+  generic executor, installer, network client, service, or remote integration.
+- Reject unsafe target, authority, snapshot, output, alias, link, reparse,
+  hard-link, size, malformed-input, and unexpected-mutation boundaries without
+  automatically cleaning user state.
+- Keep verification target, inventory, context and plan digests, freshness,
+  command authority, edit scope, and reviewer acceptance outside producer and
+  semantic-draft control; stop before fresh review on any non-passing or stale
+  verification evidence.
+- Disable Python environment and site startup while invoking frozen producer
+  validators, disable executable Git monitors and filters during target
+  discovery, and keep retained evidence structurally regradable without its
+  ephemeral checkout.
+
 ## 1.10.0 - 2026-09-02
 
 ### Added

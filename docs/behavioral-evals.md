@@ -11,6 +11,7 @@ python scripts/behavioral_eval.py check --suite review-guidance-audit
 python scripts/behavioral_eval.py check --suite project-review
 python scripts/behavioral_eval.py check --suite review-and-fix
 python scripts/behavioral_eval.py check --suite verification-harness-audit
+python scripts/behavioral_eval.py check --suite verify-project
 ```
 
 GitHub Actions runs only that deterministic path. It does not invoke Codex,
@@ -68,6 +69,13 @@ requires a canonical applied `auto` plan, validation, and a later fresh
 `project-review` acceptance round. Consequential and authorization cases must
 remain mutation-free.
 
+`review-and-fix` cases that select the `verify_project` profile also validate
+the producer context, plan, and result independently. The grader binds every
+canonical attempt to the exact finalized argv observed in the transient agent
+event stream; an agent-authored attempt record without that matching visible
+tool call fails. Retained command evidence contains only argv digests and
+forbidden-command markers, not command text or raw events.
+
 Codex inference normally uses an external model service and may consume the
 user's allowance or API billing. The command is never run by the canonical gate,
 commit hooks, packaging, GitHub Actions, or release automation.
@@ -85,6 +93,12 @@ Local runs create a new ignored directory under `.eval-results/` by default:
         ├── result.json
         └── score.json
 ```
+
+Mutation and verification cases additionally retain compact host-owned mutation
+or command evidence and the canonical verification context, plan, and result
+needed for deterministic regrading. Regrading uses structural producer
+validation and recorded target bindings; it does not require an old ephemeral
+fixture path to remain live or treat a historical result as fresh authority.
 
 The summary binds the observation to the frozen suite, skill, fixed dependency
 digests, harness, runner, Codex version, explicit model, reasoning effort, and
@@ -165,6 +179,7 @@ The executable suites currently cover:
 | `project-review` | Project-review result | No mutations |
 | `review-and-fix` | Review-and-fix workflow result | Exact declared existing files only |
 | `verification-harness-audit` | Verification-harness audit result | No mutations |
+| `verify-project` | Verification result | Only predeclared disposable outputs |
 
 `review-and-fix` selects one reviewer per case from a code-owned allowlist:
 `project-review` v1, `review-guidance-audit` v1, or
@@ -173,6 +188,10 @@ beside the evaluated skill and embeds its lead-owned canonical context in the
 review-and-fix context. Suite data cannot name another skill, helper, schema, or
 adapter. These cases can use multiple fresh agent contexts and are therefore
 slower and more allowance-intensive than single-pass review cases.
+
+Its `verify_project` cases freeze `verify-project` as an additional dependency
+and require the same lead-selected target in both contracts. The fallback case
+does not freeze or claim that dependency.
 
 The verification-harness suite uses a fixed 4 KiB semantic-inspection ceiling
 for compact fixtures. Its adapter performs metadata resolution first, then

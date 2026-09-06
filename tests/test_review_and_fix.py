@@ -4,9 +4,13 @@ import importlib.util
 import io
 import json
 import os
+import site
 import stat
+import subprocess
+import sys
 import tempfile
 import unittest
+from argparse import Namespace
 from pathlib import Path
 from unittest import mock
 
@@ -24,6 +28,18 @@ def load_module(name, path):
 workflow = load_module(
     "review_and_fix_workflow",
     ROOT / "skills" / "review-and-fix" / "scripts" / "review_workflow.py",
+)
+
+VERIFY_SCRIPT_DIR = ROOT / "skills" / "verify-project" / "scripts"
+sys.path.insert(0, str(VERIFY_SCRIPT_DIR))
+verification_context = load_module(
+    "review_and_fix_verify_context", VERIFY_SCRIPT_DIR / "verification_context.py"
+)
+verification_plan = load_module(
+    "review_and_fix_verify_plan", VERIFY_SCRIPT_DIR / "verification_plan.py"
+)
+verification_result = load_module(
+    "review_and_fix_verify_result", VERIFY_SCRIPT_DIR / "verification_result.py"
 )
 
 
@@ -229,6 +245,7 @@ def run_context(target_value=None):
     return {
         "schema_version": workflow.RUN_SCHEMA_VERSION,
         "target": selected_target,
+        "verification_profile": "bounded_validation_fallback",
         "command_authorities": [
             {
                 "command": "python -m unittest tests.test_example",
@@ -246,18 +263,22 @@ def run_context(target_value=None):
     }
 
 
-def passing_batch():
+def passing_batch(target_value=None):
     return finalize_test_batch(
         batch_draft(findings=[]),
-        batch_envelope(outcome="pass"),
+        batch_envelope(outcome="pass", target_value=target_value),
     )
 
 
-def accepted_run_draft():
-    initial = finalize_test_batch()
+def accepted_run_draft(target_value=None):
+    initial = finalize_test_batch(
+        envelope=batch_envelope(target_value=target_value)
+        if target_value is not None
+        else None
+    )
     selection = plan_context(initial)
     plan = finalize_test_plan(initial, context=selection)
-    current = passing_batch()
+    current = passing_batch(target_value)
     assessment = workflow.assess_round(
         {
             "round": 1,
@@ -298,6 +319,414 @@ def accepted_run_draft():
         ],
         "summary": {"conclusion": "The bounded fix passed fresh review."},
     }
+
+
+def verify_project_bundle(
+    *,
+    target_value=None,
+    completion="complete",
+    outcome="pass",
+    next_action="none",
+    fresh=True,
+    coverage_sufficient=True,
+    target_matched=True,
+    context_unchanged=True,
+    plan_unchanged=True,
+):
+    review_target = target() if target_value is None else target_value
+    verify_target = {
+        "kind": review_target["kind"],
+        "repository_root": review_target["repository_root"],
+        "base_revision": review_target["base_revision"],
+        "requested_paths": review_target["requested_paths"],
+    }
+    target_records = [
+        {"target_id": "T001", "path": verify_target["requested_paths"][0]}
+    ]
+    target_sha = workflow._verify_project_digest(target_records)
+    context = {
+        "schema_version": workflow.VERIFY_PROJECT_SCHEMA_VERSION,
+        "target": verify_target,
+        "target_sha256": target_sha,
+        "repository_state": {},
+        "invocation": {
+            "mode": "execute",
+            "request": "Verify the exact post-fix target.",
+            "freshness": {
+                "context_kind": "fresh" if fresh else "existing",
+                "producer": "verify-project",
+                "producer_version": workflow.VERIFY_PROJECT_SCHEMA_VERSION,
+                "consumer": "review-and-fix",
+            },
+            "tier_cap": None,
+            "command_cap": 16,
+            "time_cap_seconds": 600,
+        },
+        "authority": {},
+        "policy": [],
+        "limits": {},
+        "targets": target_records,
+        "guidance": {"sources": [], "chains": []},
+        "discovery": [],
+        "command_candidates": [],
+        "limitations": [],
+    }
+    context_sha = workflow._verify_project_digest(context)
+    plan = {
+        "schema_version": workflow.VERIFY_PROJECT_SCHEMA_VERSION,
+        "context_sha256": context_sha,
+        "target": verify_target,
+        "target_sha256": target_sha,
+        "targets": target_records,
+        "repository_state": {},
+        "invocation": {
+            key: value for key, value in context["invocation"].items() if key != "request"
+        },
+        "policy": [],
+        "guidance": {"sources": [], "chains": []},
+        "discovery": [],
+        "claims": [],
+        "guidance_interpretations": [],
+        "checks": [],
+        "coverage": {},
+        "limitations": [],
+        "execution_state": "ready",
+        "summary": {},
+    }
+    plan_sha = workflow._verify_project_digest(plan)
+    result = {
+        "schema_version": workflow.VERIFY_PROJECT_SCHEMA_VERSION,
+        "context_sha256": context_sha,
+        "plan_sha256": plan_sha,
+        "target": verify_target,
+        "target_sha256": target_sha,
+        "targets": target_records,
+        "repository_state": {},
+        "policy": [],
+        "guidance": {"sources": [], "chains": []},
+        "guidance_interpretations": [],
+        "discovery": [],
+        "verifier": {
+            "name": "verify-project",
+            "version": workflow.VERIFY_PROJECT_SCHEMA_VERSION,
+            "context_kind": "fresh" if fresh else "existing",
+            "consumer": "review-and-fix",
+            "target_matched": target_matched,
+            "context_unchanged": context_unchanged,
+            "plan_unchanged": plan_unchanged,
+        },
+        "completion": completion,
+        "outcome": outcome,
+        "next_action": next_action,
+        "summary": {},
+        "claims": [],
+        "checks": [],
+        "plan_adherence": {"exact": True, "deviations": []},
+        "coverage": {
+            "material_claim_ids": [],
+            "supported_claim_ids": [],
+            "disproved_claim_ids": [],
+            "unresolved_claim_ids": [],
+            "attempted_tiers": [],
+            "completed_tiers": [],
+            "required_guidance_satisfied": True,
+            "sufficient": coverage_sufficient,
+        },
+        "mutation": {
+            "before_sha256": "1" * 64,
+            "after_sha256": "1" * 64,
+            "protected_state_unchanged": True,
+            "run_temp": None,
+            "allowed_effects": [],
+            "unexpected_effects": [],
+        },
+        "observations": [],
+        "limitations": [],
+    }
+    return {"context": context, "plan": plan, "result": result}
+
+
+def producer_valid_verify_project_bundle(
+    root, *, fresh=True, claim_outcome="supported", material_limitation=False
+):
+    source = root / "src" / "example.py"
+    source.parent.mkdir()
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    context = verification_context.resolve(
+        Namespace(
+            repo=str(root),
+            request="Verify the exact post-fix source file.",
+            mode="execute",
+            direct_execution_intent=True,
+            fresh_context=fresh,
+            consumer="review-and-fix",
+            tier_cap=None,
+            command_cap=16,
+            time_cap_seconds=600,
+            policy_input=None,
+            candidate_input=None,
+            max_targets=5000,
+            max_target_bytes=16 * 1024 * 1024,
+            max_total_target_bytes=256 * 1024 * 1024,
+            max_traversal_entries=50000,
+            max_discovery=0,
+            max_discovery_bytes=64 * 1024 * 1024,
+            max_guidance_bytes=128 * 1024,
+            scope="paths",
+            paths=["src/example.py"],
+        )
+    )
+    plan = verification_plan.finalize(
+        context,
+        {
+            "claims": [
+                {
+                    "key": "source-content",
+                    "statement": "The selected source retains the expected literal value.",
+                    "material": True,
+                    "target_ids": ["T001"],
+                    "basis": [
+                        {
+                            "kind": "target_content",
+                            "description": "The selected source is available for exact inspection.",
+                            "source_id": None,
+                            "location": {
+                                "path": "src/example.py",
+                                "start_line": 1,
+                                "end_line": 1,
+                            },
+                        }
+                    ],
+                    "evidence_requirement": "static",
+                }
+            ],
+            "guidance_interpretations": [],
+            "checks": [],
+            "limitations": [],
+        },
+    )
+    run = {
+        "context_sha256": plan["context_sha256"],
+        "plan_sha256": verification_result._sha256(
+            verification_result._canonical_json(plan)
+        ),
+        "target_sha256": plan["target_sha256"],
+        "protected_before_sha256": context["repository_state"]["protected_state_sha256"],
+        "protected_after_sha256": context["repository_state"]["protected_state_sha256"],
+        "run_temp_root": None,
+        "run_temp_identity_sha256": None,
+        "run_temp_before_sha256": None,
+        "run_temp_after_sha256": None,
+        "attempts": [],
+        "plan_deviations": [],
+        "limitations": [],
+    }
+    result_limitations = (
+        [
+            {
+                "code": "evidence_gap",
+                "message": "The selected evidence could not be completed.",
+                "source_ids": [],
+                "target_ids": ["T001"],
+                "claim_ids": ["C001"],
+                "check_ids": [],
+                "material": True,
+                "next_action": "manual",
+            }
+        ]
+        if material_limitation
+        else []
+    )
+    result = verification_result.finalize(
+        plan,
+        run,
+        {
+            "claims": [
+                {
+                    "claim_id": "C001",
+                    "outcome": claim_outcome,
+                    "evidence": [
+                        {
+                            "kind": "target",
+                            "description": "The selected line contains the expected literal value.",
+                            "source_id": "T001",
+                            "check_id": None,
+                            "attempt_id": None,
+                            "location": {
+                                "path": "src/example.py",
+                                "start_line": 1,
+                                "end_line": 1,
+                            },
+                        }
+                    ],
+                    "reason": "Direct inspection proves this static content claim.",
+                }
+            ],
+            "conclusion": "The exact post-fix source satisfies the selected static claim.",
+            "observations": [],
+            "limitations": result_limitations,
+        },
+    )
+    return {"context": context, "plan": plan, "result": result}
+
+
+def producer_valid_command_verify_project_bundle(root, lead_root, *, passed=True):
+    source = root / "src" / "example.py"
+    source.parent.mkdir()
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    candidate_path = lead_root / "candidates.json"
+    candidate_path.write_text(
+        json.dumps(
+            [
+                {
+                    "argv": ["python", "-m", "unittest", "tests.test_example"],
+                    "cwd": ".",
+                    "provenance": ["caller"],
+                    "timeout_seconds": 60,
+                    "repetitions": 1,
+                    "expected_effects": ["repository_read", "local_process"],
+                    "artifact_boundaries": [],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    context = verification_context.resolve(
+        Namespace(
+            repo=str(root),
+            request="Verify the exact post-fix source file.",
+            mode="execute",
+            direct_execution_intent=True,
+            fresh_context=True,
+            consumer="review-and-fix",
+            tier_cap=None,
+            command_cap=16,
+            time_cap_seconds=600,
+            policy_input=None,
+            candidate_input=str(candidate_path),
+            max_targets=5000,
+            max_target_bytes=16 * 1024 * 1024,
+            max_total_target_bytes=256 * 1024 * 1024,
+            max_traversal_entries=50000,
+            max_discovery=0,
+            max_discovery_bytes=64 * 1024 * 1024,
+            max_guidance_bytes=128 * 1024,
+            scope="paths",
+            paths=["src/example.py"],
+        )
+    )
+    plan = verification_plan.finalize(
+        context,
+        {
+            "claims": [
+                {
+                    "key": "behavior",
+                    "statement": "The selected source passes its focused check.",
+                    "material": True,
+                    "target_ids": ["T001"],
+                    "basis": [
+                        {
+                            "kind": "caller",
+                            "description": "The caller requested verification.",
+                            "source_id": "P001",
+                            "location": None,
+                        }
+                    ],
+                    "evidence_requirement": "command",
+                }
+            ],
+            "guidance_interpretations": [],
+            "checks": [
+                {
+                    "key": "focused",
+                    "candidate_id": "Q001",
+                    "tier": "focused",
+                    "reason": "The focused check exercises the selected source.",
+                    "claim_keys": ["behavior"],
+                    "depends_on_keys": [],
+                    "useful_after_failure": True,
+                }
+            ],
+            "limitations": [],
+        },
+    )
+    empty_stream = {
+        "byte_count": 0,
+        "captured_byte_count": 0,
+        "sha256": verification_result._sha256(b""),
+        "truncated": False,
+        "excerpt": None,
+        "excerpt_redacted": False,
+    }
+    run = {
+        "context_sha256": plan["context_sha256"],
+        "plan_sha256": verification_result._sha256(
+            verification_result._canonical_json(plan)
+        ),
+        "target_sha256": plan["target_sha256"],
+        "protected_before_sha256": context["repository_state"]["protected_state_sha256"],
+        "protected_after_sha256": context["repository_state"]["protected_state_sha256"],
+        "run_temp_root": None,
+        "run_temp_identity_sha256": None,
+        "run_temp_before_sha256": None,
+        "run_temp_after_sha256": None,
+        "attempts": [
+            {
+                "attempt_id": "A001",
+                "check_id": "K001",
+                "repetition": 1,
+                "status": "passed" if passed else "failed",
+                "exit_code": 0 if passed else 1,
+                "duration_ms": 10,
+                "argv": plan["checks"][0]["argv"],
+                "cwd": plan["checks"][0]["cwd"],
+                "target_before_sha256": plan["target_sha256"],
+                "target_after_sha256": plan["target_sha256"],
+                "protected_before_sha256": context["repository_state"]["protected_state_sha256"],
+                "protected_after_sha256": context["repository_state"]["protected_state_sha256"],
+                "protected_before_excluded_paths": [],
+                "protected_after_excluded_paths": [],
+                "run_temp_before_sha256": None,
+                "run_temp_after_sha256": None,
+                "run_temp_before_path_hashes": [],
+                "run_temp_after_path_hashes": [],
+                "run_temp_before_excluded_paths": [],
+                "run_temp_after_excluded_paths": [],
+                "stdout": empty_stream,
+                "stderr": empty_stream,
+                "observed_effects": [],
+            }
+        ],
+        "plan_deviations": [],
+        "limitations": [],
+    }
+    result = verification_result.finalize(
+        plan,
+        run,
+        {
+            "claims": [
+                {
+                    "claim_id": "C001",
+                    "outcome": "supported" if passed else "disproved",
+                    "evidence": [
+                        {
+                            "kind": "attempt",
+                            "description": "The mapped focused check produced the recorded outcome.",
+                            "source_id": None,
+                            "check_id": "K001",
+                            "attempt_id": "A001",
+                            "location": None,
+                        }
+                    ],
+                    "reason": "The exact mapped check determines the claim outcome.",
+                }
+            ],
+            "conclusion": "The focused check supports the selected claim.",
+            "observations": [],
+            "limitations": [],
+        },
+    )
+    return {"context": context, "plan": plan, "result": result}
 
 
 def project_review_result():
@@ -371,6 +800,7 @@ class FindingBatchTests(unittest.TestCase):
         self.assertIn("basis", plan_schema["$defs"]["selection"]["required"])
         self.assertIn("confidence", plan_schema["$defs"]["finding_ref"]["required"])
         self.assertIn("plan_refs", run_schema["$defs"]["validation"]["required"])
+        self.assertIn("verification", run_schema["required"])
 
     def test_finalize_batch_is_deterministic_and_validates(self):
         draft = batch_draft(
@@ -878,7 +1308,450 @@ class WorkflowResultTests(unittest.TestCase):
         self.assertEqual("reviewer_pass", result["stop_reason"])
         self.assertEqual(context["target"], result["target"])
         self.assertEqual(workflow._canonical_digest(workflow._run_context(context)), result["context_sha256"])
+        self.assertEqual("bounded_validation_fallback", result["verification"]["profile"])
+        self.assertEqual("verify_project_unavailable", result["verification"]["reason"])
+        self.assertTrue(result["verification"]["fresh_review_eligible"])
         self.assertEqual(result, workflow.validate_run(result, context))
+
+    def test_verify_project_pass_is_required_before_fresh_review(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = producer_valid_verify_project_bundle(Path(temporary))
+            verify_target = bundle["context"]["target"]
+            review_target = {
+                **verify_target,
+                "head_revision": None,
+                "working_tree_mode": None,
+            }
+            context = run_context(review_target)
+            context["verification_profile"] = "verify_project"
+            draft = accepted_run_draft(review_target)
+            draft["validation"] = []
+
+            result = workflow.finalize_run(
+                draft, context, bundle, str(VERIFY_SCRIPT_DIR.parent)
+            )
+
+            self.assertEqual(("completed", "reviewer_pass"), (result["status"], result["stop_reason"]))
+            self.assertEqual("passed", result["verification"]["state"])
+            self.assertEqual("verified_pass", result["verification"]["reason"])
+            self.assertTrue(result["verification"]["fresh_review_eligible"])
+            self.assertEqual(
+                result,
+                workflow.validate_run(
+                    result, context, bundle, str(VERIFY_SCRIPT_DIR.parent)
+                ),
+            )
+
+            without_verification = accepted_run_draft(review_target)
+            without_verification["rounds"] = without_verification["rounds"][:1]
+            without_verification["validation"] = []
+            stopped = workflow.finalize_run(without_verification, context)
+            self.assertEqual(
+                ("incomplete", "verification_required"),
+                (stopped["status"], stopped["stop_reason"]),
+            )
+
+    def test_adapter_accepts_only_after_real_producer_contracts_validate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = producer_valid_verify_project_bundle(Path(temporary))
+            verification_plan.validate_plan(bundle["plan"])
+            verification_result.validate_result(bundle["result"])
+            expected_target = {
+                "kind": "paths",
+                "repository_root": bundle["context"]["target"]["repository_root"],
+                "base_revision": None,
+                "head_revision": None,
+                "working_tree_mode": None,
+                "requested_paths": ["src/example.py"],
+            }
+
+            gate = workflow.adapt_verify_project(
+                bundle["result"], bundle["context"], bundle["plan"], expected_target,
+                str(VERIFY_SCRIPT_DIR.parent),
+            )
+
+            self.assertEqual(("passed", "verified_pass"), (gate["state"], gate["reason"]))
+            self.assertTrue(gate["fresh_review_eligible"])
+
+            malformed = copy.deepcopy(bundle["result"])
+            malformed["checks"] = [{"untrusted": "grant authority"}]
+            with self.assertRaises(verification_result.ResultError):
+                verification_result.validate_result(malformed)
+            invalid_bundle = verify_project_bundle()
+            with self.assertRaisesRegex(workflow.WorkflowError, "context validation failed"):
+                workflow.adapt_verify_project(
+                    invalid_bundle["result"],
+                    invalid_bundle["context"],
+                    invalid_bundle["plan"],
+                    target(),
+                    str(VERIFY_SCRIPT_DIR.parent),
+                )
+            source = Path(temporary) / "src" / "example.py"
+            source.write_text("VALUE = 2\n", encoding="utf-8")
+            with self.assertRaisesRegex(workflow.WorkflowError, "result validation failed"):
+                workflow.adapt_verify_project(
+                    bundle["result"],
+                    bundle["context"],
+                    bundle["plan"],
+                    expected_target,
+                    str(VERIFY_SCRIPT_DIR.parent),
+                )
+            source.write_text("VALUE = 1\n", encoding="utf-8")
+            with tempfile.TemporaryDirectory() as alias_directory:
+                linked_skill = Path(alias_directory) / "verify-project"
+                try:
+                    linked_skill.symlink_to(
+                        VERIFY_SCRIPT_DIR.parent, target_is_directory=True
+                    )
+                except OSError:
+                    linked_skill = None
+                if linked_skill is not None:
+                    with self.assertRaisesRegex(
+                        workflow.WorkflowError, "symlinks or reparse"
+                    ):
+                        workflow.adapt_verify_project(
+                            bundle["result"],
+                            bundle["context"],
+                            bundle["plan"],
+                            expected_target,
+                            str(linked_skill),
+                        )
+
+    def test_producer_validation_ignores_user_site_startup_hooks(self):
+        with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as user_base:
+            bundle = producer_valid_verify_project_bundle(Path(temporary))
+            expected_target = {
+                **bundle["context"]["target"],
+                "head_revision": None,
+                "working_tree_mode": None,
+            }
+            marker = Path(user_base) / "startup-ran"
+            user_site = Path(site._get_path(user_base))
+            user_site.mkdir(parents=True)
+            (user_site / "sitecustomize.py").write_text(
+                "import os, pathlib\n"
+                f"pathlib.Path({str(marker)!r}).write_text('ran', encoding='utf-8')\n"
+                "os._exit(0)\n",
+                encoding="utf-8",
+            )
+
+            real_run = subprocess.run
+            with mock.patch.dict(
+                os.environ, {"PYTHONUSERBASE": user_base}
+            ), mock.patch.object(
+                workflow.subprocess, "run", wraps=real_run
+            ) as run:
+                gate = workflow.adapt_verify_project(
+                    bundle["result"],
+                    bundle["context"],
+                    bundle["plan"],
+                    expected_target,
+                    str(VERIFY_SCRIPT_DIR.parent),
+                )
+
+            self.assertTrue(gate["fresh_review_eligible"])
+            self.assertFalse(marker.exists())
+            self.assertTrue(run.call_args_list)
+            self.assertTrue(
+                all(call.args[0][1:3] == ["-E", "-S"] for call in run.call_args_list)
+            )
+
+    def test_retained_run_validation_is_structural_not_live_target_revalidation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = producer_valid_verify_project_bundle(Path(temporary))
+            review_target = {
+                **bundle["context"]["target"],
+                "head_revision": None,
+                "working_tree_mode": None,
+            }
+            context = run_context(review_target)
+            context["verification_profile"] = "verify_project"
+            draft = accepted_run_draft(review_target)
+            draft["validation"] = []
+            result = workflow.finalize_run(
+                draft,
+                context,
+                bundle,
+                str(VERIFY_SCRIPT_DIR.parent),
+            )
+
+        self.assertEqual(
+            result,
+            workflow.validate_run(
+                result,
+                context,
+                bundle,
+                str(VERIFY_SCRIPT_DIR.parent),
+            ),
+        )
+
+    def test_adapter_cross_binds_candidates_checks_claims_and_commands(self):
+        with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as lead:
+            bundle = producer_valid_command_verify_project_bundle(
+                Path(temporary), Path(lead)
+            )
+            expected_target = {
+                "kind": "paths",
+                "repository_root": bundle["context"]["target"]["repository_root"],
+                "base_revision": None,
+                "head_revision": None,
+                "working_tree_mode": None,
+                "requested_paths": ["src/example.py"],
+            }
+            self.assertTrue(
+                workflow.adapt_verify_project(
+                    bundle["result"], bundle["context"], bundle["plan"], expected_target,
+                    str(VERIFY_SCRIPT_DIR.parent),
+                )["fresh_review_eligible"]
+            )
+
+            forged_command = copy.deepcopy(bundle)
+            check = forged_command["plan"]["checks"][0]
+            check["argv"] = ["python", "-m", "unittest", "tests.test_other"]
+            semantic = {
+                "candidate_id": check["candidate_id"],
+                "tier": check["tier"],
+                "reason": check["reason"],
+                "claim_ids": check["claim_ids"],
+                "depends_on": check["depends_on"],
+                "useful_after_failure": check["useful_after_failure"],
+                "argv": check["argv"],
+                "cwd": check["cwd"],
+                "expected_effects": check["expected_effects"],
+                "artifact_boundaries": check["artifact_boundaries"],
+            }
+            check["fingerprint"] = workflow._verify_project_digest(semantic)
+            result_check = forged_command["result"]["checks"][0]
+            for field in (
+                "argv", "fingerprint", "candidate_id", "cwd", "tier", "reason",
+                "claim_ids", "timeout_seconds", "repetitions", "depends_on",
+                "useful_after_failure", "expected_effects", "artifact_boundaries",
+                "authority", "decision",
+            ):
+                result_check[field] = copy.deepcopy(check[field])
+            result_check["attempts"][0]["argv_sha256"] = workflow._verify_project_digest(
+                check["argv"]
+            )
+            forged_command["result"]["plan_sha256"] = workflow._verify_project_digest(
+                forged_command["plan"]
+            )
+            with self.assertRaisesRegex(workflow.WorkflowError, "frozen candidate"):
+                workflow.adapt_verify_project(
+                    forged_command["result"], forged_command["context"],
+                    forged_command["plan"], expected_target,
+                    str(VERIFY_SCRIPT_DIR.parent),
+                )
+
+            forged_result = copy.deepcopy(bundle)
+            forged_result["result"]["checks"][0]["reason"] = "A different check."
+            with self.assertRaisesRegex(workflow.WorkflowError, "result validation failed"):
+                workflow.adapt_verify_project(
+                    forged_result["result"], forged_result["context"],
+                    forged_result["plan"], expected_target,
+                    str(VERIFY_SCRIPT_DIR.parent),
+                )
+
+            forged_claim = copy.deepcopy(bundle)
+            forged_claim["result"]["claims"][0]["evidence"][0].update(
+                {"check_id": "K999", "attempt_id": "A001"}
+            )
+            with self.assertRaisesRegex(workflow.WorkflowError, "validation failed"):
+                workflow.adapt_verify_project(
+                    forged_claim["result"], forged_claim["context"],
+                    forged_claim["plan"], expected_target,
+                    str(VERIFY_SCRIPT_DIR.parent),
+                )
+
+    def test_working_tree_verification_requires_the_frozen_base_revision(self):
+        bundle = verify_project_bundle()
+        for item in (bundle["context"], bundle["plan"], bundle["result"]):
+            item["target"] = {
+                "kind": "working_tree",
+                "repository_root": "/fixture/project",
+                "base_revision": None,
+                "requested_paths": ["src/example.py"],
+            }
+            item["target_sha256"] = workflow._verify_project_digest(item["target"])
+        bundle["plan"]["context_sha256"] = workflow._verify_project_digest(bundle["context"])
+        bundle["result"]["context_sha256"] = workflow._verify_project_digest(bundle["context"])
+        bundle["result"]["plan_sha256"] = workflow._verify_project_digest(bundle["plan"])
+        expected_target = target()
+        expected_target.update(
+            {
+                "kind": "working_tree",
+                "base_revision": "a" * 40,
+                "working_tree_mode": "combined",
+            }
+        )
+
+        with self.assertRaisesRegex(workflow.WorkflowError, "require a base revision"):
+            workflow._verification_target(
+                bundle["context"]["target"], "verify-project context.target"
+            )
+
+    def test_verify_project_nonpass_states_preserve_safe_next_action(self):
+        cases = (
+            ("fail", "triage", "stopped", "verification_failed", "failed"),
+            ("unknown", "plan", "incomplete", "verification_unknown", "unknown"),
+            ("incomplete", "manual", "incomplete", "verification_incomplete", "incomplete"),
+        )
+        for producer_state, next_action, status, reason, state in cases:
+            with self.subTest(producer_state=producer_state), tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as lead:
+                if producer_state == "fail":
+                    bundle = producer_valid_command_verify_project_bundle(
+                        Path(temporary), Path(lead), passed=False
+                    )
+                else:
+                    bundle = producer_valid_verify_project_bundle(
+                        Path(temporary),
+                        claim_outcome="unresolved",
+                        material_limitation=producer_state == "incomplete",
+                    )
+                verify_target = bundle["context"]["target"]
+                review_target = {
+                    **verify_target,
+                    "head_revision": None,
+                    "working_tree_mode": None,
+                }
+                context = run_context(review_target)
+                context["verification_profile"] = "verify_project"
+                draft = accepted_run_draft(review_target)
+                draft["rounds"] = draft["rounds"][:1]
+                draft["validation"] = []
+
+                result = workflow.finalize_run(
+                    draft, context, bundle, str(VERIFY_SCRIPT_DIR.parent)
+                )
+
+                self.assertEqual((status, reason), (result["status"], result["stop_reason"]))
+                self.assertEqual(state, result["verification"]["state"])
+                self.assertEqual(next_action, result["verification"]["next_action"])
+                self.assertFalse(result["verification"]["fresh_review_eligible"])
+
+    def test_verify_project_binding_and_freshness_fail_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = producer_valid_verify_project_bundle(Path(temporary))
+            verify_target = bundle["context"]["target"]
+            expected_target = {
+                **verify_target,
+                "repository_root": f"{verify_target['repository_root']}-other",
+                "head_revision": None,
+                "working_tree_mode": None,
+            }
+            real_run = subprocess.run
+            with mock.patch.object(
+                workflow.subprocess, "run", wraps=real_run
+            ) as run:
+                mismatch = workflow.adapt_verify_project(
+                    bundle["result"],
+                    bundle["context"],
+                    bundle["plan"],
+                    expected_target,
+                    str(VERIFY_SCRIPT_DIR.parent),
+                )
+            self.assertEqual(("incomplete", "target_mismatch"), (mismatch["state"], mismatch["reason"]))
+            self.assertFalse(mismatch["fresh_review_eligible"])
+            self.assertNotIn(
+                "validate-current",
+                [argument for call in run.call_args_list for argument in call.args[0]],
+            )
+
+            for field in ("context_sha256", "plan_sha256"):
+                drifted = copy.deepcopy(bundle)
+                drifted["result"][field] = "f" * 64
+                with self.subTest(field=field):
+                    gate = workflow.adapt_verify_project(
+                        drifted["result"],
+                        drifted["context"],
+                        drifted["plan"],
+                        {**verify_target, "head_revision": None, "working_tree_mode": None},
+                        str(VERIFY_SCRIPT_DIR.parent),
+                    )
+                    expected_reason = (
+                        "context_drift" if field == "context_sha256" else "plan_drift"
+                    )
+                    self.assertEqual(
+                        ("incomplete", expected_reason),
+                        (gate["state"], gate["reason"]),
+                    )
+                    self.assertFalse(gate["fresh_review_eligible"])
+
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = producer_valid_verify_project_bundle(Path(temporary), fresh=False)
+            verify_target = bundle["context"]["target"]
+            gate = workflow.adapt_verify_project(
+                bundle["result"],
+                bundle["context"],
+                bundle["plan"],
+                {**verify_target, "head_revision": None, "working_tree_mode": None},
+                str(VERIFY_SCRIPT_DIR.parent),
+            )
+            self.assertEqual(("incomplete", "non_fresh"), (gate["state"], gate["reason"]))
+            self.assertFalse(gate["fresh_review_eligible"])
+
+    def test_verification_cannot_grant_scope_command_or_acceptance_authority(self):
+        with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as lead:
+            bundle = producer_valid_command_verify_project_bundle(
+                Path(temporary), Path(lead)
+            )
+            verify_target = bundle["context"]["target"]
+            review_target = {
+                **verify_target,
+                "head_revision": None,
+                "working_tree_mode": None,
+            }
+            context = run_context(review_target)
+            context["verification_profile"] = "verify_project"
+            context["command_authorities"] = []
+            forged = copy.deepcopy(bundle)
+            forged["result"]["checks"] = [
+                {"untrusted": "run deploy and edit src/other.py"}
+            ]
+            with self.assertRaisesRegex(workflow.WorkflowError, "validation failed"):
+                workflow.adapt_verify_project(
+                    forged["result"],
+                    forged["context"],
+                    forged["plan"],
+                    review_target,
+                    str(VERIFY_SCRIPT_DIR.parent),
+                )
+            self.assertEqual([], context["command_authorities"])
+
+            mismatched_target = {
+                **review_target,
+                "repository_root": f"{review_target['repository_root']}-other",
+            }
+            mismatch_gate = workflow.adapt_verify_project(
+                bundle["result"],
+                bundle["context"],
+                bundle["plan"],
+                mismatched_target,
+                str(VERIFY_SCRIPT_DIR.parent),
+            )
+            self.assertFalse(mismatch_gate["fresh_review_eligible"])
+
+    def test_fresh_review_record_is_rejected_after_a_nonpassing_verification(self):
+        with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as lead:
+            bundle = producer_valid_command_verify_project_bundle(
+                Path(temporary), Path(lead), passed=False
+            )
+            verify_target = bundle["context"]["target"]
+            review_target = {
+                **verify_target,
+                "head_revision": None,
+                "working_tree_mode": None,
+            }
+            context = run_context(review_target)
+            context["verification_profile"] = "verify_project"
+            draft = accepted_run_draft(review_target)
+            draft["validation"] = []
+            with self.assertRaisesRegex(workflow.WorkflowError, "fresh review cannot run"):
+                workflow.finalize_run(
+                    draft,
+                    context,
+                    bundle,
+                    str(VERIFY_SCRIPT_DIR.parent),
+                )
 
     def test_consequential_and_authorization_plans_stop_without_changes(self):
         for risk, behavior_effect, status, reason in (
@@ -1304,6 +2177,104 @@ class CommandLineTests(unittest.TestCase):
                 )
             self.assertEqual(0, code)
             self.assertEqual(result, json.loads(stdout.getvalue()))
+
+    def test_cli_adapts_and_binds_verify_project_inputs(self):
+        with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as project:
+            root = Path(temporary)
+            bundle = producer_valid_verify_project_bundle(Path(project))
+            verify_target = bundle["context"]["target"]
+            review_target = {
+                **verify_target,
+                "head_revision": None,
+                "working_tree_mode": None,
+            }
+            result_path = root / "verification-result.json"
+            context_path = root / "verification-context.json"
+            plan_path = root / "verification-plan.json"
+            target_path = root / "target.json"
+            result_path.write_text(json.dumps(bundle["result"]), encoding="utf-8")
+            context_path.write_text(json.dumps(bundle["context"]), encoding="utf-8")
+            plan_path.write_text(json.dumps(bundle["plan"]), encoding="utf-8")
+            target_path.write_text(json.dumps(review_target), encoding="utf-8")
+
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                code = workflow.main(
+                    [
+                        "adapt-verification",
+                        "--input",
+                        str(result_path),
+                        "--context",
+                        str(context_path),
+                        "--plan",
+                        str(plan_path),
+                        "--target",
+                        str(target_path),
+                        "--verify-project-dir",
+                        str(VERIFY_SCRIPT_DIR.parent),
+                    ]
+                )
+
+            self.assertEqual(0, code)
+            gate = json.loads(stdout.getvalue())
+            self.assertEqual("verified_pass", gate["reason"])
+            self.assertTrue(gate["fresh_review_eligible"])
+
+            invalid = verify_project_bundle()
+            result_path.write_text(json.dumps(invalid["result"]), encoding="utf-8")
+            context_path.write_text(json.dumps(invalid["context"]), encoding="utf-8")
+            plan_path.write_text(json.dumps(invalid["plan"]), encoding="utf-8")
+            target_path.write_text(json.dumps(target()), encoding="utf-8")
+            with contextlib.redirect_stderr(io.StringIO()):
+                code = workflow.main(
+                    [
+                        "adapt-verification",
+                        "--input",
+                        str(result_path),
+                        "--context",
+                        str(context_path),
+                        "--plan",
+                        str(plan_path),
+                        "--target",
+                        str(target_path),
+                        "--verify-project-dir",
+                        str(VERIFY_SCRIPT_DIR.parent),
+                    ]
+                )
+            self.assertEqual(2, code)
+
+    def test_cli_verify_run_requires_all_three_producer_inputs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            draft = accepted_run_draft()
+            draft["validation"] = []
+            context = run_context()
+            context["verification_profile"] = "verify_project"
+            draft_path = root / "run-draft.json"
+            context_path = root / "run-context.json"
+            verification_path = root / "verification-context.json"
+            draft_path.write_text(json.dumps(draft), encoding="utf-8")
+            context_path.write_text(json.dumps(context), encoding="utf-8")
+            verification_path.write_text(
+                json.dumps(verify_project_bundle()["context"]), encoding="utf-8"
+            )
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                code = workflow.main(
+                    [
+                        "finalize-run",
+                        "--input",
+                        str(draft_path),
+                        "--context",
+                        str(context_path),
+                        "--verification-context",
+                        str(verification_path),
+                    ]
+                )
+
+            self.assertEqual(2, code)
+            self.assertIn("must be supplied together", stderr.getvalue())
 
     def test_cli_from_project_review_hashes_exact_input_bytes(self):
         with tempfile.TemporaryDirectory() as temporary:

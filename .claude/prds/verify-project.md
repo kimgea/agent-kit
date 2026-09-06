@@ -1,7 +1,7 @@
 ---
 name: verify-project
 description: Verify exact local project changes with bounded authorized checks and canonical evidence.
-status: active
+status: completed
 created: 2026-09-05T19:50:10Z
 ---
 

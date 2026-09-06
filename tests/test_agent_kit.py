@@ -299,6 +299,7 @@ class CatalogAndValidationTests(unittest.TestCase):
                 "todo-capture",
                 "tool-audit",
                 "verification-harness-audit",
+                "verify-project",
             ],
             sorted(resource["id"] for resource in value["resources"]),
         )
@@ -726,7 +727,7 @@ class LifecycleTests(unittest.TestCase):
                 Path("release"), None, "all", fixture
             )
             archives = [path for path in artifacts if path.suffix == ".zip"]
-            self.assertEqual(17, len(archives))
+            self.assertEqual(18, len(archives))
             self.assertEqual(6, len([path for path in archives if "-plugin-" in path.name]))
             self.assertEqual(
                 1,
@@ -787,6 +788,7 @@ class LifecycleTests(unittest.TestCase):
                     "review-and-fix",
                     "review-guidance-audit",
                     "verification-harness-audit",
+                    "verify-project",
                 ],
                 "plugin",
                 fixture,
@@ -803,6 +805,7 @@ class LifecycleTests(unittest.TestCase):
             self.assertIn("project-review/skills/review-and-fix/SKILL.md", names)
             self.assertIn("project-review/skills/review-guidance-audit/SKILL.md", names)
             self.assertIn("project-review/skills/verification-harness-audit/SKILL.md", names)
+            self.assertIn("project-review/skills/verify-project/SKILL.md", names)
             self.assertEqual("project-review", manifest["name"])
             self.assertEqual(3, len(manifest["interface"]["defaultPrompt"]))
 
@@ -870,6 +873,47 @@ class LifecycleTests(unittest.TestCase):
                 self.assertNotIn("import scripts", source)
                 self.assertNotIn("skills.project_review", source)
                 self.assertNotIn("skills.review_guidance_audit", source)
+
+            verify_artifacts = agent_kit.package_artifacts(
+                Path("standalone-verify"), ["verify-project"], "skill", fixture
+            )
+            verify_archive = next(
+                path for path in verify_artifacts
+                if path.name.startswith("verify-project-")
+            )
+            with zipfile.ZipFile(verify_archive) as bundle:
+                verify_names = set(bundle.namelist())
+                verify_sources = [
+                    bundle.read(f"verify-project/scripts/{name}").decode("utf-8")
+                    for name in (
+                        "path_safety.py",
+                        "verification_context.py",
+                        "verification_plan.py",
+                        "verification_result.py",
+                    )
+                ]
+            expected_verify_runtime = {
+                "LICENSE",
+                "THIRD_PARTY_NOTICES.md",
+                "verify-project/SKILL.md",
+                "verify-project/agents/openai.yaml",
+                "verify-project/references/canonical-contracts.md",
+                "verify-project/references/plan-authoring.md",
+                "verify-project/references/result-authoring.md",
+                "verify-project/references/verification-context.schema.json",
+                "verify-project/references/verification-plan.schema.json",
+                "verify-project/references/verification-result.schema.json",
+                "verify-project/scripts/path_safety.py",
+                "verify-project/scripts/verification_context.py",
+                "verify-project/scripts/verification_plan.py",
+                "verify-project/scripts/verification_result.py",
+            }
+            self.assertEqual(expected_verify_runtime, verify_names)
+            self.assertNotIn("verify-project/VERIFY.md", verify_names)
+            for source in verify_sources:
+                self.assertNotIn("from scripts", source)
+                self.assertNotIn("import scripts", source)
+                self.assertNotIn("skills.", source)
 
     def test_invalid_plugin_membership_and_unknown_package_selection_are_refused(self):
         with tempfile.TemporaryDirectory() as temporary:

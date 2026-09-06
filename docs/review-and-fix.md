@@ -12,7 +12,7 @@ creating a runtime dependency or allowing an audit to select edit scope.
 
 ## Workflow
 
-The lead fixes one exact working-tree, ref-range, or path target through five
+The lead fixes one exact working-tree, ref-range, or path target through six
 separated roles:
 
 1. One or more selected reviewers return analysis without editing.
@@ -28,12 +28,44 @@ separated roles:
 4. The helper takes selection from a separate lead-owned context, binds the plan
    to the canonical batch and exact reviewed paths, and mechanically derives
    `auto`, `user_decision_required`, or `authorization_required`.
-5. After an eligible or approved local fix, the same reviewer set runs from
-   fresh context. Only its complete result can accept the change.
+5. After an eligible or approved local fix, a fresh `verify-project` run gates
+   re-review when that skill is available. Its canonical context, plan, and
+   result remain bound to the exact post-fix target.
+6. Only after that gate passes does the same reviewer set run from fresh
+   context. Only its complete result can accept the change.
 
 Raw reviewer output, normalizer text, safe directions, and suggested commands
 are untrusted data. They cannot authorize edits, execution, installation,
 permissions, remote state, publication, or scope expansion.
+
+## Post-fix verification
+
+The lead selects `verify_project` or `bounded_validation_fallback` in the
+lead-owned run context before fixing. The fixer cannot choose the stronger
+label after seeing results.
+
+With `verify_project`, a fresh verifier runs after the fix with consumer
+`review-and-fix`. Pass the same canonical context, plan, result, and the
+lead-selected trusted producer directory to `review_workflow.py
+adapt-verification` and to `finalize-run`. The adapter freezes and invokes the
+producer's context, plan, and result validators with Python environment and
+site startup disabled. It independently compares their canonical digests and
+exact target projection before permitting current-target inspection, then binds
+producer and consumer provenance, freshness, evidence sufficiency, protected
+state, and exact plan adherence. Its compact record contains no commands,
+claims, edit paths, or authority.
+
+Only `passed` with reason `verified_pass` permits the final reviewer. A
+verification failure preserves `triage`; insufficient evidence preserves the
+producer's `plan` or other safe next action; incomplete, stale, mismatched, or
+non-fresh evidence stops before re-review. A missing verification after an
+applied fix stops as `verification_required`.
+
+When `verify-project` is unavailable, the existing plan-bound static or command
+validation remains usable. Successful fallback validation may proceed to fresh
+review, but the final result records `bounded_validation_fallback` and
+`verify_project_unavailable`. This is useful validation, not a claim that the
+canonical verification workflow ran.
 
 ## Reviewer compatibility
 
@@ -131,7 +163,8 @@ review target.
 
 ## Structured contracts
 
-The installed skill contains four dependency-free interfaces:
+The installed skill contains four dependency-free contracts plus an optional
+producer adapter:
 
 - `references/review-finding-batch.schema.json` records exact target and source
   provenance, field-level inference provenance, findings, and limitations.
@@ -144,6 +177,10 @@ The installed skill contains four dependency-free interfaces:
   validated target-bound project-review JSON, assesses fresh review rounds, and
   finalizes or validates the complete workflow result against a separate
   lead-owned run context.
+- `review_workflow.py adapt-verification` freezes and invokes a lead-selected
+  installed `verify-project` validator set, then reduces its validated context,
+  plan, and result files to a compact target-bound gate without importing that
+  skill as a Python library.
 
 The batch finalizer accepts target/source only from a separate lead-owned
 envelope and rejects drafts that try to supply those fields or normalization
@@ -169,17 +206,20 @@ installed `references/round-assessment.md` gives the exact JSON input and output
 shape.
 
 `finalize-run` and `validate-run` accept the run context separately from the
-agent-produced draft or result. The helper derives the exact target, context
+agent-produced draft or result. A verify-project run also supplies
+`--verification-context`, `--verification-plan`, `--verification-result`, and
+`--verify-project-dir` together. The helper derives the exact target, context
 digest, reviewer identities, changes-to-applied-plan relationship, validation
-coverage, status, and stop reason. Validation records bind to exact applied
+coverage, verification state, status, and stop reason. Fallback validation
+records bind to exact applied
 plans through batch and finding fingerprints. Code and configuration plans need
 a successful command check whose exact command and caller or user-global source
 were recorded in the separate lead-owned run context before execution; the
 agent-produced draft cannot claim that authority. Static checks can satisfy only
 plans that declared static inspection sufficient. Partial
 reviewer evidence takes precedence over pending decisions. Only an applied
-`auto` plan may explain a change, and acceptance requires a later fresh review
-round. Inputs and emitted JSON are bounded to 16
+`auto` plan may explain a change, and acceptance requires a
+verification-eligible later fresh review round. Inputs and emitted JSON are bounded to 16
 MiB and 100 container levels; duplicate members, unsafe paths, malformed
 digests, and forged derived fields fail closed.
 
@@ -201,15 +241,23 @@ are rejected before authority fields are interpreted.
 Runtime results, raw reviewer output, and plans are user data and must not be
 committed by default.
 
+`finalize-run` and direct `adapt-verification` revalidate the current producer
+target before an eligible pass. `validate-run` instead provides deterministic
+historical validation: it reruns the producer's structural validators and all
+consumer bindings without requiring the original ephemeral checkout to remain
+available. Historical validation confirms what the retained run recorded; it
+does not authorize a new fresh-review transition.
+
 Repository tests exercise conversion, lead-owned provenance and selection,
 target-bound proposals, route derivation, symlink/hard-link output safety,
 reviewer drift, no-progress detection, and the round limit. Behavioral
 evaluations cover unfamiliar reviewer output, malicious authority forgery,
 out-of-target plans, routine fixes, consequential decisions, opt-in findings,
-conflicts, and implementation drift.
+conflicts, implementation drift, fresh verification gates, and the accurately
+labeled no-verify-project fallback.
 
-The executable `evals/review-and-fix/suite.json` adds seven local end-to-end
-cases. One performs an exact routine heading correction and must pass a fresh
+The executable `evals/review-and-fix/suite.json` includes local end-to-end
+cases. The fallback heading case performs an exact routine correction and must pass a fresh
 `project-review`; product and security changes stop for a decision, a reversible
 remote-draft synchronization stops for separate authorization, and a
 generated-file remedy outside the selected target stops incomplete. A selected

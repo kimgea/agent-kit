@@ -161,6 +161,28 @@ its installed conservative reviewer profile and independent generic
 normalization. A deterministic adapter, publisher, evidence store, and dedicated
 harness-remediation workflow remain separate future components.
 
+`verify-project` consumes local harness knowledge but owns a different role: it
+binds an exact current target, selects the smallest evidence-sufficient check
+plan, matches every command and effect to caller or user-level authority, and
+returns verification evidence. Optional root-to-nearest `VERIFY.md` guidance is
+resolved per target from committed `HEAD` in Git repositories. The installed
+skill keeps its resolver, plan finalizer, snapshot helper, result finalizer,
+schemas, and authoring references together; it does not import another skill or
+repository-only runtime.
+
+The active agent executes canonical argv through ordinary visible tool calls.
+No installed helper is a generic runner. Lead-owned snapshots bind target,
+complete protected repository inventory, exact new disposable outputs, and one
+empty run-owned temporary root around every attempt. The result derives
+completion, outcome, next action, claim coverage, limitations, and observations
+independently. A green command with irrelevant or incomplete coverage is
+`unknown`, not `pass`. `review-and-fix` owns the separate deterministic consumer
+adapter: it independently validates the producer context, plan, and result,
+requires exact target, inventory, digest, freshness, consumer, policy, and
+protected-state binding, and permits fresh review only after a complete,
+sufficient canonical pass. Verification evidence never supplies edit scope,
+command authority, remedy selection, or reviewer acceptance.
+
 ## Installation ownership
 
 The installer resolves the selected harness home at runtime and stores ownership

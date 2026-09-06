@@ -14,11 +14,14 @@ skill must still belong to exactly one plugin. The `artifacts` plugin groups
 `build-interactive-diagram` and `serve-artifacts` because creation and transient
 delivery are one workflow, while standalone archives preserve independent install.
 The `project-review` plugin similarly groups `project-review`,
-`review-and-fix`, `review-guidance-audit`, and `verification-harness-audit` so
+`review-and-fix`, `review-guidance-audit`, `verification-harness-audit`, and
+`verify-project` so
 change review, local remediation, maintenance of the review-guidance layer, and
-assessment of the local verification harness can be installed together.
-Standalone archives still allow any review skill to be installed alone, and
-`review-and-fix` can use another explicitly selected analysis-only reviewer.
+assessment and execution of local verification can be installed together.
+Standalone archives still allow any review or verification skill to be installed alone, and
+`review-and-fix` can use another explicitly selected analysis-only reviewer. Its
+optional verifier adapter consumes `verify-project` only through validated JSON
+files, so neither standalone skill imports the other's runtime.
 
 ## Build and inspect
 
