@@ -83,6 +83,10 @@ Unstaged rename matching hashes bounded current bytes locally, with a CRLF-to-LF
 candidate for portable text checkouts. It never invokes repository-configured
 clean filters; an ambiguous or oversized candidate remains separate deletion
 and untracked records.
+All resolver Git metadata calls disable configured filesystem monitors. Diff
+discovery also disables external diff, text-conversion, clean, and process
+filters, so repository settings cannot turn target resolution into command
+execution.
 
 The plan records interpreted guidance requirements and explicit scoped
 replacements. A replacement must cite both source IDs, identify the broader

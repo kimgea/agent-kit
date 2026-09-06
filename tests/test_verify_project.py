@@ -282,6 +282,41 @@ class VerificationContextTests(unittest.TestCase):
             self.assertEqual("modified", records["modified.txt"]["change_kind"])
             self.assertFalse(marker.exists())
 
+    @unittest.skipUnless(os.name == "posix", "portable fsmonitor command probe")
+    def test_context_resolution_never_executes_repository_fsmonitor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "project"
+            root.mkdir()
+            initialize_git(root)
+            source = root / "app.py"
+            source.write_text("VALUE = 1\n", encoding="utf-8")
+            commit_all(root)
+            marker = base / "fsmonitor-ran"
+            monitor_script = base / "fsmonitor.py"
+            monitor_script.write_text(
+                "import pathlib\n"
+                f"pathlib.Path({str(marker)!r}).write_text('ran', encoding='utf-8')\n",
+                encoding="utf-8",
+            )
+            monitor_command = " ".join(
+                (shlex.quote(sys.executable), shlex.quote(str(monitor_script)))
+            )
+            run_git(root, "config", "core.fsmonitor", monitor_command)
+
+            source.write_text("VALUE = 2\n", encoding="utf-8")
+            working_tree = verification_context.resolve(
+                context_args(root, scope="working-tree", max_discovery=0)
+            )
+            self.assertEqual(["app.py"], working_tree["target"]["requested_paths"])
+            self.assertFalse(marker.exists())
+
+            explicit = verification_context.resolve(
+                context_args(root, paths=["app.py"], max_discovery=0)
+            )
+            self.assertEqual(["app.py"], explicit["target"]["requested_paths"])
+            self.assertFalse(marker.exists())
+
     def test_rename_retains_distinct_source_and_destination_guidance(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -180,3 +180,6 @@ directory. Git is required for combined working-tree scope and improves
 discovery; explicit non-Git path verification remains supported.
 Working-tree rename matching hashes bounded file bytes locally and never invokes
 repository-configured clean filters before command authority is established.
+Resolver Git calls also disable configured filesystem monitors, external diffs,
+text conversion, and process filters; target discovery remains metadata work,
+not implicit permission to execute repository-selected commands.

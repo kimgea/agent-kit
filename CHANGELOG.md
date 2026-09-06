@@ -49,8 +49,9 @@ in `toolkit.toml`.
   semantic-draft control; stop before fresh review on any non-passing or stale
   verification evidence.
 - Disable Python environment and site startup while invoking frozen producer
-  validators, avoid repository clean filters during rename discovery, and keep
-  retained evidence structurally regradable without its ephemeral checkout.
+  validators, disable executable Git monitors and filters during target
+  discovery, and keep retained evidence structurally regradable without its
+  ephemeral checkout.
 
 ## 1.10.0 - 2026-09-02
 

@@ -133,7 +133,7 @@ def _git(
 ) -> bytes:
     environment = dict(os.environ)
     environment["GIT_LITERAL_PATHSPECS"] = "1"
-    command = ["git", "-C", str(root)]
+    command = ["git", "-C", str(root), "-c", "core.fsmonitor=false"]
     for key, value in config_overrides:
         command.extend(("-c", f"{key}={value}"))
     command.extend(arguments)
@@ -398,7 +398,16 @@ def _git_ignored(root: Path, paths: list[str]) -> set[str]:
         environment.pop("GIT_LITERAL_PATHSPECS", None)
         try:
             completed = subprocess.run(
-                ["git", "-C", str(root), "check-ignore", "-z", "--stdin"],
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "-c",
+                    "core.fsmonitor=false",
+                    "check-ignore",
+                    "-z",
+                    "--stdin",
+                ],
                 input=payload,
                 check=False,
                 stdout=subprocess.PIPE,
