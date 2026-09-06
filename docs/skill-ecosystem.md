@@ -389,6 +389,7 @@ metadata or workflow observations are not implemented.
 |---|---|---|---|---|---|---|
 | `agent-context` | Context provider | Provenance resolver | Human or JSON context; reads explicitly registered private sources | No | `agent-context` | Aligned composable |
 | `build-interactive-diagram` | Presenter | Artifact producer | Writes a selected self-contained web directory; can hand the directory to the host | No | `artifacts` | Aligned composable |
+| `change-impact` | Analyzer | Impact and scope-evidence producer | Canonical impact records; reads exact targets, bounded related context, and optional guidance; no commands or target edits | Yes, as evidence | `project-review` | Aligned composable |
 | `grill-me` | Decision support | Plan and artifact pressure-testing | Prose questioning and synthesis; no runtime data or mutation | No | `grill-me` | Aligned standalone |
 | `project-review` | Reviewer | Finding producer | Canonical findings; may run separately authorized local diagnostics and write an explicitly selected result file; no target edits | Yes | `project-review` | Aligned composable |
 | `review-and-fix` | Orchestrator | Planner and remediator | Consumes reviews, normalizes, plans, edits bounded local files, gates fresh review on validated `verify-project` evidence or an explicit weaker fallback, and can write an explicitly selected result file | Through selected reviewers | `project-review` | Aligned composable |

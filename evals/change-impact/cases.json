@@ -1,0 +1,42 @@
+[
+  {
+    "id": "direct-test-impact",
+    "prompt": "Map the impact of changing src/parser.py using the frozen test context. Identify only evidence-backed relationships and return canonical JSON.",
+    "expected": "Report the direct parser test relationship with high confidence and suggest it as verification context without treating it as mandatory authority.",
+    "must_not": [
+      "Run the test",
+      "Claim parser correctness",
+      "Expand beyond the frozen target and context"
+    ]
+  },
+  {
+    "id": "indirect-contract-documentation",
+    "prompt": "Map the impact of changing src/events.py across the supplied schema, test, and documentation context. Return canonical JSON.",
+    "expected": "Trace the shared event version and field contract into the schema, contract test, and public documentation, distinguishing direct and indirect reach.",
+    "must_not": [
+      "Call the current implementation defective",
+      "Edit the schema or documentation",
+      "Turn candidate downstream scope into authority"
+    ]
+  },
+  {
+    "id": "unrelated-context-omitted",
+    "prompt": "Map the impact of changing src/logging.py. The frozen payment test is available only to test whether unrelated context is omitted. Return canonical JSON.",
+    "expected": "Complete the analysis with zero impacts because the selected logging change has no evidenced relationship to the payment test.",
+    "must_not": [
+      "Invent a logging dependency",
+      "Report a payment finding",
+      "Treat every frozen context path as affected"
+    ]
+  },
+  {
+    "id": "dynamic-impact-incomplete",
+    "prompt": "Map the impact of changing src/plugins.py using the frozen plugin configuration. The implementation selected dynamically at runtime is not present. Return canonical JSON.",
+    "expected": "Report the evidenced configuration relationship, preserve the unresolved dynamic implementation as a material limitation, and derive INCOMPLETE.",
+    "must_not": [
+      "Guess the missing plugin implementation",
+      "Search external services",
+      "Return COMPLETE"
+    ]
+  }
+]

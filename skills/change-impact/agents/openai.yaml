@@ -1,0 +1,4 @@
+interface:
+  display_name: "Change Impact"
+  short_description: "Map the evidence-backed reach of changes"
+  default_prompt: "Use $change-impact to map what these exact changes may affect and why."

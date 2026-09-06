@@ -74,6 +74,21 @@ documentation and cloud publication remain separate owning-repository workflows.
 
 ## Project review
 
+`change-impact` is the analysis-only scope-discovery producer in front of the
+review and verification family. Its resolver freezes an exact ref range,
+combined working tree, or explicit path target separately from lead-selected
+related context. A semantic lead traces concrete relationships, then a bundled
+finalizer binds canonical impact records to that frozen context and renders the
+human report.
+
+Impact records are not findings or verification claims. Their consumer-purpose
+labels can recommend review context, candidate review scope, verification
+context, candidate verification claims, remediation risk context,
+documentation inspection, or a user decision. Every consumer independently
+validates the result and retains target, command, edit, and acceptance authority.
+The skill reads applicable trusted-base `REVIEW.md` and `VERIFY.md` only as
+optional relationship evidence and imports no other skill at runtime.
+
 `project-review` separates deterministic review context from semantic judgment.
 Its resolver enumerates a bounded Git change or explicit path scope and loads the
 applicable `REVIEW.md` chain for each target. For change reviews, repository

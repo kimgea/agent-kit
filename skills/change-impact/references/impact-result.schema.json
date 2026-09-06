@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kimgea/agent-kit/change-impact/impact-result.schema.json",
+  "title": "Change Impact Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "skill_version", "context_sha256", "status", "target", "context", "guidance", "coverage", "summary", "impacts", "limitations"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "skill_version": {"const": "1.0.0"},
+    "context_sha256": {"$ref": "#/$defs/sha"},
+    "status": {"enum": ["COMPLETE", "INCOMPLETE"]},
+    "target": {"$ref": "#/$defs/target"},
+    "context": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/provenance"}},
+    "guidance": {"type": "array", "maxItems": 10000, "items": {"$ref": "#/$defs/guidance"}},
+    "coverage": {"$ref": "#/$defs/coverage"},
+    "summary": {"$ref": "#/$defs/summary"},
+    "impacts": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/$defs/impact"}},
+    "limitations": {"type": "array", "maxItems": 512, "items": {"$ref": "#/$defs/result_limitation"}}
+  },
+  "$defs": {
+    "path": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)(?!.*[\\u0000-\\u001f\\u007f]).+(?<!/)$"},
+    "selector": {"anyOf": [{"$ref": "#/$defs/path"}, {"const": "."}]},
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "revision": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40,64}$"},
+    "change": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "source_path", "status"],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "source_path": {"anyOf": [{"$ref": "#/$defs/path"}, {"type": "null"}]},
+        "status": {"enum": ["added", "deleted", "modified", "renamed", "copied", "type_changed", "unmerged", "untracked", "snapshot", "unknown"]}
+      }
+    },
+    "target_provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "role", "revision", "state", "size", "sha256", "line_count"],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "role": {"enum": ["target_before", "target_after"]},
+        "revision": {"$ref": "#/$defs/revision"},
+        "state": {"enum": ["text", "binary", "oversized", "unreadable", "absent"]},
+        "size": {"type": ["integer", "null"], "minimum": 0, "maximum": 4194304},
+        "sha256": {"anyOf": [{"$ref": "#/$defs/sha"}, {"type": "null"}]},
+        "line_count": {"type": ["integer", "null"], "minimum": 0, "maximum": 5000000}
+      }
+    },
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "repository_root", "base_revision", "head_revision", "working_tree_mode", "requested_paths", "paths", "changes", "files"],
+      "properties": {
+        "kind": {"enum": ["ref_range", "working_tree", "paths"]},
+        "repository_root": {"type": "string", "minLength": 1, "maxLength": 8192},
+        "base_revision": {"$ref": "#/$defs/revision"},
+        "head_revision": {"$ref": "#/$defs/revision"},
+        "working_tree_mode": {"enum": ["combined", null]},
+        "requested_paths": {"type": "array", "maxItems": 5000, "uniqueItems": true, "items": {"$ref": "#/$defs/selector"}},
+        "paths": {"type": "array", "maxItems": 5000, "uniqueItems": true, "items": {"$ref": "#/$defs/path"}},
+        "changes": {"type": "array", "maxItems": 5000, "items": {"$ref": "#/$defs/change"}},
+        "files": {"type": "array", "maxItems": 10000, "items": {"$ref": "#/$defs/target_provenance"}}
+      }
+    },
+    "location": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "start_line", "end_line"],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "start_line": {"type": ["integer", "null"], "minimum": 1, "maximum": 5000000},
+        "end_line": {"type": ["integer", "null"], "minimum": 1, "maximum": 5000000}
+      }
+    },
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "state", "size", "sha256", "line_count"],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "state": {"enum": ["text", "binary", "oversized", "unreadable", "absent"]},
+        "size": {"type": ["integer", "null"], "minimum": 0, "maximum": 4194304},
+        "sha256": {"anyOf": [{"$ref": "#/$defs/sha"}, {"type": "null"}]},
+        "line_count": {"type": ["integer", "null"], "minimum": 0, "maximum": 5000000}
+      }
+    },
+    "guidance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "path", "revision", "applies_to", "size", "sha256"],
+      "properties": {
+        "kind": {"enum": ["review", "verification"]},
+        "path": {"$ref": "#/$defs/path"},
+        "revision": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40,64}$"},
+        "applies_to": {"type": "array", "minItems": 1, "maxItems": 5000, "uniqueItems": true, "items": {"$ref": "#/$defs/path"}},
+        "size": {"type": "integer", "minimum": 0, "maximum": 1048576},
+        "sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "coverage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["inspected_target_paths", "uninspected_target_paths", "inspected_context_paths"],
+      "properties": {
+        "inspected_target_paths": {"type": "array", "maxItems": 5000, "uniqueItems": true, "items": {"$ref": "#/$defs/path"}},
+        "uninspected_target_paths": {"type": "array", "maxItems": 5000, "uniqueItems": true, "items": {"$ref": "#/$defs/path"}},
+        "inspected_context_paths": {"type": "array", "maxItems": 1000, "uniqueItems": true, "items": {"$ref": "#/$defs/path"}}
+      }
+    },
+    "summary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["conclusion", "target_paths", "context_paths", "impacts", "by_relationship", "by_consumer_purpose"],
+      "properties": {
+        "conclusion": {"type": "string", "minLength": 1, "maxLength": 8192},
+        "target_paths": {"type": "integer", "minimum": 0, "maximum": 5000},
+        "context_paths": {"type": "integer", "minimum": 0, "maximum": 1000},
+        "impacts": {"type": "integer", "minimum": 0, "maximum": 2000},
+        "by_relationship": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0, "maximum": 2000}},
+        "by_consumer_purpose": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0, "maximum": 2000}}
+      }
+    },
+    "evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "description", "location"],
+      "properties": {
+        "kind": {"enum": ["source", "contract", "guidance", "test", "configuration", "history", "reasoning"]},
+        "description": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "location": {"$ref": "#/$defs/location"}
+      }
+    },
+    "impact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["impact_id", "fingerprint", "source_target_paths", "affected_locations", "relationship", "reach", "confidence", "title", "consequence", "reason", "evidence", "safe_direction", "consumer_purposes"],
+      "properties": {
+        "impact_id": {"type": "string", "pattern": "^I[0-9]{3,}$"},
+        "fingerprint": {"$ref": "#/$defs/sha"},
+        "source_target_paths": {"type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/path"}},
+        "affected_locations": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"$ref": "#/$defs/location"}},
+        "relationship": {"enum": ["runtime_dependency", "public_api", "data_or_wire_contract", "configuration", "generated_artifact", "test_or_fixture", "verification_requirement", "review_policy", "documentation", "platform_or_packaging", "security_or_privacy", "operational_behavior", "other"]},
+        "reach": {"enum": ["direct", "indirect", "possible"]},
+        "confidence": {"enum": ["high", "medium", "low"]},
+        "title": {"type": "string", "minLength": 1, "maxLength": 512},
+        "consequence": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "evidence": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/evidence"}},
+        "safe_direction": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "consumer_purposes": {"type": "array", "minItems": 1, "maxItems": 7, "uniqueItems": true, "items": {"enum": ["review_context", "review_target_candidate", "verification_context", "verification_claim_candidate", "remediation_risk_context", "documentation_candidate", "user_decision"]}}
+      }
+    },
+    "result_limitation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["code", "message", "paths", "material", "source"],
+      "properties": {
+        "code": {"enum": ["empty_target", "scope_limit", "traversal_limit", "unsafe_path", "file_unreadable", "file_non_text", "file_oversized", "guidance_unavailable", "context_unavailable", "target_drift", "target_unreadable", "context_missing", "context_unreadable", "evidence_ambiguous", "dynamic_resolution", "analysis_limit", "other"]},
+        "message": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "paths": {"type": "array", "maxItems": 5000, "uniqueItems": true, "items": {"$ref": "#/$defs/path"}},
+        "material": {"type": "boolean"},
+        "source": {"enum": ["resolver", "analysis"]}
+      }
+    }
+  }
+}

@@ -6,6 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import time
@@ -1276,6 +1277,116 @@ class GuidanceAuditReviewAndFixContractTests(unittest.TestCase):
                     for item in mismatched["limitations"]
                 )
             )
+
+
+class ChangeImpactContractTests(unittest.TestCase):
+    def setUp(self):
+        self.suite = behavioral_eval.load_suite(ROOT, "change-impact")
+        self.case = behavioral_eval._case_by_id(
+            self.suite, "direct-test-impact"
+        )
+        self.source = ROOT / "evals" / "change-impact" / self.case["fixture"]
+
+    def test_context_result_validation_and_authority_binding(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "fixture"
+            behavioral_eval.materialize_fixture(self.source, fixture)
+            context_path = base / "context.json"
+            context = behavioral_eval.resolve_context(
+                self.suite, self.case, fixture, context_path, ROOT
+            )
+            draft = {
+                "conclusion": "The focused parser test imports the selected module.",
+                "inspected_target_paths": ["src/parser.py"],
+                "inspected_context_paths": ["tests/test_parser.py"],
+                "impacts": [
+                    {
+                        "source_target_paths": ["src/parser.py"],
+                        "affected_locations": [
+                            {"path": "tests/test_parser.py", "start_line": None, "end_line": None}
+                        ],
+                        "relationship": "test_or_fixture",
+                        "reach": "direct",
+                        "confidence": "high",
+                        "title": "Focused parser test imports the selected module",
+                        "consequence": "A parser behavior change can affect the focused assertion.",
+                        "reason": "The test directly imports and calls normalize.",
+                        "evidence": [
+                            {
+                                "kind": "test",
+                                "description": "The frozen test imports normalize from src.parser.",
+                                "location": {"path": "tests/test_parser.py", "start_line": None, "end_line": None},
+                            }
+                        ],
+                        "safe_direction": "Consider the focused test as verification context.",
+                        "consumer_purposes": ["verification_context"],
+                    }
+                ],
+                "limitations": [],
+            }
+            draft_path = base / "draft.json"
+            draft_path.write_text(json.dumps(draft), encoding="utf-8")
+            result_path = base / "result.json"
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-E",
+                    "-S",
+                    str(ROOT / "skills" / "change-impact" / "scripts" / "impact_result.py"),
+                    "finalize",
+                    "--context",
+                    str(context_path),
+                    "--input",
+                    str(draft_path),
+                    "--format",
+                    "json",
+                    "--output",
+                    str(result_path),
+                ],
+                cwd=ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr.decode())
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+
+            valid, message = behavioral_eval.validate_result_contract(
+                self.suite, result_path, context_path, ROOT
+            )
+            self.assertTrue(valid, message)
+            bound, message = behavioral_eval._bind_result(
+                self.suite, context, result
+            )
+            self.assertTrue(bound, message)
+
+            forged = json.loads(json.dumps(result))
+            forged["target"]["requested_paths"] = ["src/other.py"]
+            bound, message = behavioral_eval._bind_result(
+                self.suite, context, forged
+            )
+            self.assertFalse(bound)
+            self.assertIn("target", message)
+
+            forged = json.loads(json.dumps(result))
+            forged["context_sha256"] = "0" * 64
+            bound, message = behavioral_eval._bind_result(
+                self.suite, context, forged
+            )
+            self.assertFalse(bound)
+            self.assertIn("digest", message)
+
+    def test_suite_covers_direct_indirect_unrelated_and_incomplete_cases(self):
+        self.assertEqual(
+            {
+                "direct-test-impact",
+                "indirect-contract-documentation",
+                "unrelated-context-omitted",
+                "dynamic-impact-incomplete",
+            },
+            {case["id"] for case in self.suite["cases"]},
+        )
 
 
 class ProjectReviewContractTests(unittest.TestCase):

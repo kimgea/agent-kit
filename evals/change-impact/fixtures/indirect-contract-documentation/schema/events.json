@@ -1,0 +1,7 @@
+{
+  "required": ["version", "name"],
+  "properties": {
+    "version": {"const": 2},
+    "name": {"type": "string"}
+  }
+}
