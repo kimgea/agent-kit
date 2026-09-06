@@ -267,9 +267,16 @@ def _guidance_provenance(context: dict[str, Any]) -> list[dict[str, Any]]:
             "applies_to": copy.deepcopy(item["applies_to"]),
             "size": item["size"],
             "sha256": item["sha256"],
+            "line_count": _line_count(item["content"]),
         }
         for item in context["guidance"]
     ]
+
+
+def _line_count(content: str) -> int:
+    if not content:
+        return 0
+    return content.count("\n") + (0 if content.endswith("\n") else 1)
 
 
 def _text_paths(context: dict[str, Any], role: str) -> set[str]:
@@ -745,7 +752,7 @@ def validate_result(value: Any, *, context: dict[str, Any] | None = None) -> dic
     guidance_paths: set[str] = set()
     guidance_keys: list[tuple[str, str]] = []
     for index, value_item in enumerate(_array(result["guidance"], "guidance", 10000)):
-        item = _object(value_item, f"guidance[{index}]", {"kind", "path", "revision", "applies_to", "size", "sha256"})
+        item = _object(value_item, f"guidance[{index}]", {"kind", "path", "revision", "applies_to", "size", "sha256", "line_count"})
         _enum(item["kind"], f"guidance[{index}].kind", {"review", "verification"})
         path = _path(item["path"], f"guidance[{index}].path")
         guidance_paths.add(path)
@@ -760,6 +767,7 @@ def validate_result(value: Any, *, context: dict[str, Any] | None = None) -> dic
         _integer(item["size"], f"guidance[{index}].size", 0, 1024 * 1024)
         if not isinstance(item["sha256"], str) or not HEX64.fullmatch(item["sha256"]):
             raise ResultError(f"guidance[{index}].sha256 is invalid")
+        _integer(item["line_count"], f"guidance[{index}].line_count", 0, 5_000_000)
     if guidance_keys != sorted(set(guidance_keys)):
         raise ResultError("guidance must be canonically ordered and unique")
 
@@ -774,11 +782,12 @@ def validate_result(value: Any, *, context: dict[str, Any] | None = None) -> dic
 
     allowed_affected = target_paths | context_paths
     allowed_evidence = allowed_affected | guidance_paths
-    line_caps = {
-        item["path"]: item["line_count"]
-        for item in [*target["files"], *context_items]
-        if item["line_count"] is not None
-    }
+    line_caps: dict[str, int] = {}
+    for item in [*target["files"], *context_items, *result["guidance"]]:
+        if item["line_count"] is not None:
+            line_caps[item["path"]] = max(
+                line_caps.get(item["path"], 0), item["line_count"]
+            )
     if context is not None:
         line_caps.update(_line_cap(context))
     impacts = _array(result["impacts"], "impacts", 2000)
@@ -858,15 +867,16 @@ def validate_result(value: Any, *, context: dict[str, Any] | None = None) -> dic
 
 
 def _display(value: str) -> str:
-    return value.replace("<", "&lt;").replace(">", "&gt;")
+    return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _format_location(value: dict[str, Any]) -> str:
+    path = _display(value["path"])
     if value["start_line"] is None:
-        return value["path"]
+        return path
     if value["start_line"] == value["end_line"]:
-        return f"{value['path']}:{value['start_line']}"
-    return f"{value['path']}:{value['start_line']}-{value['end_line']}"
+        return f"{path}:{value['start_line']}"
+    return f"{path}:{value['start_line']}-{value['end_line']}"
 
 
 def render_human(result: dict[str, Any]) -> str:
@@ -882,7 +892,7 @@ def render_human(result: dict[str, Any]) -> str:
         lines.append("Impacts:")
         for impact in result["impacts"]:
             affected = ", ".join(_format_location(item) for item in impact["affected_locations"])
-            source = ", ".join(impact["source_target_paths"])
+            source = ", ".join(_display(path) for path in impact["source_target_paths"])
             purposes = ", ".join(impact["consumer_purposes"])
             lines.extend(
                 [
@@ -906,14 +916,21 @@ def render_human(result: dict[str, Any]) -> str:
             [
                 "",
                 "Uninspected targets: "
-                + ", ".join(result["coverage"]["uninspected_target_paths"]),
+                + ", ".join(
+                    _display(path)
+                    for path in result["coverage"]["uninspected_target_paths"]
+                ),
             ]
         )
     if result["limitations"]:
         lines.append("")
         lines.append("Limitations:")
         for item in result["limitations"]:
-            paths = f" ({', '.join(item['paths'])})" if item["paths"] else ""
+            paths = (
+                f" ({', '.join(_display(path) for path in item['paths'])})"
+                if item["paths"]
+                else ""
+            )
             material = "material" if item["material"] else "non-material"
             lines.append(
                 f"- [{material}; {item['source']}; {item['code']}] {_display(item['message'])}{paths}"

@@ -114,8 +114,8 @@ available unless that deployment is first removed and installed through
 Every installable skill is released both as a standalone skill archive and as
 part of a Codex plugin. Most plugins contain one skill. The coherent `artifacts`
 plugin groups the diagram producer with the artifact host, while the
-`project-review` plugin groups project review, review-and-fix, review-guidance
-audit, verification-harness audit, and verify-project. The release
+`project-review` plugin groups change-impact, project review, review-and-fix,
+review-guidance audit, verification-harness audit, and verify-project. The release
 includes an `agent-kit-marketplace-<version>.zip` catalog whose entries point to
 the bundled local plugin directories. Select a focused plugin when its grouped
 workflow is useful, or use a standalone archive to install one skill by itself.

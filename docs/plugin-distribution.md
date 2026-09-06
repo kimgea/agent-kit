@@ -13,7 +13,7 @@ also supports an explicitly reviewed group of related skills; every installable
 skill must still belong to exactly one plugin. The `artifacts` plugin groups
 `build-interactive-diagram` and `serve-artifacts` because creation and transient
 delivery are one workflow, while standalone archives preserve independent install.
-The `project-review` plugin similarly groups `project-review`,
+The `project-review` plugin similarly groups `change-impact`, `project-review`,
 `review-and-fix`, `review-guidance-audit`, `verification-harness-audit`, and
 `verify-project` so
 change review, local remediation, maintenance of the review-guidance layer, and

@@ -1805,6 +1805,14 @@ def _change_impact_guidance(context: dict[str, Any]) -> list[dict[str, Any]]:
             key: item[key]
             for key in ("kind", "path", "revision", "applies_to", "size", "sha256")
         }
+        | {
+            "line_count": (
+                0
+                if not item["content"]
+                else item["content"].count("\n")
+                + (0 if item["content"].endswith("\n") else 1)
+            )
+        }
         for item in context["guidance"]
     ]
 

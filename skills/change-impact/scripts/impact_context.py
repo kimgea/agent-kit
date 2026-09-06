@@ -98,12 +98,14 @@ def _git(
     *,
     check: bool = True,
     maximum_stdout: int = MAX_GIT_STDOUT_BYTES,
+    input_bytes: bytes | None = None,
+    config_overrides: tuple[tuple[str, str], ...] = (),
 ) -> subprocess.CompletedProcess[bytes]:
     environment = os.environ.copy()
     environment.update(
         {
             "GIT_OPTIONAL_LOCKS": "0",
-            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_LITERAL_PATHSPECS": "1",
             "GIT_TERMINAL_PROMPT": "0",
             "LC_ALL": "C",
         }
@@ -116,8 +118,10 @@ def _git(
         "core.hooksPath=",
         "-c",
         "diff.external=",
-        *arguments,
     ]
+    for key, value in config_overrides:
+        command.extend(("-c", f"{key}={value}"))
+    command.extend(arguments)
     streams: dict[str, list[bytes]] = {"stdout": [], "stderr": []}
     exceeded: dict[str, threading.Event] = {
         "stdout": threading.Event(),
@@ -142,13 +146,25 @@ def _git(
             command,
             cwd=root,
             env=environment,
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
     except OSError as exc:
         raise ContextError(f"cannot run Git metadata command safely: {exc}") from exc
     assert process.stdout is not None and process.stderr is not None
+    input_errors: list[OSError] = []
+
+    def feed_input() -> None:
+        assert process.stdin is not None and input_bytes is not None
+        try:
+            process.stdin.write(input_bytes)
+            process.stdin.close()
+        except BrokenPipeError:
+            pass
+        except OSError as exc:
+            input_errors.append(exc)
+
     threads = [
         threading.Thread(
             target=drain,
@@ -163,6 +179,10 @@ def _git(
     ]
     for worker in threads:
         worker.start()
+    input_worker = None
+    if input_bytes is not None:
+        input_worker = threading.Thread(target=feed_input, daemon=True)
+        input_worker.start()
     deadline = time.monotonic() + GIT_TIMEOUT_SECONDS
     timed_out = False
     while process.poll() is None:
@@ -177,10 +197,18 @@ def _git(
     process.wait()
     for worker in threads:
         worker.join(timeout=1)
+    if input_worker is not None:
+        input_worker.join(timeout=1)
+    if process.stdin is not None and not process.stdin.closed:
+        process.stdin.close()
     process.stdout.close()
     process.stderr.close()
-    if any(worker.is_alive() for worker in threads):
+    if any(worker.is_alive() for worker in threads) or (
+        input_worker is not None and input_worker.is_alive()
+    ):
         raise ContextError("cannot drain Git metadata output safely")
+    if input_errors:
+        raise ContextError(f"cannot provide Git metadata input safely: {input_errors[0]}")
     if timed_out:
         raise ContextError("Git metadata command timed out")
     if exceeded["stdout"].is_set():
@@ -326,6 +354,7 @@ def _ref_changes(root: Path, base: str, head: str) -> list[dict[str, Any]]:
 
 
 def _working_changes(root: Path, base: str) -> list[dict[str, Any]]:
+    filter_overrides = _git_filter_overrides(root, _git_visible_paths(root))
     tracked = _git(
         root,
         [
@@ -338,6 +367,7 @@ def _working_changes(root: Path, base: str) -> list[dict[str, Any]]:
             base,
             "--",
         ],
+        config_overrides=filter_overrides,
     )
     untracked = _git(
         root,
@@ -349,6 +379,61 @@ def _working_changes(root: Path, base: str) -> list[dict[str, Any]]:
         if value
     ]
     return _merge_changes([*_parse_name_status(tracked.stdout), *additions])
+
+
+def _git_visible_paths(root: Path) -> list[str]:
+    completed = _git(root, ["ls-files", "-co", "--exclude-standard", "-z", "--"])
+    return sorted(
+        {
+            _decode_git_path(value)
+            for value in completed.stdout.split(b"\0")
+            if value
+        }
+    )
+
+
+def _git_filter_overrides(
+    root: Path, paths: list[str]
+) -> tuple[tuple[str, str], ...]:
+    """Disable repository-selected external filters without changing EOL rules."""
+    drivers: set[str] = set()
+    for offset in range(0, len(paths), 256):
+        chunk = paths[offset : offset + 256]
+        payload = b"\0".join(item.encode("utf-8") for item in chunk) + b"\0"
+        completed = _git(
+            root,
+            ["check-attr", "-z", "--stdin", "filter"],
+            input_bytes=payload,
+        )
+        fields = completed.stdout.split(b"\0")
+        if fields and fields[-1] == b"":
+            fields.pop()
+        if len(fields) % 3:
+            raise ContextError("Git returned malformed filter attributes")
+        for index in range(0, len(fields), 3):
+            returned_path, attribute, value = fields[index : index + 3]
+            if attribute != b"filter":
+                raise ContextError("Git returned an unexpected filter attribute")
+            try:
+                canonical_path(returned_path.decode("utf-8", "strict"))
+                driver = value.decode("utf-8", "strict")
+            except (UnicodeDecodeError, SafetyError) as exc:
+                raise ContextError("Git returned an unsafe filter attribute") from exc
+            if driver in {"unspecified", "unset", "set"}:
+                continue
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", driver):
+                raise ContextError("Git selected an unsafe filter driver name")
+            drivers.add(driver)
+    overrides: list[tuple[str, str]] = []
+    for driver in sorted(drivers):
+        overrides.extend(
+            (
+                (f"filter.{driver}.clean", ""),
+                (f"filter.{driver}.process", ""),
+                (f"filter.{driver}.required", "false"),
+            )
+        )
+    return tuple(overrides)
 
 
 def _target_paths(changes: list[dict[str, Any]]) -> list[str]:
@@ -497,18 +582,37 @@ def _read_record(
     revision: str | None,
     maximum: int,
     limitations: list[dict[str, Any]],
+    *,
+    aggregate_remaining: int | None = None,
 ) -> dict[str, Any]:
+    effective_maximum = (
+        maximum
+        if aggregate_remaining is None
+        else min(maximum, max(0, aggregate_remaining))
+    )
     if revision is not None:
-        data = _git_file(root, revision, path, maximum)
+        data = _git_file(root, revision, path, effective_maximum)
         if data is None:
             return _content_record(path, role, revision, None, maximum=maximum)
     else:
-        data, error = _current_file(root, path, maximum)
+        data, error = _current_file(root, path, effective_maximum)
         if error is not None:
             state = error if error in {"absent", "oversized", "unreadable"} else "unreadable"
-            code = "file_oversized" if state == "oversized" else "file_unreadable"
+            aggregate_limited = (
+                state == "oversized" and effective_maximum < maximum
+            )
+            code = (
+                "scope_limit"
+                if aggregate_limited
+                else "file_oversized" if state == "oversized" else "file_unreadable"
+            )
+            detail = (
+                "aggregate content budget prevents embedding this file"
+                if aggregate_limited
+                else error
+            )
             limitations.append(
-                _limitation(code, f"cannot inspect {path}: {error}", [path])
+                _limitation(code, f"cannot inspect {path}: {detail}", [path])
             )
             return _content_record(
                 path,
@@ -518,14 +622,25 @@ def _read_record(
                 maximum=maximum,
                 error_state=state,
             )
-    record = _content_record(path, role, revision, data, maximum=maximum)
+    record = _content_record(
+        path, role, revision, data, maximum=effective_maximum
+    )
     if record["state"] == "binary":
         limitations.append(
             _limitation("file_non_text", f"{path} is not inspectable UTF-8 text", [path])
         )
     elif record["state"] == "oversized":
+        aggregate_limited = effective_maximum < maximum
         limitations.append(
-            _limitation("file_oversized", f"{path} exceeds the per-file read limit", [path])
+            _limitation(
+                "scope_limit" if aggregate_limited else "file_oversized",
+                (
+                    f"aggregate content budget prevents embedding {path}"
+                    if aggregate_limited
+                    else f"{path} exceeds the per-file read limit"
+                ),
+                [path],
+            )
         )
     return record
 
@@ -540,7 +655,6 @@ def _git_ignored(root: Path, paths: list[str]) -> set[str]:
         environment.update(
             {
                 "GIT_OPTIONAL_LOCKS": "0",
-                "GIT_CONFIG_NOSYSTEM": "1",
                 "GIT_TERMINAL_PROMPT": "0",
                 "LC_ALL": "C",
             }
@@ -690,69 +804,82 @@ def _guidance(
     *,
     revision: str | None,
     maximum: int,
+    aggregate_remaining: int,
     limitations: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    found: dict[tuple[str, str], dict[str, Any]] = {}
+) -> tuple[list[dict[str, Any]], int]:
+    applicability: dict[tuple[str, str], set[str]] = {}
     for target_path in target_paths:
         for kind, name in (("review", "REVIEW.md"), ("verification", "VERIFY.md")):
             for path in _guidance_candidates(target_path, name):
                 if path == target_path:
                     continue
-                if revision is not None:
-                    data = _git_file(root, revision, path, maximum)
-                    read_state = None
-                else:
-                    data, read_state = _current_file(root, path, maximum)
-                if data is None:
-                    if read_state not in {None, "absent"}:
-                        limitations.append(
-                            _limitation(
-                                "guidance_unavailable",
-                                f"trusted {path} is unavailable: {read_state}",
-                                [target_path],
-                            )
-                        )
-                    continue
-                if len(data) > maximum:
-                    limitations.append(
-                        _limitation(
-                            "guidance_unavailable",
-                            f"trusted {path} exceeds the guidance limit",
-                            [target_path],
-                        )
-                    )
-                    continue
-                try:
-                    content, normalized = canonical_text(data, path)
-                except SafetyError:
-                    limitations.append(
-                        _limitation(
-                            "guidance_unavailable",
-                            f"trusted {path} is not UTF-8 text",
-                            [target_path],
-                        )
-                    )
-                    continue
-                key = (kind, path)
-                source = found.setdefault(
-                    key,
-                    {
-                        "kind": kind,
-                        "path": path,
-                        "revision": revision,
-                        "applies_to": [],
-                        "size": len(normalized),
-                        "sha256": hashlib.sha256(normalized).hexdigest(),
-                        "content": content,
-                    },
+                applicability.setdefault((kind, path), set()).add(target_path)
+
+    found: list[dict[str, Any]] = []
+    consumed = 0
+    for (kind, path), applies_to in sorted(applicability.items()):
+        remaining = max(0, aggregate_remaining - consumed)
+        effective_maximum = min(maximum, remaining)
+        if revision is not None:
+            data = _git_file(root, revision, path, effective_maximum)
+            read_state = None
+        else:
+            data, read_state = _current_file(root, path, effective_maximum)
+        if data is None:
+            if read_state not in {None, "absent"}:
+                aggregate_limited = (
+                    read_state == "oversized" and effective_maximum < maximum
                 )
-                source["applies_to"].append(target_path)
-    result = []
-    for key in sorted(found):
-        source = found[key]
-        source["applies_to"] = sorted(set(source["applies_to"]))
-        result.append(source)
-    return result
+                limitations.append(
+                    _limitation(
+                        "scope_limit" if aggregate_limited else "guidance_unavailable",
+                        (
+                            f"aggregate content budget prevents embedding trusted {path}"
+                            if aggregate_limited
+                            else f"trusted {path} is unavailable: {read_state}"
+                        ),
+                        sorted(applies_to),
+                    )
+                )
+            continue
+        if len(data) > effective_maximum:
+            aggregate_limited = effective_maximum < maximum
+            limitations.append(
+                _limitation(
+                    "scope_limit" if aggregate_limited else "guidance_unavailable",
+                    (
+                        f"aggregate content budget prevents embedding trusted {path}"
+                        if aggregate_limited
+                        else f"trusted {path} exceeds the guidance limit"
+                    ),
+                    sorted(applies_to),
+                )
+            )
+            continue
+        try:
+            content, normalized = canonical_text(data, path)
+        except SafetyError:
+            limitations.append(
+                _limitation(
+                    "guidance_unavailable",
+                    f"trusted {path} is not UTF-8 text",
+                    sorted(applies_to),
+                )
+            )
+            continue
+        consumed += len(normalized)
+        found.append(
+            {
+                "kind": kind,
+                "path": path,
+                "revision": revision,
+                "applies_to": sorted(applies_to),
+                "size": len(normalized),
+                "sha256": hashlib.sha256(normalized).hexdigest(),
+                "content": content,
+            }
+        )
+    return found, consumed
 
 
 def _validate_limits(args: argparse.Namespace) -> dict[str, int]:
@@ -859,30 +986,35 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
         raise ContextError(f"context paths overlap selected targets: {', '.join(overlap[:8])}")
 
     files: list[dict[str, Any]] = []
+    embedded_bytes = 0
     for change in changes:
         source = change["source_path"] or change["path"]
         if change["status"] not in {"added", "untracked", "snapshot"}:
-            files.append(
-                _read_record(
-                    root,
-                    source,
-                    "target_before",
-                    base,
-                    limits["max_file_bytes"],
-                    limitations,
-                )
+            record = _read_record(
+                root,
+                source,
+                "target_before",
+                base,
+                limits["max_file_bytes"],
+                limitations,
+                aggregate_remaining=limits["max_total_bytes"] - embedded_bytes,
             )
+            files.append(record)
+            if record["content"] is not None:
+                embedded_bytes += record["size"]
         if change["status"] != "deleted":
-            files.append(
-                _read_record(
-                    root,
-                    change["path"],
-                    "target_after",
-                    content_revision,
-                    limits["max_file_bytes"],
-                    limitations,
-                )
+            record = _read_record(
+                root,
+                change["path"],
+                "target_after",
+                content_revision,
+                limits["max_file_bytes"],
+                limitations,
+                aggregate_remaining=limits["max_total_bytes"] - embedded_bytes,
             )
+            files.append(record)
+            if record["content"] is not None:
+                embedded_bytes += record["size"]
     for path in context_paths:
         record = _read_record(
             root,
@@ -891,6 +1023,7 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
             content_revision,
             limits["max_file_bytes"],
             limitations,
+            aggregate_remaining=limits["max_total_bytes"] - embedded_bytes,
         )
         if record["state"] != "text":
             limitations.append(
@@ -901,25 +1034,20 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
                 )
             )
         files.append(record)
+        if record["content"] is not None:
+            embedded_bytes += record["size"]
 
-    guidance = _guidance(
+    guidance, guidance_bytes = _guidance(
         root,
         paths,
         revision=guidance_revision,
         maximum=limits["max_guidance_bytes"],
+        aggregate_remaining=limits["max_total_bytes"] - embedded_bytes,
         limitations=limitations,
     )
-    total_bytes = sum(
-        item["size"] or 0 for item in files if item["content"] is not None
-    ) + sum(item["size"] for item in guidance)
-    if total_bytes > limits["max_total_bytes"]:
-        limitations.append(
-            _limitation(
-                "scope_limit",
-                f"embedded content uses {total_bytes} bytes, above the {limits['max_total_bytes']} byte limit",
-                paths,
-            )
-        )
+    embedded_bytes += guidance_bytes
+    if embedded_bytes > limits["max_total_bytes"]:
+        raise ContextError("aggregate content budget accounting failed")
 
     request_paths = selectors if request_kind == "paths" else paths
     result = {
@@ -1209,11 +1337,8 @@ def validate_context(value: Any, *, revalidate_current: bool = False) -> dict[st
         embedded_total += source["size"]
     if guidance_keys != sorted(set(guidance_keys)):
         raise ContextError("guidance is not canonically ordered and unique")
-    if embedded_total > limits["max_total_bytes"] and not any(
-        isinstance(item, dict) and item.get("code") == "scope_limit"
-        for item in value["limitations"]
-    ):
-        raise ContextError("embedded content exceeds max_total_bytes without a limitation")
+    if embedded_total > limits["max_total_bytes"]:
+        raise ContextError("embedded content exceeds max_total_bytes")
 
     limitations = _shape_array(value["limitations"], "limitations", MAX_LIMITATIONS)
     for index, limitation_value in enumerate(limitations):

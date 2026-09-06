@@ -5,6 +5,7 @@ import json
 import os
 from argparse import Namespace
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -296,6 +297,68 @@ class ContextResolverTests(unittest.TestCase):
             self.assertFalse(context["target"]["paths"])
             self.assertTrue(any(item["code"] == "empty_target" for item in context["limitations"]))
 
+    def test_empty_working_tree_preserves_configured_eol_semantics(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            root = base / "project"
+            system_config = base / "system.gitconfig"
+            system_config.write_text(
+                "[core]\n\tautocrlf = true\n", encoding="utf-8"
+            )
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "GIT_CONFIG_SYSTEM": str(system_config),
+                    "GIT_CONFIG_GLOBAL": os.devnull,
+                },
+            ):
+                root.mkdir()
+                fixture(root)
+                init_git(root)
+                commit_all(root, "base")
+
+                context = impact_context.resolve(args(root, scope="working-tree"))
+
+                self.assertEqual([], context["target"]["paths"])
+                self.assertTrue(
+                    any(
+                        item["code"] == "empty_target"
+                        for item in context["limitations"]
+                    )
+                )
+
+    @unittest.skipUnless(os.name == "posix", "portable clean-filter command probe")
+    def test_working_tree_resolution_never_executes_repository_clean_filter(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            root = base / "project"
+            root.mkdir()
+            init_git(root)
+            marker = base / "filter-ran"
+            filter_script = base / "clean_filter.py"
+            filter_script.write_text(
+                "import pathlib, sys\n"
+                f"pathlib.Path({str(marker)!r}).write_text('ran', encoding='utf-8')\n"
+                "sys.stdout.buffer.write(sys.stdin.buffer.read())\n",
+                encoding="utf-8",
+            )
+            filter_command = " ".join(
+                (shlex.quote(sys.executable), shlex.quote(str(filter_script)))
+            )
+            run_git(root, "config", "filter.untrusted.clean", filter_command)
+            (root / ".gitattributes").write_text(
+                "*.txt filter=untrusted\n", encoding="utf-8"
+            )
+            (root / "value.txt").write_text("VALUE = 1\n", encoding="utf-8")
+            commit_all(root, "base")
+            marker.unlink(missing_ok=True)
+            (root / "value.txt").write_text("VALUE = 2\n", encoding="utf-8")
+
+            context = impact_context.resolve(args(root, scope="working-tree"))
+
+            self.assertEqual(["value.txt"], context["target"]["paths"])
+            self.assertFalse(marker.exists())
+
     def test_target_limit_fails_closed_without_sampling(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "project"
@@ -309,6 +372,26 @@ class ContextResolverTests(unittest.TestCase):
             self.assertEqual([], context["target"]["paths"])
             self.assertEqual([], context["target"]["changes"])
             self.assertEqual([], context["files"])
+            self.assertTrue(
+                any(item["code"] == "scope_limit" for item in context["limitations"])
+            )
+
+    def test_aggregate_content_budget_is_enforced_before_content_is_retained(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "project"
+            root.mkdir()
+            fixture(root)
+
+            context = impact_context.resolve(
+                args(root, paths=["."], max_total_bytes=1)
+            )
+
+            embedded = sum(
+                item["size"] or 0
+                for item in context["files"]
+                if item["content"] is not None
+            ) + sum(item["size"] for item in context["guidance"])
+            self.assertLessEqual(embedded, 1)
             self.assertTrue(
                 any(item["code"] == "scope_limit" for item in context["limitations"])
             )
@@ -522,6 +605,102 @@ class ResultTests(unittest.TestCase):
             rendered = impact_result.render_human(result)
             self.assertNotIn("<script>", rendered)
             self.assertIn("&lt;script&gt;", rendered)
+
+    def test_human_renderer_escapes_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "project"
+            root.mkdir()
+            fixture(root)
+            path = "src/<value&>.py"
+            (root / path).write_text("VALUE = 1\n", encoding="utf-8")
+            context = impact_context.resolve(
+                args(root, paths=[path], context=[])
+            )
+            draft = impact_draft(inspected_target_paths=[path], inspected_context_paths=[])
+            impact = draft["impacts"][0]
+            impact["source_target_paths"] = [path]
+            impact["affected_locations"] = [
+                {"path": path, "start_line": 1, "end_line": 1}
+            ]
+            impact["evidence"] = [
+                {
+                    "kind": "source",
+                    "description": "The selected file defines the value.",
+                    "location": {"path": path, "start_line": 1, "end_line": 1},
+                }
+            ]
+
+            rendered = impact_result.render_human(
+                impact_result.finalize_draft(context, draft)
+            )
+
+            self.assertNotIn(path, rendered)
+            self.assertIn("src/&lt;value&amp;&gt;.py", rendered)
+
+    def test_guidance_line_evidence_survives_standalone_validation_and_render(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "project"
+            root.mkdir()
+            context = self.make_context(root)
+            draft = impact_draft()
+            draft["impacts"][0]["evidence"] = [
+                {
+                    "kind": "guidance",
+                    "description": "The root review policy protects public behavior.",
+                    "location": {
+                        "path": "REVIEW.md",
+                        "start_line": 1,
+                        "end_line": 1,
+                    },
+                }
+            ]
+
+            result = impact_result.finalize_draft(context, draft)
+
+            impact_result.validate_result(result)
+            self.assertIn("REVIEW.md:1", impact_result.render_human(result))
+
+    def test_target_line_cap_uses_the_larger_before_or_after_version(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "project"
+            root.mkdir()
+            fixture(root)
+            init_git(root)
+            base = commit_all(root, "base")
+            (root / "src" / "value.py").write_text(
+                "def value():\n    current = 2\n    return current\n# end\n",
+                encoding="utf-8",
+            )
+            head = commit_all(root, "change")
+            context = impact_context.resolve(
+                args(
+                    root,
+                    scope="ref-range",
+                    base=base,
+                    head=head,
+                    context=[],
+                )
+            )
+            draft = impact_draft(inspected_context_paths=[])
+            draft["impacts"][0]["affected_locations"] = [
+                {"path": "src/value.py", "start_line": 4, "end_line": 4}
+            ]
+            draft["impacts"][0]["evidence"] = [
+                {
+                    "kind": "source",
+                    "description": "The after-version contains a fourth line.",
+                    "location": {
+                        "path": "src/value.py",
+                        "start_line": 4,
+                        "end_line": 4,
+                    },
+                }
+            ]
+
+            result = impact_result.finalize_draft(context, draft)
+
+            impact_result.validate_result(result)
+            self.assertIn("src/value.py:4", impact_result.render_human(result))
 
     def test_cli_finalize_emits_only_canonical_json(self):
         with tempfile.TemporaryDirectory() as temporary:

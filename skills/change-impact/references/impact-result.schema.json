@@ -82,14 +82,15 @@
     },
     "guidance": {
       "type": "object", "additionalProperties": false,
-      "required": ["kind", "path", "revision", "applies_to", "size", "sha256"],
+      "required": ["kind", "path", "revision", "applies_to", "size", "sha256", "line_count"],
       "properties": {
         "kind": {"enum": ["review", "verification"]},
         "path": {"$ref": "#/$defs/path"},
         "revision": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40,64}$"},
         "applies_to": {"type": "array", "minItems": 1, "maxItems": 5000, "uniqueItems": true, "items": {"$ref": "#/$defs/path"}},
         "size": {"type": "integer", "minimum": 0, "maximum": 1048576},
-        "sha256": {"$ref": "#/$defs/sha"}
+        "sha256": {"$ref": "#/$defs/sha"},
+        "line_count": {"type": "integer", "minimum": 0, "maximum": 5000000}
       }
     },
     "coverage": {
