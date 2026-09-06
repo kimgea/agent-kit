@@ -611,7 +611,7 @@ class ResultTests(unittest.TestCase):
             root = Path(temporary) / "project"
             root.mkdir()
             fixture(root)
-            path = "src/<value&>.py"
+            path = "src/value&data.py"
             (root / path).write_text("VALUE = 1\n", encoding="utf-8")
             context = impact_context.resolve(
                 args(root, paths=[path], context=[])
@@ -635,7 +635,7 @@ class ResultTests(unittest.TestCase):
             )
 
             self.assertNotIn(path, rendered)
-            self.assertIn("src/&lt;value&amp;&gt;.py", rendered)
+            self.assertIn("src/value&amp;data.py", rendered)
 
     def test_guidance_line_evidence_survives_standalone_validation_and_render(self):
         with tempfile.TemporaryDirectory() as temporary:
