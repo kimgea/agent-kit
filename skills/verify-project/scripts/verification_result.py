@@ -353,9 +353,13 @@ def _derive_check_status(check: dict[str, Any], attempts: list[dict[str, Any]], 
             raise ResultError("a non-runnable check has execution attempts")
         return "not_run"
     failed_dependency = any(value in prior_failed for value in check["depends_on"])
-    if failed_dependency and not check["useful_after_failure"]:
+    if failed_dependency:
         if attempts:
             raise ResultError("a dependent check ran after its dependency failed")
+        return "skipped"
+    if prior_failed and not check["useful_after_failure"]:
+        if attempts:
+            raise ResultError("a check without post-failure value ran after an earlier check failed")
         return "skipped"
     if not attempts:
         return "unavailable"
@@ -864,6 +868,12 @@ def finalize(plan: dict[str, Any], run: dict[str, Any], draft: dict[str, Any]) -
         if claim["outcome"] not in {"supported", "disproved", "unresolved"}:
             raise ResultError("claim result outcome is invalid")
         evidence = [_evidence(item, static_sources, check_map, attempt_map) for item in _array(claim["evidence"], "claim evidence", 64)]
+        if any(
+            claim_id not in check_map[item["check_id"]]["claim_ids"]
+            for item in evidence
+            if item["kind"] == "attempt"
+        ):
+            raise ResultError("claim cites attempt evidence from an unrelated check")
         attempt_statuses = [attempt_map[item["attempt_id"]]["status"] for item in evidence if item["kind"] == "attempt"]
         has_static = any(item["kind"] in {"target", "guidance", "discovery"} for item in evidence)
         requirement = claim_map[claim_id]["evidence_requirement"]
@@ -1448,6 +1458,12 @@ def validate_result(result: Any) -> dict[str, Any]:
         if claim["outcome"] not in {"supported", "disproved", "unresolved"}:
             raise ResultError("claim outcome is invalid")
         evidence = [_evidence(value, static_sources, check_map, attempt_map) for value in _array(claim["evidence"], "claim evidence", 64)]
+        if any(
+            claim_id not in check_map[value["check_id"]]["claim_ids"]
+            for value in evidence
+            if value["kind"] == "attempt"
+        ):
+            raise ResultError("claim cites attempt evidence from an unrelated check")
         attempt_statuses = [attempt_map[value["attempt_id"]]["status"] for value in evidence if value["kind"] == "attempt"]
         has_static = any(value["kind"] in {"target", "guidance", "discovery"} for value in evidence)
         if claim["outcome"] == "supported" and not ((attempt_statuses and all(value == "passed" for value in attempt_statuses)) or has_static):

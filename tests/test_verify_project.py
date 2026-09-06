@@ -1,3 +1,4 @@
+import contextlib
 import importlib.util
 import json
 import os
@@ -584,8 +585,12 @@ class VerificationContextTests(unittest.TestCase):
                 ["cmd.exe", "/c", "echo injected"],
                 ["powershell", "-EncodedCommand", "AAAA"],
                 ["python", "-c", "print('injected')"],
+                ["python3.13", "-c", "print('injected')"],
+                ["pypy3", "-c", "print('injected')"],
                 ["node", "--eval", "console.log('injected')"],
                 ["env", "python", "-m", "unittest"],
+                ["busybox", "sh", "-c", "echo injected"],
+                ["toybox", "sh", "-c", "echo injected"],
             ]
             candidate_file = Path(lead_directory) / "candidates.json"
             candidate_file.write_text(
@@ -626,6 +631,51 @@ class VerificationContextTests(unittest.TestCase):
             )
             self.assertEqual(plan["checks"][0]["decision"], "authorization_required")
             self.assertEqual(plan["execution_state"], "blocked")
+
+    def test_windows_root_aliases_compare_bound_filesystem_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            supplied = Path(directory)
+            discovered = supplied.parent / supplied.name.upper()
+            identities = {
+                str(supplied): ("windows_file", 7, 11),
+                str(discovered): ("windows_file", 7, 11),
+            }
+            with mock.patch.object(verification_context.os, "name", "nt"), mock.patch.object(
+                verification_context,
+                "filesystem_alias_identity",
+                side_effect=lambda path, metadata: identities[str(path)],
+            ), mock.patch.object(Path, "lstat", return_value=mock.Mock()):
+                self.assertTrue(
+                    verification_context._repository_roots_match(supplied, discovered)
+                )
+
+    def test_windows_directory_enumeration_requests_list_access_on_final_parent(self):
+        captured = {}
+        fixture = Path("fixture")
+        absolute = fixture.absolute()
+
+        @contextlib.contextmanager
+        def locked_parent(path, *, final_parent_access):
+            captured["path"] = path
+            captured["access"] = final_parent_access
+            yield path, 41
+
+        with mock.patch.object(path_safety.Path, "absolute", return_value=absolute), mock.patch.object(
+            path_safety.os, "name", "nt"
+        ), mock.patch.object(
+            path_safety, "_windows_locked_parent", side_effect=locked_parent
+        ), mock.patch.object(
+            path_safety,
+            "_windows_directory_entries",
+            return_value=([], 0, True),
+        ) as enumerate_directory:
+            self.assertEqual(
+                path_safety.bound_directory_entries(fixture, 5),
+                ([], 0, True),
+            )
+
+        self.assertEqual(captured["access"], 0x00000080 | 0x00000001)
+        enumerate_directory.assert_called_once_with(absolute, 41, 5)
 
     def test_context_is_deterministic_and_bounded(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1323,7 +1373,7 @@ class VerificationResultTests(unittest.TestCase):
                 "reason": "Dependent subsystem evidence.",
                 "claim_keys": ["behavior"],
                 "depends_on_keys": ["focused"],
-                "useful_after_failure": False,
+                "useful_after_failure": True,
             },
             {
                 "key": "independent",
@@ -1845,6 +1895,137 @@ class VerificationResultTests(unittest.TestCase):
             self.assertEqual([value["status"] for value in result["checks"]], ["failed", "skipped", "passed"])
             self.assertEqual(result["coverage"]["attempted_tiers"], ["focused", "project"])
             self.assertEqual((result["completion"], result["outcome"], result["next_action"]), ("complete", "fail", "triage"))
+
+    def test_claim_evidence_must_come_from_a_check_mapped_to_that_claim(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as lead_directory:
+            root = Path(directory)
+            (root / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+            candidate_file = Path(lead_directory) / "claim-candidates.json"
+            candidate_file.write_text(
+                json.dumps(
+                    [
+                        {
+                            "argv": ["check", name],
+                            "cwd": ".",
+                            "provenance": ["caller"],
+                            "timeout_seconds": 60,
+                            "repetitions": 1,
+                            "expected_effects": ["repository_read", "local_process"],
+                            "artifact_boundaries": [],
+                        }
+                        for name in ("first", "second")
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            context = verification_context.resolve(
+                context_args(
+                    root,
+                    paths=["app.py"],
+                    candidate_input=str(candidate_file),
+                    max_discovery=0,
+                )
+            )
+            first_claim = VerificationPlanTests.draft()["claims"][0]
+            second_claim = json.loads(json.dumps(first_claim))
+            first_claim["key"] = "first-behavior"
+            first_claim["statement"] = "The first behavior remains valid."
+            second_claim["key"] = "second-behavior"
+            second_claim["statement"] = "The second behavior remains valid."
+            plan = verification_plan.finalize(
+                context,
+                {
+                    "claims": [first_claim, second_claim],
+                    "guidance_interpretations": [],
+                    "checks": [
+                        {
+                            "key": "first-check",
+                            "candidate_id": "Q001",
+                            "tier": "focused",
+                            "reason": "The first check covers only the first behavior.",
+                            "claim_keys": ["first-behavior"],
+                            "depends_on_keys": [],
+                            "useful_after_failure": True,
+                        },
+                        {
+                            "key": "second-check",
+                            "candidate_id": "Q002",
+                            "tier": "focused",
+                            "reason": "The second check covers only the second behavior.",
+                            "claim_keys": ["second-behavior"],
+                            "depends_on_keys": [],
+                            "useful_after_failure": True,
+                        },
+                    ],
+                    "limitations": [],
+                },
+            )
+            run = self.empty_run_record(context, plan)
+            run["attempts"] = [
+                self.attempt_record(
+                    context, plan, attempt_id="A001", check_id="K001",
+                    status="passed", exit_code=0,
+                ),
+                self.attempt_record(
+                    context, plan, attempt_id="A002", check_id="K002",
+                    status="passed", exit_code=0,
+                ),
+            ]
+            claim_for_check = {
+                check["check_id"]: check["claim_ids"][0] for check in plan["checks"]
+            }
+
+            def claim_result(claim_id, check_id, attempt_id):
+                return {
+                    "claim_id": claim_id,
+                    "outcome": "supported",
+                    "evidence": [
+                        {
+                            "kind": "attempt",
+                            "description": "The mapped check passed.",
+                            "source_id": None,
+                            "check_id": check_id,
+                            "attempt_id": attempt_id,
+                            "location": None,
+                        }
+                    ],
+                    "reason": "The mapped passing check supports this claim.",
+                }
+
+            valid_draft = {
+                "claims": [
+                    claim_result(claim_for_check["K001"], "K001", "A001"),
+                    claim_result(claim_for_check["K002"], "K002", "A002"),
+                ],
+                "conclusion": "Both separately mapped checks passed.",
+                "observations": [],
+                "limitations": [],
+            }
+            valid = verification_result.finalize(plan, run, valid_draft)
+            verification_result.validate_result(valid)
+
+            forged_draft = json.loads(json.dumps(valid_draft))
+            forged_draft["claims"][0]["evidence"][0].update(
+                {"check_id": "K002", "attempt_id": "A002"}
+            )
+            with self.assertRaisesRegex(
+                verification_result.ResultError, "unrelated check"
+            ):
+                verification_result.finalize(plan, run, forged_draft)
+
+            forged_result = json.loads(json.dumps(valid))
+            forged_claim = next(
+                claim
+                for claim in forged_result["claims"]
+                if claim["claim_id"] == claim_for_check["K001"]
+            )
+            forged_claim["evidence"][0].update(
+                {"check_id": "K002", "attempt_id": "A002"}
+            )
+            with self.assertRaisesRegex(
+                verification_result.ResultError, "unrelated check"
+            ):
+                verification_result.validate_result(forged_result)
 
     def test_irrelevant_green_check_is_complete_unknown(self):
         with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as lead_directory:

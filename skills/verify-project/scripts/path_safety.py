@@ -339,17 +339,20 @@ def _windows_handle_attributes(handle: int) -> tuple[int, int, int, int]:
 
 
 @contextlib.contextmanager
-def _windows_locked_parent(path: Path) -> Iterator[tuple[Path, int]]:
+def _windows_locked_parent(
+    path: Path, *, final_parent_access: int = 0x00000080
+) -> Iterator[tuple[Path, int]]:
     absolute = path.absolute()
     assert_no_link_components(absolute, include_final=False)
     if not absolute.name:
         raise SafetyError(f"path must name a file: {path}")
     current = Path(absolute.anchor)
+    parent_parts = absolute.parent.parts[1:]
     handles: list[int] = []
     try:
         handle = _windows_create_handle(
             current,
-            access=0x00000080,
+            access=final_parent_access if not parent_parts else 0x00000080,
             creation=3,
             flags=0x02000000 | 0x00200000,
         )
@@ -362,12 +365,16 @@ def _windows_locked_parent(path: Path) -> Iterator[tuple[Path, int]]:
             _windows_close_handle(handle)
             raise SafetyError(f"refusing link-like or non-directory parent: {current}")
         handles.append(handle)
-        for part in absolute.parent.parts[1:]:
+        for index, part in enumerate(parent_parts):
             current /= part
             child = _windows_relative_handle(
                 handles[-1],
                 part,
-                access=0x00000080,
+                access=(
+                    final_parent_access
+                    if index == len(parent_parts) - 1
+                    else 0x00000080
+                ),
                 creation=3,
                 display_path=current,
                 directory=True,
@@ -581,7 +588,12 @@ def bound_directory_entries(
     absolute = path.absolute()
     if os.name == "nt":
         sentinel = absolute / ".verify-project-directory-enumeration"
-        with _windows_locked_parent(sentinel) as (_, handle):
+        # NtQueryDirectoryFile requires FILE_LIST_DIRECTORY on the directory
+        # being enumerated. Keep traversal handles narrower and add that right
+        # only to the retained final parent handle.
+        with _windows_locked_parent(
+            sentinel, final_parent_access=0x00000080 | 0x00000001
+        ) as (_, handle):
             return _windows_directory_entries(absolute, handle, maximum)
     if not SAFE_POSIX_DIR_FD:
         raise SafetyError("safe descriptor-relative directory enumeration is unavailable")

@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import stat
 import subprocess
 import sys
@@ -149,15 +150,28 @@ def _repository_root(value: str) -> tuple[Path, bool, str | None]:
     try:
         output = _git(supplied, ["rev-parse", "--show-toplevel"], timeout=10)
         discovered = Path(output.decode("utf-8", "strict").strip()).absolute()
-        if os.path.normcase(str(discovered)) != os.path.normcase(str(supplied)):
+        assert_no_link_components(discovered, include_final=True)
+        if not discovered.is_dir() or is_link_like(discovered):
+            raise ContextError(f"Git worktree root is not a safe directory: {discovered}")
+        same_root = _repository_roots_match(supplied, discovered)
+        if not same_root:
             raise ContextError(f"--repo must name the Git worktree root: {discovered}")
-        head = _git(supplied, ["rev-parse", "--verify", "HEAD^{commit}"], timeout=10).decode("ascii").strip()
-        return supplied, True, head
+        root = discovered if os.name == "nt" else supplied
+        head = _git(root, ["rev-parse", "--verify", "HEAD^{commit}"], timeout=10).decode("ascii").strip()
+        return root, True, head
     except (ContextError, UnicodeDecodeError):
         git_marker = supplied / ".git"
         if git_marker.exists():
             raise
         return supplied, False, None
+
+
+def _repository_roots_match(supplied: Path, discovered: Path) -> bool:
+    if os.name == "nt":
+        return filesystem_alias_identity(
+            discovered, discovered.lstat()
+        ) == filesystem_alias_identity(supplied, supplied.lstat())
+    return os.path.normcase(str(discovered)) == os.path.normcase(str(supplied))
 
 
 def _decode_paths(payload: bytes) -> list[str]:
@@ -714,12 +728,29 @@ def _reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def _executable_family(executable: str) -> str:
+    value = executable.casefold()
+    if value.endswith(".exe"):
+        value = value[:-4]
+    families = (
+        (r"pythonw?(?:\d+(?:\.\d+)*)?", "python"),
+        (r"pypy(?:\d+(?:\.\d+)*)?", "python"),
+        (r"node(?:js)?(?:\d+(?:\.\d+)*)?", "node"),
+        (r"ruby(?:\d+(?:\.\d+)*)?", "ruby"),
+        (r"perl(?:\d+(?:\.\d+)*)?", "perl"),
+        (r"(?:ba|da|z|fi)?sh(?:\d+(?:\.\d+)*)?", None),
+    )
+    for pattern, family in families:
+        if re.fullmatch(pattern, value):
+            return value.rstrip("0123456789.") if family is None else family
+    return value
+
+
 def _unsafe_dispatch_reason(argv: list[str]) -> str | None:
     executable = Path(argv[0]).name.casefold()
-    if executable.endswith(".exe"):
-        executable = executable[:-4]
+    executable = _executable_family(executable)
     lowered = [value.casefold() for value in argv[1:]]
-    if executable in {"env", "xargs", "sudo", "doas", "su"}:
+    if executable in {"env", "xargs", "sudo", "doas", "su", "busybox", "toybox"}:
         return f"generic or privilege-changing dispatcher {executable!r}"
     inline_flags = {
         "sh": {"-c"},

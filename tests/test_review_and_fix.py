@@ -546,6 +546,165 @@ def producer_valid_verify_project_bundle(root):
     return {"context": context, "plan": plan, "result": result}
 
 
+def producer_valid_command_verify_project_bundle(root, lead_root):
+    source = root / "src" / "example.py"
+    source.parent.mkdir()
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    candidate_path = lead_root / "candidates.json"
+    candidate_path.write_text(
+        json.dumps(
+            [
+                {
+                    "argv": ["python", "-m", "unittest", "tests.test_example"],
+                    "cwd": ".",
+                    "provenance": ["caller"],
+                    "timeout_seconds": 60,
+                    "repetitions": 1,
+                    "expected_effects": ["repository_read", "local_process"],
+                    "artifact_boundaries": [],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    context = verification_context.resolve(
+        Namespace(
+            repo=str(root),
+            request="Verify the exact post-fix source file.",
+            mode="execute",
+            direct_execution_intent=True,
+            fresh_context=True,
+            consumer="review-and-fix",
+            tier_cap=None,
+            command_cap=16,
+            time_cap_seconds=600,
+            policy_input=None,
+            candidate_input=str(candidate_path),
+            max_targets=5000,
+            max_target_bytes=16 * 1024 * 1024,
+            max_total_target_bytes=256 * 1024 * 1024,
+            max_traversal_entries=50000,
+            max_discovery=0,
+            max_discovery_bytes=64 * 1024 * 1024,
+            max_guidance_bytes=128 * 1024,
+            scope="paths",
+            paths=["src/example.py"],
+        )
+    )
+    plan = verification_plan.finalize(
+        context,
+        {
+            "claims": [
+                {
+                    "key": "behavior",
+                    "statement": "The selected source passes its focused check.",
+                    "material": True,
+                    "target_ids": ["T001"],
+                    "basis": [
+                        {
+                            "kind": "caller",
+                            "description": "The caller requested verification.",
+                            "source_id": "P001",
+                            "location": None,
+                        }
+                    ],
+                    "evidence_requirement": "command",
+                }
+            ],
+            "guidance_interpretations": [],
+            "checks": [
+                {
+                    "key": "focused",
+                    "candidate_id": "Q001",
+                    "tier": "focused",
+                    "reason": "The focused check exercises the selected source.",
+                    "claim_keys": ["behavior"],
+                    "depends_on_keys": [],
+                    "useful_after_failure": True,
+                }
+            ],
+            "limitations": [],
+        },
+    )
+    empty_stream = {
+        "byte_count": 0,
+        "captured_byte_count": 0,
+        "sha256": verification_result._sha256(b""),
+        "truncated": False,
+        "excerpt": None,
+        "excerpt_redacted": False,
+    }
+    run = {
+        "context_sha256": plan["context_sha256"],
+        "plan_sha256": verification_result._sha256(
+            verification_result._canonical_json(plan)
+        ),
+        "target_sha256": plan["target_sha256"],
+        "protected_before_sha256": context["repository_state"]["protected_state_sha256"],
+        "protected_after_sha256": context["repository_state"]["protected_state_sha256"],
+        "run_temp_root": None,
+        "run_temp_identity_sha256": None,
+        "run_temp_before_sha256": None,
+        "run_temp_after_sha256": None,
+        "attempts": [
+            {
+                "attempt_id": "A001",
+                "check_id": "K001",
+                "repetition": 1,
+                "status": "passed",
+                "exit_code": 0,
+                "duration_ms": 10,
+                "argv": plan["checks"][0]["argv"],
+                "cwd": plan["checks"][0]["cwd"],
+                "target_before_sha256": plan["target_sha256"],
+                "target_after_sha256": plan["target_sha256"],
+                "protected_before_sha256": context["repository_state"]["protected_state_sha256"],
+                "protected_after_sha256": context["repository_state"]["protected_state_sha256"],
+                "protected_before_excluded_paths": [],
+                "protected_after_excluded_paths": [],
+                "run_temp_before_sha256": None,
+                "run_temp_after_sha256": None,
+                "run_temp_before_path_hashes": [],
+                "run_temp_after_path_hashes": [],
+                "run_temp_before_excluded_paths": [],
+                "run_temp_after_excluded_paths": [],
+                "stdout": empty_stream,
+                "stderr": empty_stream,
+                "observed_effects": [],
+            }
+        ],
+        "plan_deviations": [],
+        "limitations": [],
+    }
+    result = verification_result.finalize(
+        plan,
+        run,
+        {
+            "claims": [
+                {
+                    "claim_id": "C001",
+                    "outcome": "supported",
+                    "evidence": [
+                        {
+                            "kind": "attempt",
+                            "description": "The mapped focused check passed.",
+                            "source_id": None,
+                            "check_id": "K001",
+                            "attempt_id": "A001",
+                            "location": None,
+                        }
+                    ],
+                    "reason": "The exact mapped check supports the claim.",
+                }
+            ],
+            "conclusion": "The focused check supports the selected claim.",
+            "observations": [],
+            "limitations": [],
+        },
+    )
+    return {"context": context, "plan": plan, "result": result}
+
+
 def project_review_result():
     location = {"path": "src/example.py", "start_line": 10, "end_line": 10}
     return {
@@ -1180,6 +1339,79 @@ class WorkflowResultTests(unittest.TestCase):
             with self.assertRaises(verification_result.ResultError):
                 verification_result.validate_result(malformed)
 
+    def test_adapter_cross_binds_candidates_checks_claims_and_commands(self):
+        with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as lead:
+            bundle = producer_valid_command_verify_project_bundle(
+                Path(temporary), Path(lead)
+            )
+            expected_target = {
+                "kind": "paths",
+                "repository_root": bundle["context"]["target"]["repository_root"],
+                "base_revision": None,
+                "head_revision": None,
+                "working_tree_mode": None,
+                "requested_paths": ["src/example.py"],
+            }
+            self.assertTrue(
+                workflow.adapt_verify_project(
+                    bundle["result"], bundle["context"], bundle["plan"], expected_target
+                )["fresh_review_eligible"]
+            )
+
+            forged_command = copy.deepcopy(bundle)
+            check = forged_command["plan"]["checks"][0]
+            check["argv"] = ["python", "-m", "unittest", "tests.test_other"]
+            semantic = {
+                "candidate_id": check["candidate_id"],
+                "tier": check["tier"],
+                "reason": check["reason"],
+                "claim_ids": check["claim_ids"],
+                "depends_on": check["depends_on"],
+                "useful_after_failure": check["useful_after_failure"],
+                "argv": check["argv"],
+                "cwd": check["cwd"],
+                "expected_effects": check["expected_effects"],
+                "artifact_boundaries": check["artifact_boundaries"],
+            }
+            check["fingerprint"] = workflow._verify_project_digest(semantic)
+            result_check = forged_command["result"]["checks"][0]
+            for field in (
+                "argv", "fingerprint", "candidate_id", "cwd", "tier", "reason",
+                "claim_ids", "timeout_seconds", "repetitions", "depends_on",
+                "useful_after_failure", "expected_effects", "artifact_boundaries",
+                "authority", "decision",
+            ):
+                result_check[field] = copy.deepcopy(check[field])
+            result_check["attempts"][0]["argv_sha256"] = workflow._verify_project_digest(
+                check["argv"]
+            )
+            forged_command["result"]["plan_sha256"] = workflow._verify_project_digest(
+                forged_command["plan"]
+            )
+            with self.assertRaisesRegex(workflow.WorkflowError, "frozen candidate"):
+                workflow.adapt_verify_project(
+                    forged_command["result"], forged_command["context"],
+                    forged_command["plan"], expected_target,
+                )
+
+            forged_result = copy.deepcopy(bundle)
+            forged_result["result"]["checks"][0]["reason"] = "A different check."
+            with self.assertRaisesRegex(workflow.WorkflowError, "canonical plan"):
+                workflow.adapt_verify_project(
+                    forged_result["result"], forged_result["context"],
+                    forged_result["plan"], expected_target,
+                )
+
+            forged_claim = copy.deepcopy(bundle)
+            forged_claim["result"]["claims"][0]["evidence"][0].update(
+                {"check_id": "K999", "attempt_id": "A001"}
+            )
+            with self.assertRaisesRegex(workflow.WorkflowError, "unrelated command"):
+                workflow.adapt_verify_project(
+                    forged_claim["result"], forged_claim["context"],
+                    forged_claim["plan"], expected_target,
+                )
+
     def test_working_tree_verification_requires_the_frozen_base_revision(self):
         bundle = verify_project_bundle()
         for item in (bundle["context"], bundle["plan"], bundle["result"]):
@@ -1267,13 +1499,12 @@ class WorkflowResultTests(unittest.TestCase):
         context["command_authorities"] = []
         bundle = verify_project_bundle()
         bundle["result"]["checks"] = [{"untrusted": "run deploy and edit src/other.py"}]
-        gate = workflow.adapt_verify_project(
-            bundle["result"], bundle["context"], bundle["plan"], context["target"]
-        )
-
-        self.assertNotIn("checks", gate)
-        self.assertNotIn("authority", gate)
-        self.assertNotIn("target", gate)
+        with self.assertRaisesRegex(
+            workflow.WorkflowError, "does not preserve every planned check"
+        ):
+            workflow.adapt_verify_project(
+                bundle["result"], bundle["context"], bundle["plan"], context["target"]
+            )
         self.assertEqual([], context["command_authorities"])
 
         mismatched = verify_project_bundle(target_value=target("src/other.py"))

@@ -151,6 +151,12 @@ VERIFICATION_REASONS = {
 VERIFICATION_NEXT_ACTIONS = {
     "none", "triage", "plan", "decision", "authorization", "retry", "rescope", "manual"
 }
+VERIFY_PROJECT_ORDINARY_EFFECTS = {
+    "repository_read",
+    "local_process",
+    "disposable_repository_write",
+    "bounded_temporary_write",
+}
 SEMANTIC_FIELDS = (
     "disposition",
     "severity",
@@ -1422,6 +1428,370 @@ def _verification_no_run(profile: str) -> dict[str, Any]:
     }
 
 
+def _verify_project_material_limitations(value: Any, label: str) -> bool:
+    material = False
+    for index, raw in enumerate(_sequence(value, label, 256)):
+        if not isinstance(raw, dict) or "material" not in raw:
+            raise WorkflowError(f"{label}[{index}] must contain a material flag")
+        material = material or _boolean(raw["material"], f"{label}[{index}].material")
+    return material
+
+
+def _bind_verify_project_execution(
+    context: dict[str, Any], plan: dict[str, Any], result: dict[str, Any]
+) -> bool:
+    """Bind the producer's candidates, claims, checks, attempts, and coverage."""
+    context_target_ids: list[str] = []
+    for index, raw in enumerate(
+        _sequence(context["targets"], "verify-project context.targets", 20000, minimum=1),
+        start=1,
+    ):
+        if not isinstance(raw, dict):
+            raise WorkflowError("verify-project context.targets must contain objects")
+        target_id = _text(
+            raw.get("target_id"), "verify-project target id", 16, single_line=True
+        )
+        if target_id != f"T{index:03d}":
+            raise WorkflowError("verify-project target ids are not canonical")
+        context_target_ids.append(target_id)
+    target_id_set = set(context_target_ids)
+
+    candidate_fields = {
+        "candidate_id", "argv", "cwd", "provenance_ids", "timeout_seconds",
+        "repetitions", "expected_effects", "artifact_boundaries", "authority",
+    }
+    candidate_map: dict[str, dict[str, Any]] = {}
+    for index, raw in enumerate(
+        _sequence(context["command_candidates"], "verify-project context.command_candidates", 128),
+        start=1,
+    ):
+        candidate = _object(raw, "verify-project command candidate", candidate_fields)
+        candidate_id = _text(
+            candidate["candidate_id"], "verify-project candidate id", 16, single_line=True
+        )
+        if candidate_id != f"Q{index:03d}":
+            raise WorkflowError("verify-project candidate ids are not canonical")
+        authority = _object(
+            candidate["authority"],
+            "verify-project candidate authority",
+            {"source_kind", "source", "authorized"},
+        )
+        source_kind = _enum(
+            authority["source_kind"], {"caller", "user_global", "none"},
+            "verify-project candidate authority source_kind",
+        )
+        authorized = _boolean(
+            authority["authorized"], "verify-project candidate authority authorized"
+        )
+        if authorized != (source_kind != "none"):
+            raise WorkflowError("verify-project candidate authority is inconsistent")
+        candidate_map[candidate_id] = candidate
+
+    claim_fields = {
+        "claim_id", "fingerprint", "statement", "material", "target_ids", "basis",
+        "evidence_requirement",
+    }
+    claim_map: dict[str, dict[str, Any]] = {}
+    for index, raw in enumerate(
+        _sequence(plan["claims"], "verify-project plan.claims", 20000), start=1
+    ):
+        claim = _object(raw, "verify-project plan claim", claim_fields)
+        claim_id = _text(claim["claim_id"], "verify-project claim id", 16, single_line=True)
+        if claim_id != f"C{index:03d}":
+            raise WorkflowError("verify-project claim ids are not canonical")
+        selected_targets = _sequence(
+            claim["target_ids"], "verify-project claim target ids", 20000, minimum=1
+        )
+        if (
+            len(selected_targets) != len(set(selected_targets))
+            or any(value not in target_id_set for value in selected_targets)
+        ):
+            raise WorkflowError("verify-project claim target binding is invalid")
+        _boolean(claim["material"], "verify-project claim material")
+        _enum(
+            claim["evidence_requirement"], {"static", "command", "either"},
+            "verify-project claim evidence requirement",
+        )
+        semantic = {key: claim[key] for key in claim_fields - {"claim_id", "fingerprint"}}
+        if _verification_digest(
+            claim["fingerprint"], "verify-project claim fingerprint"
+        ) != _verify_project_digest(semantic):
+            raise WorkflowError("verify-project claim fingerprint is not derived")
+        claim_map[claim_id] = claim
+
+    check_fields = {
+        "check_id", "fingerprint", "candidate_id", "argv", "cwd", "tier", "reason",
+        "claim_ids", "timeout_seconds", "repetitions", "depends_on",
+        "useful_after_failure", "expected_effects", "artifact_boundaries", "authority",
+        "decision",
+    }
+    plan_checks = _sequence(plan["checks"], "verify-project plan.checks", 128)
+    check_map: dict[str, dict[str, Any]] = {}
+    selected_candidates: set[str] = set()
+    for index, raw in enumerate(plan_checks, start=1):
+        check = _object(raw, "verify-project plan check", check_fields)
+        check_id = _text(check["check_id"], "verify-project check id", 16, single_line=True)
+        if check_id != f"K{index:03d}":
+            raise WorkflowError("verify-project check ids are not canonical")
+        candidate_id = _text(
+            check["candidate_id"], "verify-project check candidate id", 16, single_line=True
+        )
+        if candidate_id not in candidate_map or candidate_id in selected_candidates:
+            raise WorkflowError("verify-project check candidate binding is invalid")
+        selected_candidates.add(candidate_id)
+        candidate = candidate_map[candidate_id]
+        copied_fields = (
+            "argv", "cwd", "timeout_seconds", "repetitions", "expected_effects",
+            "artifact_boundaries", "authority",
+        )
+        if any(check[field] != candidate[field] for field in copied_fields):
+            raise WorkflowError("verify-project check differs from its frozen candidate")
+        selected_claims = _sequence(
+            check["claim_ids"], "verify-project check claim ids", 20000, minimum=1
+        )
+        dependencies = _sequence(
+            check["depends_on"], "verify-project check dependencies", 127
+        )
+        if (
+            len(selected_claims) != len(set(selected_claims))
+            or any(value not in claim_map for value in selected_claims)
+            or len(dependencies) != len(set(dependencies))
+            or any(value not in check_map for value in dependencies)
+        ):
+            raise WorkflowError("verify-project check claim or dependency binding is invalid")
+        useful = _boolean(
+            check["useful_after_failure"], "verify-project check useful_after_failure"
+        )
+        effects = _sequence(
+            check["expected_effects"], "verify-project check expected effects", 14, minimum=1
+        )
+        candidate_authority = candidate["authority"]
+        if not set(effects).issubset(VERIFY_PROJECT_ORDINARY_EFFECTS):
+            expected_decision = "unsupported"
+        elif context["invocation"].get("mode") == "plan":
+            expected_decision = "plan_only"
+        elif candidate_authority["authorized"]:
+            expected_decision = "run"
+        else:
+            expected_decision = "authorization_required"
+        if check["decision"] != expected_decision:
+            raise WorkflowError("verify-project check decision is not derived")
+        semantic = {
+            "candidate_id": candidate_id,
+            "tier": check["tier"],
+            "reason": check["reason"],
+            "claim_ids": selected_claims,
+            "depends_on": dependencies,
+            "useful_after_failure": useful,
+            "argv": check["argv"],
+            "cwd": check["cwd"],
+            "expected_effects": effects,
+            "artifact_boundaries": check["artifact_boundaries"],
+        }
+        if _verification_digest(
+            check["fingerprint"], "verify-project check fingerprint"
+        ) != _verify_project_digest(semantic):
+            raise WorkflowError("verify-project check fingerprint is not derived")
+        check_map[check_id] = check
+
+    result_check_fields = check_fields | {"status", "attempts"}
+    result_checks = _sequence(result["checks"], "verify-project result.checks", 128)
+    if len(result_checks) != len(plan_checks):
+        raise WorkflowError("verify-project result does not preserve every planned check")
+    attempt_to_check: dict[str, str] = {}
+    attempt_status: dict[str, str] = {}
+    prior_failed: set[str] = set()
+    next_attempt = 1
+    attempt_fields = {
+        "attempt_id", "repetition", "status", "exit_code", "duration_ms", "cwd",
+        "argv_sha256", "target_before_sha256", "target_after_sha256",
+        "protected_before_sha256", "protected_after_sha256",
+        "protected_before_excluded_paths", "protected_after_excluded_paths",
+        "run_temp_before_sha256", "run_temp_after_sha256",
+        "run_temp_before_path_hashes", "run_temp_after_path_hashes",
+        "run_temp_before_excluded_paths", "run_temp_after_excluded_paths", "stdout",
+        "stderr", "observed_effects",
+    }
+    for index, (plan_raw, result_raw) in enumerate(zip(plan_checks, result_checks), start=1):
+        result_check = _object(
+            result_raw, "verify-project result check", result_check_fields
+        )
+        if {field: result_check[field] for field in check_fields} != plan_raw:
+            raise WorkflowError("verify-project result check differs from its canonical plan")
+        check_id = f"K{index:03d}"
+        attempts = _sequence(
+            result_check["attempts"], "verify-project result check attempts", 32
+        )
+        statuses: list[str] = []
+        repetitions: list[int] = []
+        for raw_attempt in attempts:
+            attempt = _object(raw_attempt, "verify-project attempt", attempt_fields)
+            attempt_id = _text(
+                attempt["attempt_id"], "verify-project attempt id", 16, single_line=True
+            )
+            if attempt_id != f"A{next_attempt:03d}":
+                raise WorkflowError("verify-project attempt ids are not canonical")
+            next_attempt += 1
+            if attempt["cwd"] != plan_raw["cwd"] or _verification_digest(
+                attempt["argv_sha256"], "verify-project attempt argv digest"
+            ) != _verify_project_digest(plan_raw["argv"]):
+                raise WorkflowError("verify-project attempt differs from its planned command")
+            repetition = attempt["repetition"]
+            if (
+                isinstance(repetition, bool)
+                or not isinstance(repetition, int)
+                or not 1 <= repetition <= plan_raw["repetitions"]
+                or repetition in repetitions
+            ):
+                raise WorkflowError("verify-project attempt repetition is invalid")
+            repetitions.append(repetition)
+            status = _enum(
+                attempt["status"],
+                {"passed", "failed", "timed_out", "unavailable", "skipped"},
+                "verify-project attempt status",
+            )
+            statuses.append(status)
+            attempt_to_check[attempt_id] = check_id
+            attempt_status[attempt_id] = status
+        failed_dependency = any(value in prior_failed for value in plan_raw["depends_on"])
+        if plan_raw["decision"] != "run":
+            expected_status = "not_run"
+        elif failed_dependency or (prior_failed and not plan_raw["useful_after_failure"]):
+            expected_status = "skipped"
+        elif not attempts:
+            expected_status = "unavailable"
+        elif "failed" in statuses:
+            expected_status = "failed"
+        elif "timed_out" in statuses:
+            expected_status = "timed_out"
+        elif "unavailable" in statuses:
+            expected_status = "unavailable"
+        elif "skipped" in statuses:
+            expected_status = "skipped"
+        elif sorted(repetitions) != list(range(1, plan_raw["repetitions"] + 1)):
+            expected_status = "unavailable"
+        else:
+            expected_status = "passed"
+        if attempts and expected_status in {"not_run", "skipped"}:
+            raise WorkflowError("verify-project result ran a check after it became ineligible")
+        if result_check["status"] != expected_status:
+            raise WorkflowError("verify-project result check status is not derived")
+        if expected_status in {"failed", "timed_out", "unavailable"}:
+            prior_failed.add(check_id)
+
+    result_claim_fields = {
+        "claim_id", "fingerprint", "material", "outcome", "evidence", "reason"
+    }
+    result_claims = _sequence(result["claims"], "verify-project result.claims", 20000)
+    if len(result_claims) != len(claim_map):
+        raise WorkflowError("verify-project result does not classify every planned claim")
+    supported: list[str] = []
+    disproved: list[str] = []
+    unresolved: list[str] = []
+    for index, raw in enumerate(result_claims, start=1):
+        claim = _object(raw, "verify-project result claim", result_claim_fields)
+        claim_id = _text(claim["claim_id"], "verify-project result claim id", 16)
+        if claim_id != f"C{index:03d}" or claim_id not in claim_map:
+            raise WorkflowError("verify-project result claim ids are not canonical")
+        planned = claim_map[claim_id]
+        if claim["fingerprint"] != planned["fingerprint"] or claim["material"] != planned["material"]:
+            raise WorkflowError("verify-project result claim differs from its canonical plan")
+        outcome = _enum(
+            claim["outcome"], {"supported", "disproved", "unresolved"},
+            "verify-project result claim outcome",
+        )
+        command_statuses: list[str] = []
+        has_static = False
+        for evidence_index, raw_evidence in enumerate(
+            _sequence(claim["evidence"], "verify-project result claim evidence", 64)
+        ):
+            if not isinstance(raw_evidence, dict):
+                raise WorkflowError("verify-project claim evidence must contain objects")
+            kind = raw_evidence.get("kind")
+            if kind == "attempt":
+                check_id = raw_evidence.get("check_id")
+                attempt_id = raw_evidence.get("attempt_id")
+                if (
+                    not isinstance(check_id, str)
+                    or not isinstance(attempt_id, str)
+                    or attempt_to_check.get(attempt_id) != check_id
+                    or check_id not in check_map
+                    or claim_id not in check_map[check_id]["claim_ids"]
+                ):
+                    raise WorkflowError(
+                        "verify-project claim cites an unrelated command attempt"
+                    )
+                command_statuses.append(attempt_status[attempt_id])
+            elif kind in {"target", "guidance", "discovery"}:
+                has_static = True
+            elif kind not in {"policy", "reasoning"}:
+                raise WorkflowError(
+                    f"verify-project claim evidence[{evidence_index}] has invalid kind"
+                )
+        requirement = planned["evidence_requirement"]
+        if outcome == "supported":
+            command_support = bool(command_statuses) and all(
+                value == "passed" for value in command_statuses
+            )
+            static_support = has_static and requirement in {"static", "either"}
+            if not command_support and not static_support:
+                raise WorkflowError("verify-project supported claim lacks bound evidence")
+        elif outcome == "disproved" and not any(
+            value in {"failed", "timed_out"} for value in command_statuses
+        ):
+            raise WorkflowError("verify-project disproved claim lacks bound failed evidence")
+        {"supported": supported, "disproved": disproved, "unresolved": unresolved}[outcome].append(claim_id)
+
+    coverage = _object(
+        result["coverage"],
+        "verify-project result.coverage",
+        {
+            "material_claim_ids", "supported_claim_ids", "disproved_claim_ids",
+            "unresolved_claim_ids", "attempted_tiers", "completed_tiers",
+            "required_guidance_satisfied", "sufficient",
+        },
+    )
+    material_claims = sorted(
+        claim_id for claim_id, claim in claim_map.items() if claim["material"]
+    )
+    expected_lists = {
+        "material_claim_ids": material_claims,
+        "supported_claim_ids": supported,
+        "disproved_claim_ids": disproved,
+        "unresolved_claim_ids": unresolved,
+    }
+    if any(coverage[field] != value for field, value in expected_lists.items()):
+        raise WorkflowError("verify-project result coverage does not match its claims")
+    required_guidance_satisfied = _boolean(
+        coverage["required_guidance_satisfied"],
+        "verify-project result required guidance satisfied",
+    )
+    no_material_limits = not any(
+        (
+            _verify_project_material_limitations(
+                container["limitations"], f"verify-project {label}.limitations"
+            )
+            for label, container in (
+                ("context", context), ("plan", plan), ("result", result)
+            )
+        )
+    )
+    execution_ready = plan["execution_state"] == "ready"
+    derived_sufficient = (
+        set(material_claims).issubset(supported)
+        and not (set(material_claims) & (set(disproved) | set(unresolved)))
+        and required_guidance_satisfied
+        and no_material_limits
+        and execution_ready
+    )
+    claimed_sufficient = _boolean(
+        coverage["sufficient"], "verify-project result coverage sufficient"
+    )
+    if claimed_sufficient and not derived_sufficient:
+        raise WorkflowError("verify-project result coverage sufficiency is not derived")
+    return claimed_sufficient and derived_sufficient
+
+
 def adapt_verify_project(
     result_value: Any,
     context_value: Any,
@@ -1649,6 +2019,7 @@ def adapt_verify_project(
     )
     context_unchanged = context_unchanged and context_copy_matched
     plan_unchanged = plan_unchanged and plan_copy_matched
+    coverage_sufficient = _bind_verify_project_execution(context, plan, result)
 
     next_action = producer_next_action
     if not target_matched:
