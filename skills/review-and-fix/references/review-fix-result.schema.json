@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kimgea/agent-kit/schemas/review-and-fix/review-fix-result-1.0.0.json",
+  "$id": "https://github.com/kimgea/agent-kit/schemas/review-and-fix/review-fix-result-1.1.0.json",
   "title": "Review and fix workflow result",
   "type": "object",
   "additionalProperties": false,
@@ -13,12 +13,13 @@
     "plans",
     "changes",
     "validation",
+    "verification",
     "status",
     "stop_reason",
     "summary"
   ],
   "properties": {
-    "schema_version": { "const": "1.0.0" },
+    "schema_version": { "const": "1.1.0" },
     "context_sha256": { "$ref": "#/$defs/digest" },
     "target": { "$ref": "review-finding-batch.schema.json#/$defs/target" },
     "reviewers": {
@@ -48,6 +49,7 @@
       "maxItems": 128,
       "items": { "$ref": "#/$defs/validation" }
     },
+    "verification": { "$ref": "#/$defs/verification" },
     "status": {
       "enum": [
         "completed",
@@ -70,6 +72,14 @@
         "no_material_progress",
         "maximum_rounds_reached",
         "validation_failed",
+        "verification_required",
+        "verification_failed",
+        "verification_unknown",
+        "verification_incomplete",
+        "verification_target_mismatch",
+        "verification_context_drift",
+        "verification_plan_drift",
+        "verification_not_fresh",
         "workflow_incomplete"
       ]
     },
@@ -218,6 +228,59 @@
       "properties": {
         "batch_sha256": { "$ref": "#/$defs/digest" },
         "finding_fingerprint": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "producer",
+        "producer_version",
+        "result_sha256",
+        "context_sha256",
+        "plan_sha256",
+        "state",
+        "reason",
+        "next_action",
+        "target_matched",
+        "context_unchanged",
+        "plan_unchanged",
+        "coverage_sufficient",
+        "protected_state_unchanged",
+        "plan_exact",
+        "fresh_review_eligible"
+      ],
+      "properties": {
+        "profile": { "enum": ["verify_project", "bounded_validation_fallback"] },
+        "producer": { "type": ["string", "null"], "minLength": 1, "maxLength": 128 },
+        "producer_version": { "type": ["string", "null"], "minLength": 1, "maxLength": 128 },
+        "result_sha256": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+        "context_sha256": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+        "plan_sha256": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+        "state": { "enum": ["passed", "failed", "unknown", "incomplete", "not_run", "not_used"] },
+        "reason": {
+          "enum": [
+            "verified_pass",
+            "verification_failed",
+            "verification_unknown",
+            "verification_incomplete",
+            "target_mismatch",
+            "context_drift",
+            "plan_drift",
+            "non_fresh",
+            "no_fix_applied",
+            "verify_project_unavailable"
+          ]
+        },
+        "next_action": { "enum": ["none", "triage", "plan", "decision", "authorization", "retry", "rescope", "manual"] },
+        "target_matched": { "type": ["boolean", "null"] },
+        "context_unchanged": { "type": ["boolean", "null"] },
+        "plan_unchanged": { "type": ["boolean", "null"] },
+        "coverage_sufficient": { "type": ["boolean", "null"] },
+        "protected_state_unchanged": { "type": ["boolean", "null"] },
+        "plan_exact": { "type": ["boolean", "null"] },
+        "fresh_review_eligible": { "type": "boolean" }
       }
     }
   }

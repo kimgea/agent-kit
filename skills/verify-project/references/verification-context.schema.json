@@ -1,0 +1,405 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kimgea/agent-kit/schemas/verify-project/verification-context-1.0.0.json",
+  "title": "Verify Project lead-owned context",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "target",
+    "target_sha256",
+    "repository_state",
+    "invocation",
+    "authority",
+    "policy",
+    "limits",
+    "targets",
+    "guidance",
+    "discovery",
+    "command_candidates",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "target": {"$ref": "#/$defs/target"},
+    "target_sha256": {"$ref": "#/$defs/sha256"},
+    "repository_state": {"$ref": "#/$defs/repository_state"},
+    "invocation": {"$ref": "#/$defs/invocation"},
+    "authority": {"$ref": "#/$defs/invocation_authority"},
+    "policy": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {"$ref": "#/$defs/policy_source"}
+    },
+    "limits": {"$ref": "#/$defs/limits"},
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20000,
+      "items": {"$ref": "#/$defs/target_record"}
+    },
+    "guidance": {"$ref": "#/$defs/guidance"},
+    "discovery": {
+      "type": "array",
+      "maxItems": 5000,
+      "items": {"$ref": "#/$defs/discovery_source"}
+    },
+    "command_candidates": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {"$ref": "#/$defs/command_candidate"}
+    },
+    "limitations": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {"$ref": "#/$defs/limitation"}
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "repository_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*[\\u0000-\\u001F\\u007F])(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*/$).+$"
+    },
+    "path_or_root": {
+      "anyOf": [
+        {"const": "."},
+        {"$ref": "#/$defs/repository_path"}
+      ]
+    },
+    "nullable_revision": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "repository_root", "base_revision", "requested_paths"],
+      "properties": {
+        "kind": {"enum": ["working_tree", "paths"]},
+        "repository_root": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "base_revision": {"$ref": "#/$defs/nullable_revision"},
+        "requested_paths": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20000,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/path_or_root"}
+        }
+      }
+    },
+    "repository_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository_identity_sha256",
+        "git_repository",
+        "head_revision",
+        "protected_state_sha256",
+        "protected_path_hashes"
+      ],
+      "properties": {
+        "repository_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "git_repository": {"type": "boolean"},
+        "head_revision": {"$ref": "#/$defs/nullable_revision"},
+        "protected_state_sha256": {"$ref": "#/$defs/sha256"},
+        "protected_path_hashes": {"type": "array", "maxItems": 100000, "uniqueItems": true, "items": {"$ref": "#/$defs/sha256"}}
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context_kind", "producer", "producer_version", "consumer"],
+      "properties": {
+        "context_kind": {"enum": ["fresh", "existing"]},
+        "producer": {"type": "string", "minLength": 1, "maxLength": 128},
+        "producer_version": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+        "consumer": {"type": ["string", "null"], "minLength": 1, "maxLength": 128}
+      }
+    },
+    "invocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "request", "freshness", "tier_cap", "command_cap", "time_cap_seconds"],
+      "properties": {
+        "mode": {"enum": ["plan", "execute"]},
+        "request": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "freshness": {"$ref": "#/$defs/freshness"},
+        "tier_cap": {"type": ["string", "null"], "enum": ["focused", "subsystem", "project", null]},
+        "command_cap": {"type": ["integer", "null"], "minimum": 0, "maximum": 128},
+        "time_cap_seconds": {"type": ["integer", "null"], "minimum": 0, "maximum": 86400}
+      }
+    },
+    "effect_class": {
+      "enum": [
+        "repository_read",
+        "local_process",
+        "disposable_repository_write",
+        "bounded_temporary_write",
+        "source_mutation",
+        "configuration_mutation",
+        "dependency_installation",
+        "network_access",
+        "external_service",
+        "persistent_process",
+        "destructive_action",
+        "permission_change",
+        "remote_mutation",
+        "outside_bounded_roots"
+      ]
+    },
+    "invocation_authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_kind", "source", "direct_execution_intent", "authorized_effects"],
+      "properties": {
+        "source_kind": {"enum": ["caller", "user_global", "none"]},
+        "source": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "direct_execution_intent": {"type": "boolean"},
+        "authorized_effects": {
+          "type": "array",
+          "maxItems": 14,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/effect_class"}
+        }
+      }
+    },
+    "policy_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_id", "kind", "label", "sha256", "content"],
+      "properties": {
+        "policy_id": {"type": "string", "pattern": "^P[0-9]{3,6}$"},
+        "kind": {"enum": ["caller", "user_global", "project"]},
+        "label": {"type": "string", "minLength": 1, "maxLength": 512},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "content": {"type": "string", "minLength": 1, "maxLength": 1048576}
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_records",
+        "target_bytes",
+        "discovery_records",
+        "discovery_bytes",
+        "effective_guidance_bytes_per_target",
+        "planned_checks",
+        "argv_entries_per_check",
+        "timeout_seconds_per_check",
+        "total_execution_seconds",
+        "repetitions_per_check",
+        "capture_bytes_per_stream",
+        "diagnostic_excerpt_bytes_per_stream",
+        "canonical_json_bytes"
+      ],
+      "properties": {
+        "target_records": {"type": "integer", "minimum": 1, "maximum": 20000},
+        "target_bytes": {"type": "integer", "minimum": 1, "maximum": 268435456},
+        "discovery_records": {"type": "integer", "minimum": 0, "maximum": 5000},
+        "discovery_bytes": {"type": "integer", "minimum": 0, "maximum": 67108864},
+        "effective_guidance_bytes_per_target": {"type": "integer", "minimum": 0, "maximum": 1048576},
+        "planned_checks": {"type": "integer", "minimum": 0, "maximum": 128},
+        "argv_entries_per_check": {"type": "integer", "minimum": 1, "maximum": 128},
+        "timeout_seconds_per_check": {"type": "integer", "minimum": 1, "maximum": 3600},
+        "total_execution_seconds": {"type": "integer", "minimum": 0, "maximum": 86400},
+        "repetitions_per_check": {"type": "integer", "minimum": 1, "maximum": 32},
+        "capture_bytes_per_stream": {"type": "integer", "minimum": 0, "maximum": 16777216},
+        "diagnostic_excerpt_bytes_per_stream": {"type": "integer", "minimum": 0, "maximum": 16384},
+        "canonical_json_bytes": {"type": "integer", "minimum": 1, "maximum": 16777216}
+      }
+    },
+    "target_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_id",
+        "path",
+        "old_path",
+        "change_kind",
+        "presence",
+        "file_kind",
+        "inspection_kind",
+        "size_bytes",
+        "mode",
+        "sha256",
+        "guidance_chain_id",
+        "old_guidance_chain_id"
+      ],
+      "properties": {
+        "target_id": {"type": "string", "pattern": "^T[0-9]{3,6}$"},
+        "path": {"$ref": "#/$defs/path_or_root"},
+        "old_path": {
+          "anyOf": [
+            {"$ref": "#/$defs/repository_path"},
+            {"type": "null"}
+          ]
+        },
+        "change_kind": {"enum": ["added", "modified", "deleted", "renamed", "type_changed", "mode_changed", "untracked", "snapshot", "unknown"]},
+        "presence": {"enum": ["present", "absent"]},
+        "file_kind": {"enum": ["regular", "directory", "absent", "other"]},
+        "inspection_kind": {"enum": ["text", "binary", "metadata_only", "absent", "unreadable", "oversized", "unsupported"]},
+        "size_bytes": {"type": ["integer", "null"], "minimum": 0, "maximum": 268435456},
+        "mode": {"type": ["integer", "null"], "minimum": 0, "maximum": 65535},
+        "sha256": {
+          "anyOf": [
+            {"$ref": "#/$defs/sha256"},
+            {"type": "null"}
+          ]
+        },
+        "guidance_chain_id": {"type": "string", "pattern": "^G[0-9]{3,6}$"},
+        "old_guidance_chain_id": {"type": ["string", "null"], "pattern": "^G[0-9]{3,6}$"}
+      }
+    },
+    "guidance_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "kind", "path", "provenance", "revision", "sha256", "content"],
+      "properties": {
+        "source_id": {"type": "string", "pattern": "^S[0-9]{3,6}$"},
+        "kind": {"enum": ["skill", "repository"]},
+        "path": {"$ref": "#/$defs/repository_path"},
+        "provenance": {"enum": ["locked_skill", "git_head", "current_filesystem"]},
+        "revision": {"$ref": "#/$defs/nullable_revision"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "content": {"type": "string", "maxLength": 16777216}
+      }
+    },
+    "guidance_chain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["chain_id", "target_ids", "source_ids", "complete"],
+      "properties": {
+        "chain_id": {"type": "string", "pattern": "^G[0-9]{3,6}$"},
+        "target_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20000,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^T[0-9]{3,6}$"}
+        },
+        "source_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^S[0-9]{3,6}$"}
+        },
+        "complete": {"type": "boolean"}
+      }
+    },
+    "guidance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sources", "chains"],
+      "properties": {
+        "sources": {"type": "array", "minItems": 1, "maxItems": 5000, "items": {"$ref": "#/$defs/guidance_source"}},
+        "chains": {"type": "array", "minItems": 1, "maxItems": 20000, "items": {"$ref": "#/$defs/guidance_chain"}}
+      }
+    },
+    "discovery_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["discovery_id", "kind", "path", "sha256", "inspection_kind", "provenance"],
+      "properties": {
+        "discovery_id": {"type": "string", "pattern": "^D[0-9]{3,6}$"},
+        "kind": {"enum": ["manifest", "script", "test_configuration", "build_configuration", "lint_configuration", "type_configuration", "local_ci", "related_test", "documentation", "contract", "source", "other"]},
+        "path": {"$ref": "#/$defs/repository_path"},
+        "sha256": {
+          "anyOf": [
+            {"$ref": "#/$defs/sha256"},
+            {"type": "null"}
+          ]
+        },
+        "inspection_kind": {"enum": ["text", "binary", "metadata_only", "unreadable", "oversized", "unsupported"]},
+        "provenance": {"enum": ["caller", "agent_policy", "verify_guidance", "project_entry_point", "related_context"]}
+      }
+    },
+    "artifact_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root_kind", "path"],
+      "properties": {
+        "root_kind": {"enum": ["repository", "run_temp"]},
+        "path": {"$ref": "#/$defs/repository_path"}
+      }
+    },
+    "candidate_authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_kind", "source", "authorized"],
+      "properties": {
+        "source_kind": {"enum": ["caller", "user_global", "none"]},
+        "source": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "authorized": {"type": "boolean"}
+      }
+    },
+    "command_candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_id",
+        "argv",
+        "cwd",
+        "provenance_ids",
+        "timeout_seconds",
+        "repetitions",
+        "expected_effects",
+        "artifact_boundaries",
+        "authority"
+      ],
+      "properties": {
+        "candidate_id": {"type": "string", "pattern": "^Q[0-9]{3,6}$"},
+        "argv": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+        },
+        "cwd": {"$ref": "#/$defs/path_or_root"},
+        "provenance_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[SDP][0-9]{3,6}$"}
+        },
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+        "repetitions": {"type": "integer", "minimum": 1, "maximum": 32},
+        "expected_effects": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 14,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/effect_class"}
+        },
+        "artifact_boundaries": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {"$ref": "#/$defs/artifact_boundary"}
+        },
+        "authority": {"$ref": "#/$defs/candidate_authority"}
+      }
+    },
+    "limitation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "source_ids", "affected_target_ids", "material"],
+      "properties": {
+        "code": {"enum": ["target_unavailable", "target_limit", "guidance_unavailable", "guidance_conflict", "guidance_limit", "discovery_unavailable", "discovery_limit", "authority_unavailable", "unsafe_candidate", "unsupported_effect", "context_drift", "other"]},
+        "message": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "source_ids": {"type": "array", "maxItems": 5000, "uniqueItems": true, "items": {"type": "string", "pattern": "^[SDPQ][0-9]{3,6}$"}},
+        "affected_target_ids": {"type": "array", "maxItems": 20000, "uniqueItems": true, "items": {"type": "string", "pattern": "^T[0-9]{3,6}$"}},
+        "material": {"type": "boolean"}
+      }
+    }
+  }
+}

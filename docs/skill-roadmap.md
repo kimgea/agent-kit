@@ -33,10 +33,11 @@ fresh independent acceptance. The artifact family proves that two standalone
 skills can compose through an explicit directory and JSON CLI seam without
 runtime imports.
 
-The immediate gap is not another issue finder. It is reliable, reusable local
-verification for a selected change.
+The first planned gap—reliable, reusable local verification for a selected
+change—is now implemented. The next likely capability should be promoted only
+from real failed-verification evidence, not from a speculative taxonomy.
 
-## Next: verify-project
+## Shipped foundation: verify-project
 
 `verify-project` should answer:
 
@@ -84,14 +85,15 @@ fix the cause inside this skill.
   store.
 - It avoids external services and never runs an agent in hosted CI.
 
-### Promotion gate
+### Delivered boundary
 
-The accepted design is tracked in `.claude/prds/verify-project.md` and the
-implementation plan in `.claude/epics/verify-project/`. The design fixes the
-current-filesystem target model, separate plan and result contracts, command
-authority, mutation detection, progressive tier semantics, optional
-hierarchical `VERIFY.md`, and staged integration with `review-and-fix` before
-implementation begins.
+The accepted design and implementation are tracked in
+`.claude/prds/verify-project.md` and `.claude/epics/verify-project/`. The shipped
+boundary fixes the current-filesystem target model, separate plan and result
+contracts, command authority, mutation detection, progressive tier semantics,
+optional hierarchical `VERIFY.md`, and deterministic `review-and-fix`
+integration. Future work should respond to observed verifier evidence rather
+than reopening this foundation speculatively.
 
 ## Likely: verification-failure triage
 
@@ -200,7 +202,6 @@ one coordinated migration.
 | Catalog role and effect metadata | Safer capability discovery and workflow bundle tooling | At least one new orchestrator needs machine-readable discovery |
 | Common envelope specification | Less repeated routing and provenance interpretation | Two result families need the same control-plane semantics |
 | Shared hierarchy conformance expansion | Consistent root-to-nearest `VERIFY.md` behavior in `verify-project` | The new verifier has an accepted target and trusted-guidance model |
-| `review-and-fix` verification adapter | Replace ad hoc validation records with canonical evidence | `verify-project` schema and standalone behavior are stable |
 | Observation to `todo-capture` bridge | Preserve selected actionable workflow improvements | Repeated manual conversion is observed |
 | Canonical-result diagram bridge | Make complex review and verification outcomes easier to understand | Multiple real results benefit from the same visual grammar |
 | `tool-audit` observation adapter | Feed recurring tool friction into ecosystem improvement analysis | Stable mappings avoid exposing raw transcript data |

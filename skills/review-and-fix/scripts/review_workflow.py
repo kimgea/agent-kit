@@ -18,7 +18,8 @@ from typing import Any
 
 BATCH_SCHEMA_VERSION = "1.0.0"
 PLAN_SCHEMA_VERSION = "1.0.0"
-RUN_SCHEMA_VERSION = "1.0.0"
+RUN_SCHEMA_VERSION = "1.1.0"
+VERIFY_PROJECT_SCHEMA_VERSION = "1.0.0"
 MAX_JSON_BYTES = 16 * 1024 * 1024
 MAX_JSON_DEPTH = 100
 HEX_DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -123,7 +124,32 @@ RUN_STOP_REASONS = {
     "no_material_progress",
     "maximum_rounds_reached",
     "validation_failed",
+    "verification_required",
+    "verification_failed",
+    "verification_unknown",
+    "verification_incomplete",
+    "verification_target_mismatch",
+    "verification_context_drift",
+    "verification_plan_drift",
+    "verification_not_fresh",
     "workflow_incomplete",
+}
+VERIFICATION_PROFILES = {"verify_project", "bounded_validation_fallback"}
+VERIFICATION_STATES = {"passed", "failed", "unknown", "incomplete", "not_run", "not_used"}
+VERIFICATION_REASONS = {
+    "verified_pass",
+    "verification_failed",
+    "verification_unknown",
+    "verification_incomplete",
+    "target_mismatch",
+    "context_drift",
+    "plan_drift",
+    "non_fresh",
+    "no_fix_applied",
+    "verify_project_unavailable",
+}
+VERIFICATION_NEXT_ACTIONS = {
+    "none", "triage", "plan", "decision", "authorization", "retry", "rescope", "manual"
 }
 SEMANTIC_FIELDS = (
     "disposition",
@@ -709,6 +735,28 @@ def _canonical_digest(value: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _verify_project_digest(value: Any) -> str:
+    """Match verify-project's canonical ASCII JSON plus trailing newline."""
+    _assert_bounded_json(value, "verify-project canonical value")
+    try:
+        encoded = (
+            json.dumps(
+                value,
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+    except (RecursionError, TypeError, UnicodeEncodeError, ValueError) as exc:
+        raise WorkflowError(f"verify-project canonical value is not JSON-serializable: {exc}") from exc
+    if len(encoded) > MAX_JSON_BYTES:
+        raise WorkflowError(
+            f"verify-project canonical value exceeds the {MAX_JSON_BYTES}-byte limit"
+        )
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _assert_bounded_json(value: Any, label: str) -> None:
     pending: list[tuple[Any, int, bool]] = [(value, 0, False)]
     active: set[int] = set()
@@ -1275,11 +1323,434 @@ def assess_round(value: Any) -> dict[str, Any]:
     }
 
 
+def _verification_digest(value: Any, label: str) -> str:
+    digest = _text(value, label, 64, single_line=True)
+    if digest is None or not HEX_DIGEST.fullmatch(digest):
+        raise WorkflowError(f"{label} must be a lowercase SHA-256 digest")
+    return digest
+
+
+def _verification_path(value: Any, label: str) -> str:
+    if value == ".":
+        return "."
+    return _repo_path(value, label)
+
+
+def _verification_target(value: Any, label: str) -> dict[str, Any]:
+    item = _object(
+        value,
+        label,
+        {"kind", "repository_root", "base_revision", "requested_paths"},
+    )
+    kind = _enum(item["kind"], {"working_tree", "paths"}, f"{label}.kind")
+    requested = [
+        _verification_path(path, f"{label}.requested_paths[{index}]")
+        for index, path in enumerate(
+            _sequence(item["requested_paths"], f"{label}.requested_paths", 20000, minimum=1)
+        )
+    ]
+    if len(requested) != len(set(requested)):
+        raise WorkflowError(f"{label}.requested_paths must not contain duplicates")
+    base = _revision(item["base_revision"], f"{label}.base_revision")
+    if kind == "paths" and base is not None:
+        raise WorkflowError(f"{label} path snapshots cannot claim a Git revision")
+    if kind == "working_tree" and base is None:
+        raise WorkflowError(f"{label} working-tree targets require a base revision")
+    return {
+        "kind": kind,
+        "repository_root": _text(
+            item["repository_root"], f"{label}.repository_root", 4096, single_line=True
+        ),
+        "base_revision": base,
+        "requested_paths": requested,
+    }
+
+
+def _expected_verification_target(target: dict[str, Any]) -> dict[str, Any]:
+    if target["kind"] == "ref_range":
+        raise WorkflowError("verify-project cannot verify an immutable ref-range target")
+    if target["kind"] == "working_tree":
+        if target["working_tree_mode"] != "combined" or target["head_revision"] is not None:
+            raise WorkflowError(
+                "verify-project supports only a combined current working-tree target"
+            )
+    return {
+        "kind": target["kind"],
+        "repository_root": target["repository_root"],
+        "base_revision": target["base_revision"],
+        "requested_paths": target["requested_paths"],
+    }
+
+
+def _verification_no_run(profile: str) -> dict[str, Any]:
+    if profile == "bounded_validation_fallback":
+        return {
+            "profile": profile,
+            "producer": None,
+            "producer_version": None,
+            "result_sha256": None,
+            "context_sha256": None,
+            "plan_sha256": None,
+            "state": "not_used",
+            "reason": "verify_project_unavailable",
+            "next_action": "none",
+            "target_matched": None,
+            "context_unchanged": None,
+            "plan_unchanged": None,
+            "coverage_sufficient": None,
+            "protected_state_unchanged": None,
+            "plan_exact": None,
+            "fresh_review_eligible": False,
+        }
+    return {
+        "profile": profile,
+        "producer": "verify-project",
+        "producer_version": VERIFY_PROJECT_SCHEMA_VERSION,
+        "result_sha256": None,
+        "context_sha256": None,
+        "plan_sha256": None,
+        "state": "not_run",
+        "reason": "no_fix_applied",
+        "next_action": "none",
+        "target_matched": None,
+        "context_unchanged": None,
+        "plan_unchanged": None,
+        "coverage_sufficient": None,
+        "protected_state_unchanged": None,
+        "plan_exact": None,
+        "fresh_review_eligible": False,
+    }
+
+
+def adapt_verify_project(
+    result_value: Any,
+    context_value: Any,
+    plan_value: Any,
+    expected_target_value: Any,
+) -> dict[str, Any]:
+    """Reduce validated verify-project data to a target-bound consumer gate."""
+    _assert_bounded_json(result_value, "verify-project result")
+    _assert_bounded_json(context_value, "verify-project context")
+    _assert_bounded_json(plan_value, "verify-project plan")
+    expected_target = _target(expected_target_value, "expected review target")
+    projected_target = _expected_verification_target(expected_target)
+
+    context = _object(
+        context_value,
+        "verify-project context",
+        {
+            "schema_version", "target", "target_sha256", "repository_state",
+            "invocation", "authority", "policy", "limits", "targets", "guidance",
+            "discovery", "command_candidates", "limitations",
+        },
+    )
+    plan = _object(
+        plan_value,
+        "verify-project plan",
+        {
+            "schema_version", "context_sha256", "target", "target_sha256", "targets",
+            "repository_state", "invocation", "policy", "guidance", "discovery",
+            "claims", "guidance_interpretations", "checks", "coverage", "limitations",
+            "execution_state", "summary",
+        },
+    )
+    result = _object(
+        result_value,
+        "verify-project result",
+        {
+            "schema_version", "context_sha256", "plan_sha256", "target",
+            "target_sha256", "targets", "repository_state", "policy", "guidance",
+            "guidance_interpretations", "discovery", "verifier", "completion",
+            "outcome", "next_action", "summary", "claims", "checks",
+            "plan_adherence", "coverage", "mutation", "observations", "limitations",
+        },
+    )
+    for label, value in (
+        ("verify-project context", context),
+        ("verify-project plan", plan),
+        ("verify-project result", result),
+    ):
+        if value["schema_version"] != VERIFY_PROJECT_SCHEMA_VERSION:
+            raise WorkflowError(
+                f"{label}.schema_version must be {VERIFY_PROJECT_SCHEMA_VERSION}"
+            )
+
+    context_target = _verification_target(context["target"], "verify-project context.target")
+    plan_target = _verification_target(plan["target"], "verify-project plan.target")
+    result_target = _verification_target(result["target"], "verify-project result.target")
+    target_sets: list[list[dict[str, Any]]] = []
+    target_digests: list[str] = []
+    for label, container in (
+        ("verify-project context", context),
+        ("verify-project plan", plan),
+        ("verify-project result", result),
+    ):
+        target_records = _sequence(container["targets"], f"{label}.targets", 20000, minimum=1)
+        if not all(isinstance(record, dict) for record in target_records):
+            raise WorkflowError(f"{label}.targets must contain only objects")
+        target_payload = [
+            {
+                key: value
+                for key, value in record.items()
+                if key not in {"guidance_chain_id", "old_guidance_chain_id"}
+            }
+            for record in target_records
+        ]
+        canonical_target_sha = _verify_project_digest(target_payload)
+        claimed_target_sha = _verification_digest(
+            container["target_sha256"], f"{label}.target_sha256"
+        )
+        if claimed_target_sha != canonical_target_sha:
+            raise WorkflowError(f"{label}.target_sha256 does not match its target inventory")
+        target_sets.append(target_records)
+        target_digests.append(claimed_target_sha)
+
+    context_sha = _verify_project_digest(context)
+    plan_sha = _verify_project_digest(plan)
+    result_sha = _verify_project_digest(result)
+    claimed_context_sha = _verification_digest(
+        result["context_sha256"], "verify-project result.context_sha256"
+    )
+    plan_context_sha = _verification_digest(
+        plan["context_sha256"], "verify-project plan.context_sha256"
+    )
+    claimed_plan_sha = _verification_digest(
+        result["plan_sha256"], "verify-project result.plan_sha256"
+    )
+
+    invocation = _object(
+        context["invocation"],
+        "verify-project context.invocation",
+        {"mode", "request", "freshness", "tier_cap", "command_cap", "time_cap_seconds"},
+    )
+    freshness = _object(
+        invocation["freshness"],
+        "verify-project context.invocation.freshness",
+        {"context_kind", "producer", "producer_version", "consumer"},
+    )
+    verifier = _object(
+        result["verifier"],
+        "verify-project result.verifier",
+        {
+            "name", "version", "context_kind", "consumer", "target_matched",
+            "context_unchanged", "plan_unchanged",
+        },
+    )
+    for field in ("target_matched", "context_unchanged", "plan_unchanged"):
+        _boolean(verifier[field], f"verify-project result.verifier.{field}")
+    coverage = _object(
+        result["coverage"],
+        "verify-project result.coverage",
+        {
+            "material_claim_ids", "supported_claim_ids", "disproved_claim_ids",
+            "unresolved_claim_ids", "attempted_tiers", "completed_tiers",
+            "required_guidance_satisfied", "sufficient",
+        },
+    )
+    plan_adherence = _object(
+        result["plan_adherence"],
+        "verify-project result.plan_adherence",
+        {"exact", "deviations"},
+    )
+    mutation = _object(
+        result["mutation"],
+        "verify-project result.mutation",
+        {
+            "before_sha256", "after_sha256", "protected_state_unchanged",
+            "run_temp", "allowed_effects", "unexpected_effects",
+        },
+    )
+    coverage_sufficient = _boolean(
+        coverage["sufficient"], "verify-project result.coverage.sufficient"
+    )
+    protected_unchanged = _boolean(
+        mutation["protected_state_unchanged"],
+        "verify-project result.mutation.protected_state_unchanged",
+    )
+    plan_exact = _boolean(
+        plan_adherence["exact"], "verify-project result.plan_adherence.exact"
+    )
+
+    completion = _enum(
+        result["completion"], {"complete", "incomplete"},
+        "verify-project result.completion",
+    )
+    outcome = _enum(
+        result["outcome"], {"pass", "fail", "unknown"},
+        "verify-project result.outcome",
+    )
+    producer_next_action = _enum(
+        result["next_action"], VERIFICATION_NEXT_ACTIONS,
+        "verify-project result.next_action",
+    )
+    target_matched = (
+        context_target == projected_target
+        and plan_target == context_target
+        and result_target == context_target
+        and target_sets[1] == target_sets[0]
+        and target_sets[2] == target_sets[0]
+        and target_digests[1] == target_digests[0]
+        and target_digests[2] == target_digests[0]
+        and verifier["target_matched"]
+    )
+    context_unchanged = (
+        claimed_context_sha == context_sha
+        and plan_context_sha == context_sha
+        and verifier["context_unchanged"]
+    )
+    plan_unchanged = claimed_plan_sha == plan_sha and verifier["plan_unchanged"]
+    fresh = (
+        freshness["context_kind"] == "fresh"
+        and freshness["producer"] == "verify-project"
+        and freshness["producer_version"] == VERIFY_PROJECT_SCHEMA_VERSION
+        and freshness["consumer"] == "review-and-fix"
+        and verifier["name"] == "verify-project"
+        and verifier["version"] == VERIFY_PROJECT_SCHEMA_VERSION
+        and verifier["context_kind"] == "fresh"
+        and verifier["consumer"] == "review-and-fix"
+    )
+    expected_plan_invocation = {
+        key: value for key, value in context["invocation"].items() if key != "request"
+    }
+    expected_plan_policy = [
+        {key: value for key, value in source.items() if key != "content"}
+        for source in _sequence(context["policy"], "verify-project context.policy", 64)
+    ]
+    context_guidance = _object(
+        context["guidance"], "verify-project context.guidance", {"sources", "chains"}
+    )
+    expected_plan_guidance = {
+        "sources": [
+            {key: value for key, value in source.items() if key != "content"}
+            for source in _sequence(
+                context_guidance["sources"],
+                "verify-project context.guidance.sources",
+                5000,
+            )
+            if isinstance(source, dict)
+        ],
+        "chains": context_guidance["chains"],
+    }
+    if len(expected_plan_guidance["sources"]) != len(context_guidance["sources"]):
+        raise WorkflowError("verify-project context.guidance.sources must contain only objects")
+    context_copy_matched = (
+        plan["repository_state"] == context["repository_state"]
+        and plan["invocation"] == expected_plan_invocation
+        and plan["policy"] == expected_plan_policy
+        and plan["guidance"] == expected_plan_guidance
+        and plan["discovery"] == context["discovery"]
+    )
+    plan_copy_matched = (
+        result["repository_state"] == plan["repository_state"]
+        and result["policy"] == plan["policy"]
+        and result["guidance"] == plan["guidance"]
+        and result["guidance_interpretations"] == plan["guidance_interpretations"]
+        and result["discovery"] == plan["discovery"]
+    )
+    context_unchanged = context_unchanged and context_copy_matched
+    plan_unchanged = plan_unchanged and plan_copy_matched
+
+    next_action = producer_next_action
+    if not target_matched:
+        state, reason, next_action = "incomplete", "target_mismatch", "rescope"
+    elif not context_unchanged:
+        state, reason, next_action = "incomplete", "context_drift", "retry"
+    elif not plan_unchanged:
+        state, reason, next_action = "incomplete", "plan_drift", "retry"
+    elif not fresh:
+        state, reason, next_action = "incomplete", "non_fresh", "retry"
+    elif completion == "incomplete" or not protected_unchanged or not plan_exact:
+        state, reason = "incomplete", "verification_incomplete"
+        if next_action == "none":
+            next_action = "manual"
+    elif outcome == "fail":
+        state, reason = "failed", "verification_failed"
+    elif outcome == "unknown" or not coverage_sufficient:
+        state, reason = "unknown", "verification_unknown"
+        if next_action == "none":
+            next_action = "plan"
+    else:
+        state, reason, next_action = "passed", "verified_pass", "none"
+
+    eligible = state == "passed"
+    return {
+        "profile": "verify_project",
+        "producer": "verify-project",
+        "producer_version": VERIFY_PROJECT_SCHEMA_VERSION,
+        "result_sha256": result_sha,
+        "context_sha256": context_sha,
+        "plan_sha256": plan_sha,
+        "state": state,
+        "reason": reason,
+        "next_action": next_action,
+        "target_matched": target_matched,
+        "context_unchanged": context_unchanged,
+        "plan_unchanged": plan_unchanged,
+        "coverage_sufficient": coverage_sufficient,
+        "protected_state_unchanged": protected_unchanged,
+        "plan_exact": plan_exact,
+        "fresh_review_eligible": eligible,
+    }
+
+
+def _verification_bundle(value: Any, target: dict[str, Any]) -> dict[str, Any]:
+    item = _object(value, "verification bundle", {"context", "plan", "result"})
+    return adapt_verify_project(item["result"], item["context"], item["plan"], target)
+
+
+def _validate_verification_record(value: Any) -> dict[str, Any]:
+    item = _object(
+        value,
+        "verification record",
+        {
+            "profile", "producer", "producer_version", "result_sha256",
+            "context_sha256", "plan_sha256", "state", "reason", "next_action",
+            "target_matched", "context_unchanged", "plan_unchanged",
+            "coverage_sufficient", "protected_state_unchanged", "plan_exact",
+            "fresh_review_eligible",
+        },
+    )
+    profile = _enum(item["profile"], VERIFICATION_PROFILES, "verification.profile")
+    state = _enum(item["state"], VERIFICATION_STATES, "verification.state")
+    reason = _enum(item["reason"], VERIFICATION_REASONS, "verification.reason")
+    next_action = _enum(
+        item["next_action"], VERIFICATION_NEXT_ACTIONS, "verification.next_action"
+    )
+    result: dict[str, Any] = {
+        "profile": profile,
+        "producer": _text(item["producer"], "verification.producer", 128, nullable=True, single_line=True),
+        "producer_version": _text(item["producer_version"], "verification.producer_version", 128, nullable=True, single_line=True),
+        "result_sha256": None,
+        "context_sha256": None,
+        "plan_sha256": None,
+        "state": state,
+        "reason": reason,
+        "next_action": next_action,
+    }
+    for field in ("result_sha256", "context_sha256", "plan_sha256"):
+        if item[field] is not None:
+            result[field] = _verification_digest(item[field], f"verification.{field}")
+    for field in (
+        "target_matched", "context_unchanged", "plan_unchanged",
+        "coverage_sufficient", "protected_state_unchanged", "plan_exact",
+    ):
+        result[field] = None if item[field] is None else _boolean(
+            item[field], f"verification.{field}"
+        )
+    result["fresh_review_eligible"] = _boolean(
+        item["fresh_review_eligible"], "verification.fresh_review_eligible"
+    )
+    return result
+
+
 def _run_context(value: Any) -> dict[str, Any]:
     item = _object(
         value,
         "run context",
-        {"schema_version", "target", "reviewers", "command_authorities"},
+        {
+            "schema_version", "target", "reviewers", "command_authorities",
+            "verification_profile",
+        },
     )
     if item["schema_version"] != RUN_SCHEMA_VERSION:
         raise WorkflowError(f"run context schema_version must be {RUN_SCHEMA_VERSION}")
@@ -1354,6 +1825,11 @@ def _run_context(value: Any) -> dict[str, Any]:
         "target": _target(item["target"], "run context.target"),
         "reviewers": reviewers,
         "command_authorities": command_authorities,
+        "verification_profile": _enum(
+            item["verification_profile"],
+            VERIFICATION_PROFILES,
+            "run context.verification_profile",
+        ),
     }
 
 
@@ -1599,12 +2075,48 @@ def _run_validation(
     return records
 
 
+def _fallback_validation_passes(
+    plans: list[dict[str, Any]], validation: list[dict[str, Any]]
+) -> bool:
+    if not validation or any(item["status"] != "passed" for item in validation):
+        return False
+    for item in plans:
+        if not item["applied"]:
+            continue
+        plan = item["plan"]
+        identity = (
+            plan["batch_sha256"],
+            plan["finding"]["fingerprint"],
+        )
+        matching = [
+            record
+            for record in validation
+            if any(
+                (ref["batch_sha256"], ref["finding_fingerprint"]) == identity
+                for ref in record["plan_refs"]
+            )
+        ]
+        if not matching:
+            return False
+        assessment = plan["assessment"]
+        command_required = assessment["validation"] == "available" or assessment[
+            "change_kind"
+        ] in {"code", "configuration"}
+        if command_required and not any(
+            record["method"] == "command" and record["status"] == "passed"
+            for record in matching
+        ):
+            return False
+    return True
+
+
 def _derive_run_outcome(
     rounds: list[dict[str, Any]],
     plans: list[dict[str, Any]],
     changes: list[dict[str, str]],
     validation: list[dict[str, Any]],
-) -> tuple[str, str]:
+    verification: dict[str, Any],
+) -> tuple[str, str, dict[str, Any]]:
     changed_paths = {item["path"] for item in changes}
     applied_paths = {
         path
@@ -1622,45 +2134,46 @@ def _derive_run_outcome(
         for round_record in rounds
         for batch in round_record["batches"]
     ):
-        return "incomplete", "reviewer_incomplete"
+        return "incomplete", "reviewer_incomplete", verification
 
     if changes:
-        if not validation or any(item["status"] != "passed" for item in validation):
-            return "incomplete", "validation_failed"
-        for item in plans:
-            if not item["applied"]:
-                continue
-            plan = item["plan"]
-            identity = (
-                plan["batch_sha256"],
-                plan["finding"]["fingerprint"],
-            )
-            matching = [
-                record
-                for record in validation
-                if any(
-                    (ref["batch_sha256"], ref["finding_fingerprint"]) == identity
-                    for ref in record["plan_refs"]
+        if verification["profile"] == "bounded_validation_fallback":
+            verification = {**verification, "fresh_review_eligible": _fallback_validation_passes(plans, validation)}
+            if not verification["fresh_review_eligible"]:
+                return "incomplete", "validation_failed", verification
+        else:
+            if validation:
+                raise WorkflowError(
+                    "verify-project profile cannot substitute agent-authored validation records"
                 )
-            ]
-            if not matching:
-                return "incomplete", "validation_failed"
-            assessment = plan["assessment"]
-            command_required = assessment["validation"] == "available" or assessment[
-                "change_kind"
-            ] in {"code", "configuration"}
-            if command_required and not any(
-                record["method"] == "command" and record["status"] == "passed"
-                for record in matching
-            ):
-                return "incomplete", "validation_failed"
+            if not verification["fresh_review_eligible"]:
+                if len(rounds) > 1:
+                    raise WorkflowError(
+                        "fresh review cannot run before a target-bound verify-project pass"
+                    )
+                mapping = {
+                    "not_run": ("incomplete", "verification_required"),
+                    "failed": ("stopped", "verification_failed"),
+                    "unknown": ("incomplete", "verification_unknown"),
+                    "incomplete": (
+                        "incomplete",
+                        {
+                            "target_mismatch": "verification_target_mismatch",
+                            "context_drift": "verification_context_drift",
+                            "plan_drift": "verification_plan_drift",
+                            "non_fresh": "verification_not_fresh",
+                        }.get(verification["reason"], "verification_incomplete"),
+                    ),
+                }
+                status, reason = mapping[verification["state"]]
+                return status, reason, verification
 
     final_assessment = rounds[-1]["assessment"]
     if final_assessment is not None:
         if final_assessment["action"] == "accept":
             if _remaining_blockers(rounds[0]["batches"]) and not changes:
                 raise WorkflowError("a fixed blocker cannot be accepted without a recorded change")
-            return "completed", "reviewer_pass"
+            return "completed", "reviewer_pass", verification
         if final_assessment["action"] == "stop":
             mapping = {
                 "incomplete_review": ("incomplete", "reviewer_incomplete"),
@@ -1673,13 +2186,14 @@ def _derive_run_outcome(
             }
             if final_assessment["reason"] not in mapping:
                 raise WorkflowError("run round has an unsupported stop reason")
-            return mapping[final_assessment["reason"]]
+            status, reason = mapping[final_assessment["reason"]]
+            return status, reason, verification
 
     un_applied = [item["plan"] for item in plans if not item["applied"]]
     if any(plan["decision"] == "authorization_required" for plan in un_applied):
-        return "authorization_required", "authorization_required"
+        return "authorization_required", "authorization_required", verification
     if any(plan["decision"] == "user_decision_required" for plan in un_applied):
-        return "decision_required", "user_decision_required"
+        return "decision_required", "user_decision_required", verification
 
     initial = rounds[0]["batches"]
     if not _remaining_blockers(initial) and all(
@@ -1687,11 +2201,15 @@ def _derive_run_outcome(
     ):
         if changes:
             raise WorkflowError("a passing initial review cannot claim applied changes")
-        return "completed", "reviewer_pass"
-    return "incomplete", "workflow_incomplete"
+        return "completed", "reviewer_pass", verification
+    return "incomplete", "workflow_incomplete", verification
 
 
-def finalize_run(draft: Any, context_value: Any) -> dict[str, Any]:
+def finalize_run(
+    draft: Any,
+    context_value: Any,
+    verification_value: Any | None = None,
+) -> dict[str, Any]:
     _assert_bounded_json(draft, "run draft")
     _assert_bounded_json(context_value, "run context")
     item = _object(draft, "run draft", {"rounds", "plans", "changes", "validation", "summary"})
@@ -1699,6 +2217,18 @@ def finalize_run(draft: Any, context_value: Any) -> dict[str, Any]:
     rounds, batches_by_digest, batch_first_round = _run_rounds(item["rounds"], context)
     plans = _run_plans(item["plans"], batches_by_digest)
     changes = _run_changes(item["changes"], context["target"])
+    profile = context["verification_profile"]
+    if verification_value is not None and profile != "verify_project":
+        raise WorkflowError(
+            "bounded validation fallback cannot consume a verify-project bundle"
+        )
+    if verification_value is not None and not changes:
+        raise WorkflowError("verify-project evidence is valid only after an applied fix")
+    verification = (
+        _verification_bundle(verification_value, context["target"])
+        if verification_value is not None
+        else _verification_no_run(profile)
+    )
     if rounds[-1]["assessment"] is not None and rounds[-1]["assessment"]["action"] == "accept":
         final_round = rounds[-1]["round"]
         for plan_record in plans:
@@ -1712,7 +2242,9 @@ def finalize_run(draft: Any, context_value: Any) -> dict[str, Any]:
     validation = _run_validation(
         item["validation"], plans, context["command_authorities"]
     )
-    status, stop_reason = _derive_run_outcome(rounds, plans, changes, validation)
+    status, stop_reason, verification = _derive_run_outcome(
+        rounds, plans, changes, validation, verification
+    )
     summary = _object(item["summary"], "summary", {"conclusion"})
     return {
         "schema_version": RUN_SCHEMA_VERSION,
@@ -1723,13 +2255,18 @@ def finalize_run(draft: Any, context_value: Any) -> dict[str, Any]:
         "plans": plans,
         "changes": changes,
         "validation": validation,
+        "verification": verification,
         "status": status,
         "stop_reason": stop_reason,
         "summary": {"conclusion": _text(summary["conclusion"], "summary.conclusion", 2000)},
     }
 
 
-def validate_run(value: Any, context_value: Any) -> dict[str, Any]:
+def validate_run(
+    value: Any,
+    context_value: Any,
+    verification_value: Any | None = None,
+) -> dict[str, Any]:
     _assert_bounded_json(value, "run result")
     _assert_bounded_json(context_value, "run context")
     item = _object(
@@ -1744,6 +2281,7 @@ def validate_run(value: Any, context_value: Any) -> dict[str, Any]:
             "plans",
             "changes",
             "validation",
+            "verification",
             "status",
             "stop_reason",
             "summary",
@@ -1753,6 +2291,7 @@ def validate_run(value: Any, context_value: Any) -> dict[str, Any]:
         raise WorkflowError(f"run result schema_version must be {RUN_SCHEMA_VERSION}")
     _enum(item["status"], RUN_STATUSES, "run result.status")
     _enum(item["stop_reason"], RUN_STOP_REASONS, "run result.stop_reason")
+    _validate_verification_record(item["verification"])
     expected = finalize_run(
         {
             "rounds": copy.deepcopy(item["rounds"]),
@@ -1762,6 +2301,7 @@ def validate_run(value: Any, context_value: Any) -> dict[str, Any]:
             "summary": copy.deepcopy(item["summary"]),
         },
         context_value,
+        verification_value,
     )
     if item != expected:
         raise WorkflowError("run result is not in canonical finalized form")
@@ -1914,6 +2454,7 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     for name in (
         "from-project-review",
+        "adapt-verification",
         "finalize-batch",
         "validate-batch",
         "finalize-plan",
@@ -1936,6 +2477,22 @@ def _parser() -> argparse.ArgumentParser:
                 required=True,
                 help="lead-owned expected target JSON path",
             )
+        if name == "adapt-verification":
+            command.add_argument(
+                "--context",
+                required=True,
+                help="lead-owned canonical verify-project context JSON path",
+            )
+            command.add_argument(
+                "--plan",
+                required=True,
+                help="canonical verify-project plan JSON path",
+            )
+            command.add_argument(
+                "--target",
+                required=True,
+                help="lead-owned expected review-and-fix target JSON path",
+            )
         if name in {"finalize-plan", "validate-plan"}:
             command.add_argument(
                 "--batch",
@@ -1952,6 +2509,18 @@ def _parser() -> argparse.ArgumentParser:
                 "--context",
                 required=True,
                 help="lead-owned review-and-fix run context JSON path",
+            )
+            command.add_argument(
+                "--verification-context",
+                help="lead-owned canonical verify-project context JSON path",
+            )
+            command.add_argument(
+                "--verification-plan",
+                help="canonical verify-project plan JSON path",
+            )
+            command.add_argument(
+                "--verification-result",
+                help="canonical verify-project result JSON path",
             )
         command.add_argument("--output", help="explicit JSON output path; stdout when omitted")
         command.add_argument(
@@ -1973,6 +2542,11 @@ def main(argv: list[str] | None = None) -> int:
             result = convert_project_review(
                 value, expected_target, hashlib.sha256(raw).hexdigest()
             )
+        elif args.command == "adapt-verification":
+            context, _ = _read_json(args.context)
+            plan, _ = _read_json(args.plan)
+            expected_target, _ = _read_json(args.target)
+            result = adapt_verify_project(value, context, plan, expected_target)
         elif args.command == "finalize-batch":
             envelope, _ = _read_json(args.envelope)
             result = finalize_batch(value, envelope)
@@ -1990,10 +2564,46 @@ def main(argv: list[str] | None = None) -> int:
             result = assess_round(value)
         elif args.command == "finalize-run":
             context, _ = _read_json(args.context)
-            result = finalize_run(value, context)
+            verification_paths = (
+                args.verification_context,
+                args.verification_plan,
+                args.verification_result,
+            )
+            if any(verification_paths) and not all(verification_paths):
+                raise WorkflowError(
+                    "verification context, plan, and result paths must be supplied together"
+                )
+            verification = (
+                {
+                    "context": _read_json(args.verification_context)[0],
+                    "plan": _read_json(args.verification_plan)[0],
+                    "result": _read_json(args.verification_result)[0],
+                }
+                if all(verification_paths)
+                else None
+            )
+            result = finalize_run(value, context, verification)
         elif args.command == "validate-run":
             context, _ = _read_json(args.context)
-            result = validate_run(value, context)
+            verification_paths = (
+                args.verification_context,
+                args.verification_plan,
+                args.verification_result,
+            )
+            if any(verification_paths) and not all(verification_paths):
+                raise WorkflowError(
+                    "verification context, plan, and result paths must be supplied together"
+                )
+            verification = (
+                {
+                    "context": _read_json(args.verification_context)[0],
+                    "plan": _read_json(args.verification_plan)[0],
+                    "result": _read_json(args.verification_result)[0],
+                }
+                if all(verification_paths)
+                else None
+            )
+            result = validate_run(value, context, verification)
         else:  # pragma: no cover - argparse owns this boundary
             raise WorkflowError(f"unknown command: {args.command}")
         _emit(result, args.output, args.replace)

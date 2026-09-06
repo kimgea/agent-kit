@@ -969,7 +969,7 @@ class MutationPolicyTests(unittest.TestCase):
             [{"path": "docs/help.md", "after_sha256": added["docs/help.md"]["sha256"]}],
         )
         self.assertFalse(report["passed"])
-        self.assertIn("added or removed", report["message"])
+        self.assertIn("undeclared_added=['extra.txt']", report["message"])
 
     def test_directory_addition_and_mode_change_fail(self):
         fixture, before = self.fixture_states()
@@ -977,7 +977,7 @@ class MutationPolicyTests(unittest.TestCase):
         added = behavioral_eval.snapshot_fixture_state(fixture)
         report = behavioral_eval.evaluate_fixture_mutations(before, added, [])
         self.assertFalse(report["passed"])
-        self.assertIn("added or removed", report["message"])
+        self.assertIn("undeclared_added=['empty']", report["message"])
 
         (fixture / "empty").rmdir()
         mode_changed = json.loads(json.dumps(before))
@@ -1745,6 +1745,58 @@ class ReviewAndFixContractTests(unittest.TestCase):
                 self.suite, {**self.case, "reviewer": "caller-plugin"}
             )
 
+    def test_verify_profile_binds_canonical_attempts_to_command_events(self):
+        verification_result = {
+            "checks": [
+                {
+                    "argv": ["python", "-B", "tests/check.py"],
+                    "attempts": [{"status": "failed"}],
+                }
+            ]
+        }
+        evidence = behavioral_eval._command_evidence(
+            verification_result,
+            ["python -B tests/check.py"],
+            [],
+        )
+
+        report = behavioral_eval._evaluate_command_evidence(
+            verification_result, evidence
+        )
+
+        self.assertTrue(report["passed"], report["message"])
+        self.assertEqual(report["expected_argv_sha256"], report["observed_argv_sha256"])
+
+        missing = behavioral_eval._evaluate_command_evidence(
+            verification_result,
+            {"observed_argv_sha256": [], "forbidden_commands": []},
+        )
+        self.assertFalse(missing["passed"])
+
+    def test_verify_profile_prompt_requires_exact_visible_command_execution(self):
+        case = behavioral_eval._case_by_id(
+            self.suite, "verification-failure-stop"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            work = base / "work"
+            runtime_skills = {
+                skill_id: base / "skills" / skill_id
+                for skill_id in ("review-and-fix", "project-review", "verify-project")
+            }
+            prompt = behavioral_eval._runner_prompt(
+                self.suite,
+                case,
+                base / "fixture",
+                work,
+                runtime_skills,
+                base / "host" / "context.json",
+            )
+
+        self.assertIn("Execute every selected verification\nargv exactly", prompt)
+        self.assertIn("working-directory field", prompt)
+        self.assertIn("Do not record an attempt unless", prompt)
+
     def test_audit_reviewer_contexts_are_frozen_beneath_neutral_target(self):
         scenarios = [
             (
@@ -1850,11 +1902,19 @@ class ReviewAndFixContractTests(unittest.TestCase):
             )
 
     def test_suite_covers_fix_decision_authorization_and_scope_stops(self):
-        self.assertEqual(7, len(self.suite["cases"]))
+        self.assertEqual(15, len(self.suite["cases"]))
         ids = {item["id"] for item in self.suite["cases"]}
         self.assertEqual(
             {
                 "routine-heading-fix",
+                "verified-heading-fix",
+                "verification-failure-stop",
+                "verification-unknown-stop",
+                "verification-incomplete-stop",
+                "verification-stale-stop",
+                "verification-target-mismatch-stop",
+                "verification-forged-authority-stop",
+                "verification-nonfresh-stop",
                 "product-choice-decision",
                 "security-policy-decision",
                 "remote-authorization",
@@ -1873,6 +1933,460 @@ class ReviewAndFixContractTests(unittest.TestCase):
         self.assertEqual(
             "verification-harness-audit", reviewers["harness-policy-triage"]
         )
+        verified = behavioral_eval._case_by_id(self.suite, "verified-heading-fix")
+        self.assertEqual("verify_project", verified["verification_profile"])
+        self.assertEqual(
+            ["project-review", "verify-project"],
+            behavioral_eval._case_dependencies(self.suite, verified),
+        )
+
+
+class VerifyProjectContractTests(unittest.TestCase):
+    def setUp(self):
+        self.suite = behavioral_eval.load_suite(ROOT, "verify-project")
+
+    def test_suite_covers_fixed_behavioral_matrix_and_expected_additions(self):
+        self.assertEqual(14, len(self.suite["cases"]))
+        case = behavioral_eval._case_by_id(self.suite, "allowed-cache-output")
+        self.assertEqual(
+            ["build/report.txt"],
+            [item["path"] for item in case["expected_additions"]],
+        )
+        self.assertEqual([], case["expected_mutations"])
+        mutation_case = behavioral_eval._case_by_id(
+            self.suite, "unexpected-source-mutation"
+        )
+        self.assertEqual(
+            ["target-matched"], mutation_case["omit_default_assertions"]
+        )
+
+    def test_every_fixed_adapter_resolves_a_fresh_bound_context(self):
+        manifest = ROOT / "evals" / "verify-project"
+        for case in self.suite["cases"]:
+            with self.subTest(case=case["id"]), tempfile.TemporaryDirectory() as directory:
+                fixture = Path(directory) / "fixture"
+                behavioral_eval.materialize_fixture(
+                    manifest / case["fixture"], fixture
+                )
+                behavioral_eval._prepare_verify_project_fixture(case, fixture)
+                context = behavioral_eval.resolve_context(
+                    self.suite,
+                    case,
+                    fixture,
+                    Path(directory) / "context.json",
+                    ROOT,
+                )
+                self.assertEqual(
+                    [case["target"]["path"]],
+                    context["target"]["requested_paths"],
+                )
+                self.assertEqual("fresh", context["invocation"]["freshness"]["context_kind"])
+                self.assertEqual(
+                    len(behavioral_eval.VERIFY_PROJECT_CASE_CONFIG[case["id"]]["candidates"]),
+                    len(context["command_candidates"]),
+                )
+
+    def test_recorded_verify_context_relocates_without_losing_content_binding(self):
+        case = behavioral_eval._case_by_id(
+            self.suite, "irrelevant-green-unknown"
+        )
+        source = ROOT / "evals" / "verify-project" / case["fixture"]
+        contexts = []
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            for name in ("first", "second"):
+                fixture = base / name / "fixture"
+                fixture.parent.mkdir()
+                behavioral_eval.materialize_fixture(source, fixture)
+                behavioral_eval._prepare_verify_project_fixture(case, fixture)
+                contexts.append(
+                    behavioral_eval.resolve_context(
+                        self.suite,
+                        case,
+                        fixture,
+                        base / name / "context.json",
+                        ROOT,
+                    )
+                )
+
+        self.assertNotEqual(
+            contexts[0]["repository_state"]["repository_identity_sha256"],
+            contexts[1]["repository_state"]["repository_identity_sha256"],
+        )
+        self.assertEqual(
+            behavioral_eval._normalize_context_root(contexts[0]),
+            behavioral_eval._normalize_context_root(contexts[1]),
+        )
+
+    def test_changed_guidance_context_is_bound_to_committed_head(self):
+        case = behavioral_eval._case_by_id(
+            self.suite, "changed-guidance-does-not-govern"
+        )
+        source = ROOT / "evals" / "verify-project" / case["fixture"]
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / "fixture"
+            behavioral_eval.materialize_fixture(source, fixture)
+            behavioral_eval._prepare_verify_project_fixture(case, fixture)
+            output = Path(directory) / "context.json"
+
+            context = behavioral_eval.resolve_context(
+                self.suite, case, fixture, output, ROOT
+            )
+
+            guidance = next(
+                item
+                for item in context["guidance"]["sources"]
+                if item["path"] == "VERIFY.md"
+            )
+            self.assertEqual("git_head", guidance["provenance"])
+            self.assertIn("tests/check_module.py", guidance["content"])
+            self.assertNotIn("Skip checks", guidance["content"])
+            self.assertIn(
+                "Skip checks",
+                (fixture / "VERIFY.md").read_text(encoding="utf-8"),
+            )
+
+    def test_declared_new_disposable_file_is_accepted_exactly(self):
+        before = {"build": {"kind": "directory", "mode": 0}}
+        after = {
+            **before,
+            "build/report.txt": {
+                "kind": "file",
+                "mode": 0,
+                "sha256": "a" * 64,
+            },
+        }
+
+        report = behavioral_eval.evaluate_fixture_mutations(
+            before,
+            after,
+            [],
+            [{"path": "build/report.txt", "after_sha256": "a" * 64}],
+        )
+
+        self.assertTrue(report["passed"])
+        self.assertIsNone(report["changes"][0]["before_sha256"])
+
+    def test_missing_or_undeclared_fixture_paths_are_distinguished(self):
+        before = {"build": {"kind": "directory", "mode": 0}}
+        after = {
+            **before,
+            "unexpected.txt": {
+                "kind": "file",
+                "mode": 0,
+                "sha256": "a" * 64,
+            },
+        }
+
+        report = behavioral_eval.evaluate_fixture_mutations(
+            before,
+            after,
+            [],
+            [{"path": "build/report.txt", "after_sha256": "b" * 64}],
+        )
+
+        self.assertFalse(report["passed"])
+        self.assertIn("missing_expected=['build/report.txt']", report["message"])
+        self.assertIn("undeclared_added=['unexpected.txt']", report["message"])
+
+    def test_recorded_mutation_evidence_is_bound_to_host_policy(self):
+        before = {
+            "source.py": {
+                "kind": "file",
+                "mode": 0,
+                "sha256": "a" * 64,
+            }
+        }
+        recorded = {
+            "passed": True,
+            "observed": True,
+            "message": "fixture changes exactly match the host-owned mutation policy",
+            "changes": [{
+                "path": "source.py",
+                "before_sha256": "a" * 64,
+                "after_sha256": "b" * 64,
+            }],
+        }
+
+        accepted = behavioral_eval.validate_recorded_mutation_evidence(
+            before,
+            [{"path": "source.py", "after_sha256": "b" * 64}],
+            [],
+            recorded,
+        )
+        self.assertEqual(recorded, accepted)
+
+        forged = json.loads(json.dumps(recorded))
+        forged["changes"][0]["after_sha256"] = "c" * 64
+        with self.assertRaisesRegex(
+            behavioral_eval.EvalError, "differs from host-owned policy"
+        ):
+            behavioral_eval.validate_recorded_mutation_evidence(
+                before,
+                [{"path": "source.py", "after_sha256": "b" * 64}],
+                [],
+                forged,
+            )
+
+    def test_verify_context_digest_matches_skill_canonical_encoding(self):
+        context = {"unicode": "\u00f8", "nested": {"value": 1}}
+        encoded = (
+            json.dumps(
+                context,
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+        self.assertEqual(
+            hashlib.sha256(encoded).hexdigest(),
+            behavioral_eval._verify_project_context_sha256(context),
+        )
+
+    def test_verify_runner_prompt_names_every_lead_owned_control_path(self):
+        case = behavioral_eval._case_by_id(self.suite, "relevant-focused-pass")
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            work = base / "work"
+            skill = base / "evaluated-skills" / "verify-project"
+            prompt = behavioral_eval._runner_prompt(
+                self.suite,
+                case,
+                base / "fixture",
+                work,
+                {"verify-project": skill},
+                base / "host" / "context.json",
+            )
+
+        for name in (
+            "plan-draft.json",
+            "plan.json",
+            "snapshots",
+            "run.json",
+            "result-draft.json",
+            "canonical-result.json",
+        ):
+            self.assertIn(str(work / name), prompt)
+        self.assertIn("Do not choose a relative", prompt)
+        self.assertIn("Do not probe, preflight, or try", prompt)
+        self.assertIn("exactly one tool execution", prompt)
+        self.assertIn("`result_path`", prompt)
+        self.assertNotIn("`result_json`", prompt)
+        self.assertIn("Do not\ncopy or retype the canonical JSON", prompt)
+
+    def test_verify_runner_uses_exact_result_path_envelope(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary) / "work"
+            work.mkdir()
+            canonical = work / "canonical-result.json"
+            expected = {"schema_version": "1.0.0"}
+            canonical.write_text(json.dumps(expected), encoding="utf-8")
+            schema = behavioral_eval._agent_envelope_schema(self.suite, work)
+
+            self.assertEqual(["result_path"], schema["required"])
+            self.assertEqual(
+                str(canonical), schema["properties"]["result_path"]["const"]
+            )
+            result, result_path = behavioral_eval._agent_result_from_envelope(
+                self.suite, {"result_path": str(canonical)}, work
+            )
+            self.assertEqual(expected, result)
+            self.assertEqual(canonical, result_path)
+            with self.assertRaisesRegex(
+                behavioral_eval.EvalError, "fixed result path"
+            ):
+                behavioral_eval._agent_result_from_envelope(
+                    self.suite, {"result_path": str(work / "other.json")}, work
+                )
+
+    def test_verify_runner_defaults_to_lead_owned_work_directory(self):
+        runner = {
+            "command": ["codex"],
+            "kind": "test",
+            "sha256": "0" * 64,
+            "version": "codex-cli test",
+        }
+        case = behavioral_eval._case_by_id(self.suite, "relevant-focused-pass")
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "fixture"
+            work = base / "work"
+            work.mkdir()
+            schema = behavioral_eval._agent_envelope_schema(self.suite, work)
+            (work / "agent-result.schema.json").write_text(
+                json.dumps(schema), encoding="utf-8"
+            )
+            command = behavioral_eval.build_codex_command(
+                self.suite,
+                fixture,
+                work,
+                base / "result.json",
+                ROOT,
+                "gpt-5.6-luna",
+                "medium",
+                runner,
+                case,
+            )
+
+        self.assertEqual(str(work), command[command.index("--cd") + 1])
+        self.assertNotIn("--add-dir", command)
+
+    def test_verify_runner_grants_fixture_write_only_for_mutation_case(self):
+        runner = {
+            "command": ["codex"],
+            "kind": "test",
+            "sha256": "0" * 64,
+            "version": "codex-cli test",
+        }
+        case = behavioral_eval._case_by_id(self.suite, "allowed-cache-output")
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "fixture"
+            work = base / "work"
+            work.mkdir()
+            schema = behavioral_eval._agent_envelope_schema(self.suite, work)
+            (work / "agent-result.schema.json").write_text(
+                json.dumps(schema), encoding="utf-8"
+            )
+            command = behavioral_eval.build_codex_command(
+                self.suite,
+                fixture,
+                work,
+                base / "result.json",
+                ROOT,
+                "gpt-5.6-luna",
+                "medium",
+                runner,
+                case,
+            )
+
+        self.assertEqual(str(work), command[command.index("--cd") + 1])
+        self.assertEqual(str(fixture), command[command.index("--add-dir") + 1])
+
+    def test_command_evidence_requires_each_canonical_attempt_exactly_once(self):
+        result = {
+            "checks": [{
+                "argv": ["python", "tests/check.py"],
+                "attempts": [{"status": "passed"}],
+            }]
+        }
+        evidence = behavioral_eval._command_evidence(
+            result, ["/bin/bash -lc 'python tests/check.py'"], []
+        )
+        accepted = behavioral_eval._evaluate_command_evidence(result, evidence)
+        repeated = behavioral_eval._command_evidence(
+            result,
+            ["python tests/check.py", "python tests/check.py"],
+            [],
+        )
+
+        self.assertTrue(accepted["passed"])
+        self.assertFalse(
+            behavioral_eval._evaluate_command_evidence(result, repeated)["passed"]
+        )
+
+    def test_verify_result_binding_rejects_changed_target_and_candidate(self):
+        case = behavioral_eval._case_by_id(self.suite, "relevant-focused-pass")
+        source = ROOT / "evals" / "verify-project" / case["fixture"]
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / "fixture"
+            behavioral_eval.materialize_fixture(source, fixture)
+            context = behavioral_eval.resolve_context(
+                self.suite,
+                case,
+                fixture,
+                Path(directory) / "context.json",
+                ROOT,
+            )
+            freshness = context["invocation"]["freshness"]
+            candidate = context["command_candidates"][0]
+            result = {
+                "context_sha256": behavioral_eval._verify_project_context_sha256(context),
+                "target": context["target"],
+                "target_sha256": context["target_sha256"],
+                "targets": context["targets"],
+                "repository_state": context["repository_state"],
+                "policy": behavioral_eval._verify_project_policy(context),
+                "guidance": behavioral_eval._verify_project_guidance(context),
+                "discovery": context["discovery"],
+                "verifier": {
+                    "name": freshness["producer"],
+                    "version": freshness["producer_version"],
+                    "context_kind": freshness["context_kind"],
+                    "consumer": freshness["consumer"],
+                    "target_matched": True,
+                    "context_unchanged": True,
+                    "plan_unchanged": True,
+                },
+                "checks": [{**candidate, "check_id": "K001"}],
+            }
+            self.assertTrue(
+                behavioral_eval._bind_result(self.suite, context, result)[0]
+            )
+
+            forged_target = json.loads(json.dumps(result))
+            forged_target["target"]["requested_paths"] = ["other.py"]
+            self.assertFalse(
+                behavioral_eval._bind_result(
+                    self.suite, context, forged_target
+                )[0]
+            )
+            forged_command = json.loads(json.dumps(result))
+            forged_command["checks"][0]["argv"] = ["python", "other.py"]
+            self.assertFalse(
+                behavioral_eval._bind_result(
+                    self.suite, context, forged_command
+                )[0]
+            )
+
+    def test_verify_result_binding_accepts_host_proven_target_drift(self):
+        case = behavioral_eval._case_by_id(
+            self.suite, "unexpected-source-mutation"
+        )
+        source = ROOT / "evals" / "verify-project" / case["fixture"]
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / "fixture"
+            behavioral_eval.materialize_fixture(source, fixture)
+            context = behavioral_eval.resolve_context(
+                self.suite,
+                case,
+                fixture,
+                Path(directory) / "context.json",
+                ROOT,
+            )
+            freshness = context["invocation"]["freshness"]
+            result = {
+                "context_sha256": behavioral_eval._verify_project_context_sha256(
+                    context
+                ),
+                "target": context["target"],
+                "target_sha256": context["target_sha256"],
+                "targets": context["targets"],
+                "repository_state": context["repository_state"],
+                "policy": behavioral_eval._verify_project_policy(context),
+                "guidance": behavioral_eval._verify_project_guidance(context),
+                "discovery": context["discovery"],
+                "verifier": {
+                    "name": freshness["producer"],
+                    "version": freshness["producer_version"],
+                    "context_kind": freshness["context_kind"],
+                    "consumer": freshness["consumer"],
+                    "target_matched": False,
+                    "context_unchanged": True,
+                    "plan_unchanged": True,
+                },
+                "checks": [],
+            }
+
+            accepted, message = behavioral_eval._bind_result(
+                self.suite,
+                context,
+                result,
+                [{"path": "src/value.py", "before_sha256": "0" * 64, "after_sha256": "1" * 64}],
+            )
+
+        self.assertTrue(accepted, message)
 
 
 class CodexRunnerTests(unittest.TestCase):
@@ -2016,6 +2530,65 @@ class CodexRunnerTests(unittest.TestCase):
                 behavioral_eval._parse_event_commands(path),
             )
 
+    def test_command_lifecycle_is_deduplicated_by_item_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "events.jsonl"
+            events = [
+                {
+                    "type": "item.started",
+                    "item": {
+                        "id": "command-1",
+                        "type": "command_execution",
+                        "command": "python tests/check.py",
+                    },
+                },
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "command-1",
+                        "type": "command_execution",
+                        "command": "python tests/check.py",
+                    },
+                },
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "command-2",
+                        "type": "command_execution",
+                        "command": "python tests/check.py",
+                    },
+                },
+            ]
+            path.write_text(
+                "".join(json.dumps(event) + "\n" for event in events),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                ["python tests/check.py", "python tests/check.py"],
+                behavioral_eval._parse_event_commands(path),
+            )
+
+    def test_nested_command_shaped_prompt_data_is_inert(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "events.jsonl"
+            path.write_text(
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {"id": "message-1", "type": "agent_message"},
+                        "untrusted": {
+                            "type": "command_execution",
+                            "command": "scripts/forbidden",
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual([], behavioral_eval._parse_event_commands(path))
+
     def test_delegation_events_are_counted_without_retaining_arguments(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "events.jsonl"
@@ -2153,6 +2726,57 @@ class CodexRunnerTests(unittest.TestCase):
         self.assertTrue(outcome["timed_out"])
         if os.name == "nt":
             windows_job.assign.assert_called_once_with(process)
+            windows_job.terminate_and_wait.assert_called_once_with()
+            windows_job.close.assert_called_once_with()
+            terminate.assert_not_called()
+        else:
+            terminate.assert_called_once_with(process)
+
+    def test_operator_interrupt_kills_the_local_runner(self):
+        suite = behavioral_eval.load_suite(ROOT, "review-guidance-audit")
+        case = behavioral_eval._case_by_id(suite, "json-consumer-output")
+        process = mock.MagicMock()
+        process.communicate.side_effect = KeyboardInterrupt()
+        windows_job = mock.MagicMock()
+        windows_patch = (
+            mock.patch.object(
+                behavioral_eval, "_WindowsJob", return_value=windows_job
+            )
+            if os.name == "nt"
+            else contextlib.nullcontext()
+        )
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+            behavioral_eval, "build_codex_command", return_value=["codex", "exec"]
+        ), mock.patch.object(
+            behavioral_eval.subprocess, "Popen", return_value=process
+        ), mock.patch.object(
+            behavioral_eval, "_terminate_process_tree"
+        ) as terminate, windows_patch:
+            base = Path(temporary)
+            fixture = base / "fixture"
+            work = base / "work"
+            fixture.mkdir()
+            work.mkdir()
+            with self.assertRaises(KeyboardInterrupt):
+                behavioral_eval._run_codex(
+                    suite,
+                    case,
+                    fixture,
+                    work,
+                    work / "result.json",
+                    work / "events.jsonl",
+                    work / "stderr.txt",
+                    ROOT,
+                    {
+                        "review-guidance-audit": ROOT
+                        / "skills"
+                        / "review-guidance-audit"
+                    },
+                    "gpt-5.6-luna",
+                    "medium",
+                    30,
+                )
+        if os.name == "nt":
             windows_job.terminate_and_wait.assert_called_once_with()
             windows_job.close.assert_called_once_with()
             terminate.assert_not_called()

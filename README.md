@@ -27,9 +27,10 @@ Current skills:
 | `build-interactive-diagram` | Create polished temporary HTML visuals for explanations | Writes only the selected artifact output directory |
 | `grill-me` | Pressure-test decisions, plans, artifacts, and diagnoses | None |
 | `project-review` | Review bounded changes under root and nested `REVIEW.md` guidance | Reads project source and optional user guidance; writes output only when explicitly requested |
-| `review-and-fix` | Safely address local review findings through decision gates and fresh re-review | Reads bounded project/review data; changes only eligible or approved local files |
+| `review-and-fix` | Safely address local review findings through decision, verification, and fresh-review gates | Reads bounded project/review/verification data; changes only eligible or approved local files |
 | `review-guidance-audit` | Improve hierarchical `REVIEW.md` guidance without editing it | Reads selected project files and review guidance; writes output only when explicitly requested |
 | `verification-harness-audit` | Assess whether selected local checks provide meaningful, timely, reliable protection | Reads bounded harness, context, guidance, and authorized command summaries; writes output only when explicitly requested |
+| `verify-project` | Plan or perform evidence-driven verification of exact current local changes | Reads bounded project context; may run caller-authorized local checks and create only declared disposable outputs |
 | `serve-artifacts` | Host and revoke transient web artifacts locally or through a selected private-network adapter | Private OS-native artifact copies, lifecycle state, and optional adapter ownership |
 | `todo-capture` | Preserve deferred work as shared pickup pointers | Private OS-native state directory |
 | `tool-audit` | Audit local tools, agent usage, friction, and permissions | Private OS-native state plus read-only transcript access |
@@ -42,13 +43,17 @@ visuals, framework output, lifecycle limits, and provider-neutral browser access
 The [project-review guide](docs/project-review.md) covers hierarchical review
 policy, trusted-base behavior, structured findings, and verification authority.
 The [review-and-fix guide](docs/review-and-fix.md) explains neutral reviewer
-normalization, conservative automatic-fix eligibility, and fresh acceptance.
+normalization, conservative automatic-fix eligibility, canonical verification,
+and fresh acceptance.
 The [review-guidance audit guide](docs/review-guidance-audit.md) explains scoped
 guidance analysis, context compaction, placement, and when automated checks can
 replace or only support review rules.
 The [verification harness audit guide](docs/verification-harness-audit.md)
 explains harness-centered scope, assertion and command-wiring analysis, local CI
 inspection, evidence calibration, and canonical output.
+The [verify-project guide](docs/verify-project.md) explains current-state target
+binding, hierarchical `VERIFY.md`, progressive local checks, mutation evidence,
+and canonical verification results.
 The [local behavioral evaluation guide](docs/behavioral-evals.md) explains how
 maintainers can run fresh-agent skill evaluations locally while keeping paid
 model calls out of the canonical gate and GitHub Actions.
@@ -64,7 +69,7 @@ for repeatable use. For an ownership-aware installation, clone the tagged toolki
 release, then install only the selected skill:
 
 ```bash
-git clone --branch v1.10.0 --depth 1 https://github.com/kimgea/agent-kit.git
+git clone --branch v1.11.0 --depth 1 https://github.com/kimgea/agent-kit.git
 cd agent-kit
 python scripts/agent_kit.py list
 ```
@@ -105,8 +110,8 @@ available unless that deployment is first removed and installed through
 Every installable skill is released both as a standalone skill archive and as
 part of a Codex plugin. Most plugins contain one skill. The coherent `artifacts`
 plugin groups the diagram producer with the artifact host, while the
-`project-review` plugin groups project review, review-and-fix, and review-guidance
-audit with verification-harness audit. The release
+`project-review` plugin groups project review, review-and-fix, review-guidance
+audit, verification-harness audit, and verify-project. The release
 includes an `agent-kit-marketplace-<version>.zip` catalog whose entries point to
 the bundled local plugin directories. Select a focused plugin when its grouped
 workflow is useful, or use a standalone archive to install one skill by itself.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Project"
+  short_description: "Verify local changes with bounded evidence"
+  default_prompt: "Use $verify-project to verify these exact local changes with relevant bounded checks."

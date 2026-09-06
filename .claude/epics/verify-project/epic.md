@@ -1,8 +1,9 @@
 ---
 name: verify-project
-status: backlog
+status: in-progress
 created: 2026-09-05T19:50:10Z
-progress: 0%
+updated: 2026-09-06T05:28:53Z
+progress: 87%
 prd: .claude/prds/verify-project.md
 github: (will be set on sync)
 ---
@@ -126,13 +127,13 @@ tests, behavioral evidence, consumer integration, and delivery remain gated.
 
 ## Tasks Created
 
-- [ ] 001.md - Define skill skeleton and canonical contracts (parallel: false)
-- [ ] 002.md - Implement current-state target and VERIFY guidance resolver (parallel: true)
-- [ ] 003.md - Implement plan, snapshot, result, and rendering helpers (parallel: true)
-- [ ] 004.md - Author verifier workflow and repository integration (parallel: true)
-- [ ] 005.md - Add deterministic and hierarchy-conformance coverage (parallel: false)
-- [ ] 006.md - Add behavioral evaluations and fresh local evidence (parallel: false)
-- [ ] 007.md - Integrate verify-project with review-and-fix (parallel: false)
+- [x] 001.md - Define skill skeleton and canonical contracts (parallel: false)
+- [x] 002.md - Implement current-state target and VERIFY guidance resolver (parallel: true)
+- [x] 003.md - Implement plan, snapshot, result, and rendering helpers (parallel: true)
+- [x] 004.md - Author verifier workflow and repository integration (parallel: true)
+- [x] 005.md - Add deterministic and hierarchy-conformance coverage (parallel: false)
+- [x] 006.md - Add behavioral evaluations and fresh local evidence (parallel: false)
+- [x] 007.md - Integrate verify-project with review-and-fix (parallel: false)
 - [ ] 008.md - Validate, review, and deliver the capability (parallel: false)
 
 Total tasks: 8

@@ -24,9 +24,10 @@ exact source-tree digest before and after validation instead.
 | `build-interactive-diagram` | Supported | Supported | Plain HTML/CSS/JS starter; host is optional |
 | `grill-me` | Supported | Supported | Plain Markdown; no runtime code |
 | `project-review` | Supported | Supported | Standard-library scope/result helpers; Git is needed for change scopes |
-| `review-and-fix` | Supported | Supported | Plain orchestration plus standard-library batch, plan, and round helpers; fresh subagents are required for unfamiliar prose |
+| `review-and-fix` | Supported | Supported | Standard-library batch, plan, verification-adapter, and round helpers; fresh subagents are required for unfamiliar prose and fresh verification/review roles |
 | `review-guidance-audit` | Supported | Supported | Standard-library current-filesystem resolver and canonical result helper; no external service required |
 | `verification-harness-audit` | Supported | Supported | Standard-library progressive resolver and canonical result helper; local CI is project data and no provider service is required |
+| `verify-project` | Supported | Supported | Standard-library context, plan, snapshot, and result helpers; project commands remain visible agent tool calls |
 | `serve-artifacts` | Supported | Supported | Standard-library local-first host; network adapters are optional |
 | `todo-capture` | Supported | Supported | Native Windows and POSIX storage/permission fixtures |
 | `tool-audit` | Supported | Supported | Codex and Claude transcript parsers; wrapped Codex calls are conservative |
@@ -68,6 +69,13 @@ native Windows tests exercise no-reparse handles, locked ancestor paths, UTF-8
 stdout, and output ownership. macOS uses the POSIX descriptor-relative path and
 no-follow implementation but has no native CI runner yet. Optional subreviews
 change throughput, not target, authority, or result semantics.
+
+Verify-project helpers also use only Python 3.11 standard-library modules.
+Explicit current-path scope works without Git; combined working-tree scope and
+committed guidance provenance require Git. Linux and Windows tests cover path,
+alias, snapshot, create-only output, and mutation boundaries. macOS follows the
+POSIX descriptor-relative implementation but has no native CI runner. Project
+commands are not wrapped or hidden by the skill.
 
 ## Installation paths
 
