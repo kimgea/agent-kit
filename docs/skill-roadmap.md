@@ -20,8 +20,9 @@ roles and composition rules that govern future work.
 
 Agent Kit already has three useful workflow areas:
 
-1. Review and local remediation: `project-review`, `review-guidance-audit`,
-   `verification-harness-audit`, and `review-and-fix`.
+1. Impact, review, verification, and local remediation: `change-impact`,
+   `project-review`, `review-guidance-audit`, `verification-harness-audit`,
+   `verify-project`, and `review-and-fix`.
 2. Interactive explanation: `build-interactive-diagram` and `serve-artifacts`.
 3. Local context and work support: `agent-context`, `grill-me`, `todo-capture`,
    and `tool-audit`.
@@ -33,9 +34,28 @@ fresh independent acceptance. The artifact family proves that two standalone
 skills can compose through an explicit directory and JSON CLI seam without
 runtime imports.
 
-The first planned gap—reliable, reusable local verification for a selected
-change—is now implemented. The next likely capability should be promoted only
-from real failed-verification evidence, not from a speculative taxonomy.
+Reliable local verification and focused evidence-backed impact mapping are now
+implemented. Impact results may inform later review and verification scope, but
+they never expand it automatically. The next likely capability should be
+promoted only from real failed-verification evidence, not from a speculative
+taxonomy.
+
+## Shipped foundation: change-impact
+
+`change-impact` answers which code, contracts, tests, documentation,
+configuration, generated artifacts, platforms, or safety boundaries an exact
+change may affect and why. It freezes selected targets separately from bounded
+related context and returns human or canonical impact evidence.
+
+The skill is intentionally analysis-only. It does not find defects, run checks,
+choose fixes, or grant another workflow permission to widen scope. Consumer
+purposes are advisory: a review lead, verifier, or remediation planner validates
+the result and independently decides whether a related path remains context or
+becomes part of its own target or claims.
+
+The accepted design and implementation are tracked in
+`.claude/prds/change-impact.md` and
+`.claude/epics/archived/change-impact/`.
 
 ## Shipped foundation: verify-project
 

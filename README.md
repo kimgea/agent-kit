@@ -25,6 +25,7 @@ Current skills:
 |---|---|---|
 | `agent-context` | Resolve explicitly registered private context for the current project | Reads registered context repositories; writes nothing |
 | `build-interactive-diagram` | Create polished temporary HTML visuals for explanations | Writes only the selected artifact output directory |
+| `change-impact` | Map the evidence-backed reach of exact changes before review, verification, or remediation | Reads selected targets, bounded related context, and applicable guidance; writes output only when explicitly requested |
 | `grill-me` | Pressure-test decisions, plans, artifacts, and diagnoses | None |
 | `project-review` | Review bounded changes under root and nested `REVIEW.md` guidance | Reads project source and optional user guidance; writes output only when explicitly requested |
 | `review-and-fix` | Safely address local review findings through decision, verification, and fresh-review gates | Reads bounded project/review/verification data; changes only eligible or approved local files |
@@ -40,6 +41,9 @@ See [compatibility](docs/compatibility.md) for the tested support matrix. The
 home, or domain knowledge over the public defaults without committing it here.
 The [artifact host guide](docs/artifact-host.md) covers temporary interactive
 visuals, framework output, lifecycle limits, and provider-neutral browser access.
+The [change-impact guide](docs/change-impact.md) explains exact target binding,
+bounded related context, impact relationships, and advisory handoffs into review,
+verification, and remediation planning.
 The [project-review guide](docs/project-review.md) covers hierarchical review
 policy, trusted-base behavior, structured findings, and verification authority.
 The [review-and-fix guide](docs/review-and-fix.md) explains neutral reviewer
@@ -69,7 +73,7 @@ for repeatable use. For an ownership-aware installation, clone the tagged toolki
 release, then install only the selected skill:
 
 ```bash
-git clone --branch v1.11.0 --depth 1 https://github.com/kimgea/agent-kit.git
+git clone --branch v1.12.0 --depth 1 https://github.com/kimgea/agent-kit.git
 cd agent-kit
 python scripts/agent_kit.py list
 ```
@@ -110,8 +114,8 @@ available unless that deployment is first removed and installed through
 Every installable skill is released both as a standalone skill archive and as
 part of a Codex plugin. Most plugins contain one skill. The coherent `artifacts`
 plugin groups the diagram producer with the artifact host, while the
-`project-review` plugin groups project review, review-and-fix, review-guidance
-audit, verification-harness audit, and verify-project. The release
+`project-review` plugin groups change-impact, project review, review-and-fix,
+review-guidance audit, verification-harness audit, and verify-project. The release
 includes an `agent-kit-marketplace-<version>.zip` catalog whose entries point to
 the bundled local plugin directories. Select a focused plugin when its grouped
 workflow is useful, or use a standalone archive to install one skill by itself.

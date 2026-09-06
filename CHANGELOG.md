@@ -4,6 +4,37 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
+## 1.12.0 - 2026-09-06
+
+### Added
+
+- Add the independently installable `change-impact` skill for mapping the
+  evidence-backed reach of exact ref-range, working-tree, file, or directory
+  changes without reviewing, verifying, or editing them.
+- Add versioned context and result schemas, bounded target/context resolution,
+  trusted-base `REVIEW.md` and `VERIFY.md` evidence, canonical impact IDs and
+  fingerprints, and deterministic human rendering.
+- Add local behavioral fixtures for direct test reach, indirect contract and
+  documentation reach, an unrelated safe counterexample, and incomplete dynamic
+  resolution.
+
+### Changed
+
+- Include `change-impact` in the grouped project-review plugin as an optional
+  producer before review, verification, or remediation planning while keeping
+  every existing workflow independently usable.
+- Update the skill ecosystem roadmap to make focused impact mapping part of the
+  shipped foundation; verification-failure triage remains evidence-gated future
+  work.
+
+### Security
+
+- Keep selected target, frozen context, guidance provenance, output state, IDs,
+  counts, completion, and downstream authority outside semantic-agent control.
+- Reject unfrozen affected locations, target/context overlap, unsafe link-like
+  inputs, stale current state, malformed drafts, and unbounded or executable
+  discovery while treating consumer-purpose suggestions as advisory only.
+
 ## 1.11.0 - 2026-09-06
 
 ### Added

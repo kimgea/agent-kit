@@ -146,7 +146,29 @@ VERIFY_PROJECT_CASE_CONFIG = {
     },
     "static-sufficient-mechanical-change": {"candidates": []},
 }
+CHANGE_IMPACT_CASE_CONTEXT = {
+    "direct-test-impact": ["tests/test_parser.py"],
+    "indirect-contract-documentation": [
+        "schema/events.json",
+        "tests/test_events.py",
+        "docs/events.md",
+    ],
+    "unrelated-context-omitted": ["tests/test_payments.py"],
+    "dynamic-impact-incomplete": ["config/plugins.json"],
+}
 CONTRACTS = {
+    "change-impact/v1": {
+        "skill": "change-impact",
+        "context": "skills/change-impact/scripts/impact_context.py",
+        "validator": "skills/change-impact/scripts/impact_result.py",
+        "schema": "skills/change-impact/references/impact-result.schema.json",
+        "context_kind": "change-impact",
+        "validator_kind": "simple",
+        "binding_kind": "change-impact",
+        "target_kinds": {"path"},
+        "dependencies": [],
+        "reviewers": [],
+    },
     "review-guidance-audit/v1": {
         "skill": "review-guidance-audit",
         "context": "skills/review-guidance-audit/scripts/guidance_context.py",
@@ -748,6 +770,8 @@ def _load_suite_bundle(
             )
         if contract["context_kind"] == "verify-project" and case_id not in VERIFY_PROJECT_CASE_CONFIG:
             raise EvalError(f"cases[{index}] has no fixed verify-project adapter configuration")
+        if contract["context_kind"] == "change-impact" and case_id not in CHANGE_IMPACT_CASE_CONTEXT:
+            raise EvalError(f"cases[{index}] has no fixed change-impact context configuration")
         case["expected_mutations"] = _validate_expected_mutations(
             case.get("expected_mutations", []),
             target,
@@ -1359,6 +1383,40 @@ def _resolve_verify_project_context(
     return _load_json(output, "resolved context")
 
 
+def _resolve_change_impact_context(
+    case: dict[str, Any],
+    fixture: Path,
+    output: Path,
+    root: Path,
+    context_helper: Path,
+) -> dict[str, Any]:
+    command = [
+        sys.executable,
+        "-E",
+        "-S",
+        str(context_helper),
+        "--repo",
+        str(fixture),
+        "--output",
+        str(output),
+    ]
+    for path in CHANGE_IMPACT_CASE_CONTEXT[case["id"]]:
+        command.extend(["--context", path])
+    command.extend(["paths", case["target"]["path"]])
+    completed = subprocess.run(
+        command,
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=60,
+        check=False,
+    )
+    if completed.returncode != 0:
+        message = completed.stderr.decode("utf-8", "replace")[:2000]
+        raise EvalError(f"context resolver failed: {message}")
+    return _load_json(output, "resolved context")
+
+
 def resolve_context(
     suite: dict[str, Any],
     case: dict[str, Any],
@@ -1418,6 +1476,10 @@ def resolve_context(
         )
     if contract["context_kind"] == "verify-project":
         return _resolve_verify_project_context(
+            case, fixture, output, root, contract_paths["context"]
+        )
+    if contract["context_kind"] == "change-impact":
+        return _resolve_change_impact_context(
             case, fixture, output, root, contract_paths["context"]
         )
     if contract["context_kind"] == "review-guidance-audit":
@@ -1568,6 +1630,8 @@ def validate_result_contract(
                     str(verify_root),
                 ]
             )
+    elif contract["binding_kind"] == "change-impact":
+        command.extend(["--context", str(context_path)])
     try:
         completed = subprocess.run(
             command,
@@ -1694,6 +1758,65 @@ def _verify_project_guidance(context: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _change_impact_target(context: dict[str, Any]) -> dict[str, Any]:
+    request = context["request"]
+    return {
+        "kind": request["kind"],
+        "repository_root": request["repository_root"],
+        "base_revision": request["base_revision"],
+        "head_revision": request["head_revision"],
+        "working_tree_mode": request["working_tree_mode"],
+        "requested_paths": request["requested_paths"],
+        "paths": context["target"]["paths"],
+        "changes": context["target"]["changes"],
+        "files": [
+            {
+                key: item[key]
+                for key in (
+                    "path",
+                    "role",
+                    "revision",
+                    "state",
+                    "size",
+                    "sha256",
+                    "line_count",
+                )
+            }
+            for item in context["files"]
+            if item["role"] in {"target_before", "target_after"}
+        ],
+    }
+
+
+def _change_impact_context_files(context: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            key: item[key]
+            for key in ("path", "state", "size", "sha256", "line_count")
+        }
+        for item in context["files"]
+        if item["role"] == "context"
+    ]
+
+
+def _change_impact_guidance(context: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            key: item[key]
+            for key in ("kind", "path", "revision", "applies_to", "size", "sha256")
+        }
+        | {
+            "line_count": (
+                0
+                if not item["content"]
+                else item["content"].count("\n")
+                + (0 if item["content"].endswith("\n") else 1)
+            )
+        }
+        for item in context["guidance"]
+    ]
+
+
 def _verify_project_checks_bound(
     context: dict[str, Any], result: dict[str, Any]
 ) -> tuple[bool, str]:
@@ -1745,6 +1868,20 @@ def _bind_result_unchecked(
             if isinstance(context.get("guidance"), list)
             else None,
             "context_metrics": context.get("context_metrics"),
+        }
+    elif contract["binding_kind"] == "change-impact":
+        encoded = json.dumps(
+            context,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        if result.get("context_sha256") != hashlib.sha256(encoded).hexdigest():
+            return False, "result context digest does not match the lead-owned context"
+        expected = {
+            "target": _change_impact_target(context),
+            "context": _change_impact_context_files(context),
+            "guidance": _change_impact_guidance(context),
         }
     elif contract["binding_kind"] == "project-review":
         expected = {
@@ -1851,6 +1988,7 @@ def _bind_result_unchecked(
         if not checks_ok:
             return checks_ok, checks_message
     if contract["binding_kind"] in {
+        "change-impact",
         "project-review",
         "verification-harness-audit",
     }:
@@ -1858,7 +1996,12 @@ def _bind_result_unchecked(
         if not isinstance(result_limitations, list):
             return False, "result limitations must be an array"
         for limitation in context.get("limitations", []):
-            if limitation not in result_limitations:
+            expected_limitation = (
+                {**limitation, "source": "resolver"}
+                if contract["binding_kind"] == "change-impact"
+                else limitation
+            )
+            if expected_limitation not in result_limitations:
                 return False, "result omits a resolver-owned limitation"
     return True, "result authority fields match the lead-owned context"
 

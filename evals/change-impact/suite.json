@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "suite": "change-impact",
+  "skill": "change-impact",
+  "result_contract": "change-impact/v1",
+  "default_assertions": [
+    {
+      "id": "canonical-version",
+      "path": "/schema_version",
+      "operator": "equals",
+      "value": "1.0.0"
+    },
+    {
+      "id": "target-preserved",
+      "path": "/target/paths/*",
+      "operator": "count_at_least",
+      "value": 1
+    }
+  ],
+  "cases": [
+    {
+      "id": "direct-test-impact",
+      "fixture": "fixtures/direct-test-impact",
+      "target": {"kind": "path", "path": "src/parser.py", "start_line": null, "end_line": null},
+      "prompt": "Map the impact of changing src/parser.py using the frozen test context. Identify only evidence-backed relationships and return canonical JSON.",
+      "assertions": [
+        {"id": "complete", "path": "/status", "operator": "equals", "value": "COMPLETE"},
+        {"id": "test-impact", "path": "/impacts/*", "operator": "any", "value": {"relationship": "test_or_fixture", "reach": "direct", "confidence": "high"}},
+        {"id": "test-affected", "path": "/impacts/*/affected_locations/*/path", "operator": "any", "value": "tests/test_parser.py"},
+        {"id": "verification-context", "path": "/impacts/*/consumer_purposes/*", "operator": "any", "value": "verification_context"}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "indirect-contract-documentation",
+      "fixture": "fixtures/indirect-contract-documentation",
+      "target": {"kind": "path", "path": "src/events.py", "start_line": null, "end_line": null},
+      "prompt": "Map the impact of changing src/events.py across the supplied schema, test, and documentation context. Return canonical JSON.",
+      "assertions": [
+        {"id": "complete", "path": "/status", "operator": "equals", "value": "COMPLETE"},
+        {"id": "contract-impact", "path": "/impacts/*", "operator": "any", "value": {"relationship": "data_or_wire_contract"}},
+        {"id": "documentation-impact", "path": "/impacts/*", "operator": "any", "value": {"relationship": "documentation"}},
+        {"id": "schema-affected", "path": "/impacts/*/affected_locations/*/path", "operator": "any", "value": "schema/events.json"},
+        {"id": "docs-affected", "path": "/impacts/*/affected_locations/*/path", "operator": "any", "value": "docs/events.md"}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "unrelated-context-omitted",
+      "fixture": "fixtures/unrelated-context-omitted",
+      "target": {"kind": "path", "path": "src/logging.py", "start_line": null, "end_line": null},
+      "prompt": "Map the impact of changing src/logging.py. The frozen payment test is available only to test whether unrelated context is omitted. Return canonical JSON.",
+      "assertions": [
+        {"id": "complete", "path": "/status", "operator": "equals", "value": "COMPLETE"},
+        {"id": "no-invented-impact", "path": "/impacts/*", "operator": "count_equals", "value": 0}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "dynamic-impact-incomplete",
+      "fixture": "fixtures/dynamic-impact-incomplete",
+      "target": {"kind": "path", "path": "src/plugins.py", "start_line": null, "end_line": null},
+      "prompt": "Map the impact of changing src/plugins.py using the frozen plugin configuration. The implementation selected dynamically at runtime is not present. Return canonical JSON.",
+      "assertions": [
+        {"id": "incomplete", "path": "/status", "operator": "equals", "value": "INCOMPLETE"},
+        {"id": "config-impact", "path": "/impacts/*", "operator": "any", "value": {"relationship": "configuration"}},
+        {"id": "dynamic-limit", "path": "/limitations/*", "operator": "any", "value": {"code": "dynamic_resolution", "material": true, "source": "analysis"}}
+      ],
+      "forbidden_commands": []
+    }
+  ]
+}

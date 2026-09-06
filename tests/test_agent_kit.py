@@ -546,6 +546,7 @@ class CatalogAndValidationTests(unittest.TestCase):
             [
                 "agent-context",
                 "build-interactive-diagram",
+                "change-impact",
                 "grill-me",
                 "project-review",
                 "review-and-fix",
@@ -982,7 +983,7 @@ class LifecycleTests(unittest.TestCase):
                 Path("release"), None, "all", fixture
             )
             archives = [path for path in artifacts if path.suffix == ".zip"]
-            self.assertEqual(18, len(archives))
+            self.assertEqual(19, len(archives))
             self.assertEqual(6, len([path for path in archives if "-plugin-" in path.name]))
             self.assertEqual(
                 1,
@@ -1039,6 +1040,7 @@ class LifecycleTests(unittest.TestCase):
             artifacts = agent_kit.package_artifacts(
                 Path("review-group"),
                 [
+                    "change-impact",
                     "project-review",
                     "review-and-fix",
                     "review-guidance-audit",
@@ -1057,6 +1059,7 @@ class LifecycleTests(unittest.TestCase):
                     archive.read("project-review/.codex-plugin/plugin.json")
                 )
             self.assertIn("project-review/skills/project-review/SKILL.md", names)
+            self.assertIn("project-review/skills/change-impact/SKILL.md", names)
             self.assertIn("project-review/skills/review-and-fix/SKILL.md", names)
             self.assertIn("project-review/skills/review-guidance-audit/SKILL.md", names)
             self.assertIn("project-review/skills/verification-harness-audit/SKILL.md", names)
@@ -1166,6 +1169,40 @@ class LifecycleTests(unittest.TestCase):
             self.assertEqual(expected_verify_runtime, verify_names)
             self.assertNotIn("verify-project/VERIFY.md", verify_names)
             for source in verify_sources:
+                self.assertNotIn("from scripts", source)
+                self.assertNotIn("import scripts", source)
+                self.assertNotIn("skills.", source)
+
+            impact_artifacts = agent_kit.package_artifacts(
+                Path("standalone-impact"), ["change-impact"], "skill", fixture
+            )
+            impact_archive = next(
+                path for path in impact_artifacts if path.name.startswith("change-impact-")
+            )
+            with zipfile.ZipFile(impact_archive) as bundle:
+                impact_names = set(bundle.namelist())
+                impact_sources = [
+                    bundle.read(f"change-impact/scripts/{name}").decode("utf-8")
+                    for name in ("path_safety.py", "impact_context.py", "impact_result.py")
+                ]
+            expected_impact_runtime = {
+                "LICENSE",
+                "THIRD_PARTY_NOTICES.md",
+                "change-impact/SKILL.md",
+                "change-impact/REVIEW.md",
+                "change-impact/VERIFY.md",
+                "change-impact/agents/openai.yaml",
+                "change-impact/references/context-authoring.md",
+                "change-impact/references/impact-context.schema.json",
+                "change-impact/references/impact-result.schema.json",
+                "change-impact/references/impact-rubric.md",
+                "change-impact/references/result-authoring.md",
+                "change-impact/scripts/path_safety.py",
+                "change-impact/scripts/impact_context.py",
+                "change-impact/scripts/impact_result.py",
+            }
+            self.assertEqual(expected_impact_runtime, impact_names)
+            for source in impact_sources:
                 self.assertNotIn("from scripts", source)
                 self.assertNotIn("import scripts", source)
                 self.assertNotIn("skills.", source)
