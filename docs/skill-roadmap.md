@@ -88,7 +88,8 @@ fix the cause inside this skill.
 ### Delivered boundary
 
 The accepted design and implementation are tracked in
-`.claude/prds/verify-project.md` and `.claude/epics/verify-project/`. The shipped
+`.claude/prds/verify-project.md` and
+`.claude/epics/archived/verify-project/`. The shipped
 boundary fixes the current-filesystem target model, separate plan and result
 contracts, command authority, mutation detection, progressive tier semantics,
 optional hierarchical `VERIFY.md`, and deterministic `review-and-fix`
