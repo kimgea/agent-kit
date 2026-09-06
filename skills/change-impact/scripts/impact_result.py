@@ -867,7 +867,15 @@ def validate_result(value: Any, *, context: dict[str, Any] | None = None) -> dic
 
 
 def _display(value: str) -> str:
-    return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    pieces: list[str] = []
+    for character in value:
+        category = unicodedata.category(character)
+        if character == "\\" or category.startswith("C") or category in {"Zl", "Zp"}:
+            pieces.append(json.dumps(character, ensure_ascii=True)[1:-1])
+        else:
+            pieces.append(character)
+    escaped = "".join(pieces)
+    return escaped.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _format_location(value: dict[str, Any]) -> str:
