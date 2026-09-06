@@ -122,12 +122,25 @@ def _canonical_json(value: Any) -> bytes:
     return (json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
 
 
-def _git(root: Path, arguments: list[str], *, timeout: int = 30, check: bool = True) -> bytes:
+def _git(
+    root: Path,
+    arguments: list[str],
+    *,
+    timeout: int = 30,
+    check: bool = True,
+    input_bytes: bytes | None = None,
+    config_overrides: tuple[tuple[str, str], ...] = (),
+) -> bytes:
     environment = dict(os.environ)
     environment["GIT_LITERAL_PATHSPECS"] = "1"
+    command = ["git", "-C", str(root)]
+    for key, value in config_overrides:
+        command.extend(("-c", f"{key}={value}"))
+    command.extend(arguments)
     try:
         completed = subprocess.run(
-            ["git", "-C", str(root), *arguments],
+            command,
+            input=input_bytes,
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -191,7 +204,22 @@ def _decode_paths(payload: bytes) -> list[str]:
 
 
 def _working_tree_changes(root: Path) -> list[dict[str, Any]]:
-    payload = _git(root, ["diff", "--raw", "--no-abbrev", "-z", "--find-renames", "HEAD", "--"])
+    filter_overrides = _git_filter_overrides(root, _git_visible_paths(root))
+    payload = _git(
+        root,
+        [
+            "diff",
+            "--raw",
+            "--no-abbrev",
+            "-z",
+            "--find-renames",
+            "--no-ext-diff",
+            "--no-textconv",
+            "HEAD",
+            "--",
+        ],
+        config_overrides=filter_overrides,
+    )
     parts = payload.split(b"\0")
     changes: list[dict[str, Any]] = []
     index = 0
@@ -314,6 +342,51 @@ def _git_blob_object_id(data: bytes, hexadecimal_length: int) -> str:
 
 def _git_visible_paths(root: Path) -> list[str]:
     return sorted(set(_decode_paths(_git(root, ["ls-files", "-co", "--exclude-standard", "-z"]))))
+
+
+def _git_filter_overrides(
+    root: Path, paths: list[str]
+) -> tuple[tuple[str, str], ...]:
+    """Disable repository-selected external filters for metadata inspection."""
+    drivers: set[str] = set()
+    for offset in range(0, len(paths), 256):
+        chunk = paths[offset : offset + 256]
+        payload = b"\0".join(item.encode("utf-8") for item in chunk) + b"\0"
+        response = _git(
+            root,
+            ["check-attr", "-z", "--stdin", "filter"],
+            timeout=15,
+            input_bytes=payload,
+        )
+        fields = response.split(b"\0")
+        if fields and fields[-1] == b"":
+            fields.pop()
+        if len(fields) % 3:
+            raise ContextError("Git returned malformed filter attributes")
+        for index in range(0, len(fields), 3):
+            returned_path, attribute, value = fields[index : index + 3]
+            if attribute != b"filter":
+                raise ContextError("Git returned an unexpected filter attribute")
+            try:
+                canonical_path(returned_path.decode("utf-8", "strict"))
+                driver = value.decode("utf-8", "strict")
+            except (UnicodeDecodeError, SafetyError) as exc:
+                raise ContextError("Git returned an unsafe filter attribute") from exc
+            if driver in {"unspecified", "unset", "set"}:
+                continue
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", driver):
+                raise ContextError("Git selected an unsafe filter driver name")
+            drivers.add(driver)
+    overrides: list[tuple[str, str]] = []
+    for driver in sorted(drivers):
+        overrides.extend(
+            (
+                (f"filter.{driver}.clean", ""),
+                (f"filter.{driver}.process", ""),
+                (f"filter.{driver}.required", "false"),
+            )
+        )
+    return tuple(overrides)
 
 
 def _git_ignored(root: Path, paths: list[str]) -> set[str]:

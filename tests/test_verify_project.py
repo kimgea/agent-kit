@@ -266,9 +266,11 @@ class VerificationContextTests(unittest.TestCase):
                 "*.txt filter=untrusted\n", encoding="utf-8"
             )
             (root / "old.txt").write_text("VALUE = 1\n", encoding="utf-8")
+            (root / "modified.txt").write_text("VALUE = 1\n", encoding="utf-8")
             commit_all(root)
             marker.unlink(missing_ok=True)
             (root / "old.txt").rename(root / "new.txt")
+            (root / "modified.txt").write_text("VALUE = 2\n", encoding="utf-8")
 
             context = verification_context.resolve(
                 context_args(root, scope="working-tree", max_discovery=0)
@@ -277,6 +279,7 @@ class VerificationContextTests(unittest.TestCase):
             records = {item["path"]: item for item in context["targets"]}
             self.assertEqual("renamed", records["new.txt"]["change_kind"])
             self.assertEqual("old.txt", records["new.txt"]["old_path"])
+            self.assertEqual("modified", records["modified.txt"]["change_kind"])
             self.assertFalse(marker.exists())
 
     def test_rename_retains_distinct_source_and_destination_guidance(self):
