@@ -171,9 +171,10 @@ python scripts/agent_kit.py doctor
 The range validator selects a narrow documentation profile only for changes
 confined to top-level maintainer documents, Markdown under `docs/` or
 `.claude/`, and the pull-request template. It selects the full canonical gate
-for every runtime, skill, catalog, schema, test, eval, workflow, guidance,
-unknown, empty, or unclassifiable range. Run `python scripts/agent_kit.py check`
-directly for release preparation or whenever exact commit IDs are unavailable.
+for dirty state and every runtime, skill, catalog, schema, test, eval, workflow,
+guidance, unknown, empty, or unclassifiable range. Run
+`python scripts/agent_kit.py check` directly for release preparation or whenever
+an exact clean range is unavailable.
 
 Pull-request CI uses the same deterministic selection on Ubuntu and Windows
 with Python 3.11 and 3.13; pushes to `main` and releases always run the full

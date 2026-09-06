@@ -182,8 +182,9 @@ python scripts/agent_kit.py validate-range --base BASE_SHA --head HEAD_SHA
 ```
 
 The selector uses a focused documentation profile only for the narrow documented
-allowlist and otherwise runs the full canonical gate. Run that full gate
-directly for release preparation or when an exact range is unavailable:
+allowlist in a clean checkout and otherwise runs the full canonical gate. Run
+that full gate directly for release preparation or when an exact clean range is
+unavailable:
 
 ```bash
 python scripts/agent_kit.py check

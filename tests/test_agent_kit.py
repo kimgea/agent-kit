@@ -4,9 +4,11 @@ import importlib.util
 import io
 import json
 import os
+import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -222,6 +224,10 @@ class CatalogAndValidationTests(unittest.TestCase):
             paths = agent_kit.changed_paths_between(fixture, base, docs_head)
             self.assertEqual(["docs/guide.md"], paths)
             self.assertEqual("documentation", agent_kit.check_profile_for_paths(paths))
+            self.assertEqual(
+                ("documentation", ["docs/guide.md"]),
+                agent_kit.validation_profile_between(fixture, base, docs_head),
+            )
 
             git_run("checkout", "-q", "--detach", base)
             git_run("merge", "-q", "--no-ff", "--no-edit", docs_head)
@@ -234,6 +240,8 @@ class CatalogAndValidationTests(unittest.TestCase):
             scripts = fixture / "scripts"
             scripts.mkdir()
             (scripts / "tool.py").write_text("VALUE = 1\n", encoding="utf-8")
+            with self.assertRaisesRegex(agent_kit.AgentKitError, "tracked or visible"):
+                agent_kit.validation_profile_between(fixture, base, docs_head)
             code_head = commit("code")
             paths = agent_kit.changed_paths_between(fixture, docs_head, code_head)
             self.assertEqual(["scripts/tool.py"], paths)
@@ -242,6 +250,63 @@ class CatalogAndValidationTests(unittest.TestCase):
                 agent_kit.AgentKitError, "exact head or its direct base/head merge"
             ):
                 agent_kit.changed_paths_between(fixture, base, docs_head)
+
+    @unittest.skipUnless(os.name == "posix", "portable Git command probes")
+    def test_range_cleanliness_never_executes_repository_git_helpers(self):
+        git = shutil.which("git")
+        if git is None:
+            self.skipTest("git is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            base_directory = Path(temporary)
+            fixture = base_directory / "project"
+            fixture.mkdir()
+
+            def git_run(*arguments, capture=False):
+                result = subprocess.run(
+                    [git, *arguments],
+                    cwd=fixture,
+                    text=True,
+                    stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
+                    check=True,
+                )
+                return result.stdout.strip() if capture else ""
+
+            def commit(message):
+                git_run("add", "-A")
+                git_run("commit", "-qm", message)
+                return git_run("rev-parse", "HEAD", capture=True)
+
+            git_run("init", "-q")
+            git_run("config", "user.email", "tests@example.invalid")
+            git_run("config", "user.name", "Agent Kit Tests")
+            marker = base_directory / "helper-ran"
+            helper = base_directory / "helper.py"
+            helper.write_text(
+                "import pathlib, sys\n"
+                f"pathlib.Path({str(marker)!r}).write_text('ran', encoding='utf-8')\n"
+                "sys.stdout.buffer.write(sys.stdin.buffer.read())\n",
+                encoding="utf-8",
+            )
+            helper_command = " ".join(
+                (shlex.quote(sys.executable), shlex.quote(str(helper)))
+            )
+            git_run("config", "filter.untrusted.clean", helper_command)
+            (fixture / ".gitattributes").write_text(
+                "*.md filter=untrusted\n", encoding="utf-8"
+            )
+            guide = fixture / "README.md"
+            guide.write_text("# Initial\n", encoding="utf-8")
+            base = commit("base")
+            guide.write_text("# Updated\n", encoding="utf-8")
+            head = commit("docs")
+            marker.unlink(missing_ok=True)
+            git_run("config", "core.fsmonitor", helper_command)
+
+            self.assertEqual(
+                ("documentation", ["README.md"]),
+                agent_kit.validation_profile_between(fixture, base, head),
+            )
+            self.assertFalse(marker.exists())
 
     def test_documentation_profile_skips_compilation_and_unit_tests(self):
         with mock.patch.object(

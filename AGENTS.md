@@ -236,11 +236,12 @@ python scripts/agent_kit.py validate-range --base BASE_SHA --head HEAD_SHA
 ```
 
 The range command uses the documentation profile only when every changed path
-is in the repository's narrow documentation/tracking allowlist. It fails closed
-to the full profile for skills, scripts, schemas, tests, evals, workflows,
+is in the repository's narrow documentation/tracking allowlist and the checkout
+is clean. It fails closed to the full profile for dirty state, skills, scripts,
+schemas, tests, evals, workflows,
 catalog or guidance files, unknown paths, empty ranges, and classification
 errors. Run the full canonical gate directly for release preparation or when a
-trusted exact range is unavailable:
+trusted exact clean range is unavailable:
 
 ```bash
 python scripts/agent_kit.py check

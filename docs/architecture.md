@@ -212,9 +212,9 @@ compiling Python or running unrelated unit tests.
 `agent_kit.py validate-range` derives the profile from an exact Git base and
 head. Its allowlist is intentionally narrow: top-level maintainer documents,
 Markdown under `docs/` or `.claude/`, and the pull-request template. Mixed,
-empty, unknown, unclassifiable, workflow, guidance, or executable changes fall
-back to full validation. Pull requests use this selector; pushes to `main` and
-releases always use the full gate. Both profiles snapshot the working tree
+empty, unknown, unclassifiable, dirty, workflow, guidance, or executable changes
+fall back to full validation. Pull requests use this selector; pushes to `main`
+and releases always use the full gate. Both profiles snapshot the working tree
 before and after execution to detect validation side effects. Neither invokes
 an agent model; model-backed behavioral runs are explicit local operations and
 never part of hosted CI.

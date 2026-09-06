@@ -1006,6 +1006,18 @@ def changed_paths_between(root: Path, base: str, head: str) -> list[str]:
         ) from exc
 
 
+def validation_profile_between(root: Path, base: str, head: str) -> tuple[str, list[str]]:
+    """Select a range profile only when the current checkout is exact and clean."""
+    paths = changed_paths_between(root, base, head)
+    status = git_status(root)
+    if status is None or status:
+        raise AgentKitError(
+            "cannot focus the validation range: checkout has tracked or visible "
+            "untracked changes"
+        )
+    return check_profile_for_paths(paths), paths
+
+
 def validate_documentation_repository(root: Path | None = None) -> list[str]:
     """Validate contracts affected by the conservative documentation-only profile."""
     root = ROOT if root is None else root
@@ -1049,9 +1061,18 @@ def git_status(root: Path) -> str | None:
     git = shutil.which("git")
     if git is None:
         raise AgentKitError("cannot inspect the Git working tree: git is unavailable")
+    config_overrides = _git_filter_overrides(root)
+    command = [git, "-c", "core.fsmonitor=false"]
+    for key, value in config_overrides:
+        command.extend(("-c", f"{key}={value}"))
+    command.extend(("status", "--porcelain=v1", "--untracked-files=all", "--no-renames"))
+    environment = os.environ.copy()
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    environment.pop("GIT_EXTERNAL_DIFF", None)
     result = subprocess.run(
-        [git, "status", "--porcelain=v1", "--untracked-files=all"],
+        command,
         cwd=root,
+        env=environment,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
@@ -1119,9 +1140,12 @@ def _git_source_paths(root: Path, *arguments: str) -> list[bytes]:
     git = shutil.which("git")
     if git is None:
         raise AgentKitError("cannot inspect the Git working tree: git is unavailable")
+    environment = os.environ.copy()
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
     result = subprocess.run(
-        [git, "ls-files", "-z", *arguments],
+        [git, "-c", "core.fsmonitor=false", "ls-files", "-z", *arguments],
         cwd=root,
+        env=environment,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         check=False,
@@ -1129,6 +1153,72 @@ def _git_source_paths(root: Path, *arguments: str) -> list[bytes]:
     if result.returncode != 0:
         raise AgentKitError("cannot inspect the Git working tree: git ls-files failed")
     return sorted(item for item in result.stdout.split(b"\0") if item)
+
+
+def _git_filter_overrides(root: Path) -> tuple[tuple[str, str], ...]:
+    """Disable external clean/process filters selected for visible source paths."""
+    git = shutil.which("git")
+    if git is None:
+        raise AgentKitError("cannot inspect the Git working tree: git is unavailable")
+    paths = sorted(
+        set(
+            _git_source_paths(root, "--cached")
+            + _git_source_paths(root, "--others", "--exclude-standard")
+        )
+    )
+    drivers: set[str] = set()
+    environment = os.environ.copy()
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    for offset in range(0, len(paths), 256):
+        payload = b"\0".join(paths[offset : offset + 256]) + b"\0"
+        result = subprocess.run(
+            [
+                git,
+                "-c",
+                "core.fsmonitor=false",
+                "check-attr",
+                "-z",
+                "--stdin",
+                "filter",
+            ],
+            cwd=root,
+            env=environment,
+            input=payload,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise AgentKitError(
+                "cannot inspect the Git working tree: git check-attr failed"
+            )
+        fields = result.stdout.split(b"\0")
+        if fields and fields[-1] == b"":
+            fields.pop()
+        if len(fields) % 3:
+            raise AgentKitError("git returned malformed filter attributes")
+        for index in range(0, len(fields), 3):
+            _path, attribute, raw_value = fields[index : index + 3]
+            if attribute != b"filter":
+                raise AgentKitError("git returned unexpected filter attributes")
+            try:
+                value = raw_value.decode("utf-8", "strict")
+            except UnicodeDecodeError as exc:
+                raise AgentKitError("git returned a non-UTF-8 filter driver") from exc
+            if value in {"unspecified", "unset", "set"}:
+                continue
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", value):
+                raise AgentKitError("git selected an unsafe filter driver")
+            drivers.add(value)
+    return tuple(
+        item
+        for driver in sorted(drivers)
+        for item in (
+            (f"filter.{driver}.clean", ""),
+            (f"filter.{driver}.process", ""),
+            (f"filter.{driver}.required", "false"),
+        )
+    )
 
 
 def _validation_file_signature(value: os.stat_result) -> tuple[int, ...]:
@@ -2150,11 +2240,10 @@ def command_check(args: argparse.Namespace) -> int:
 
 def command_validate_range(args: argparse.Namespace) -> int:
     try:
-        paths = changed_paths_between(ROOT, args.base, args.head)
+        profile, paths = validation_profile_between(ROOT, args.base, args.head)
     except AgentKitError as exc:
         print(f"agent-kit validate-range: {exc}; using full profile", file=sys.stderr)
         return run_check(documentation_only=False)
-    profile = check_profile_for_paths(paths)
     print(
         f"agent-kit validate-range selected {profile} profile "
         f"for {len(paths)} changed path(s)"
