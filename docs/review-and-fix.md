@@ -45,9 +45,10 @@ lead-owned run context before fixing. The fixer cannot choose the stronger
 label after seeing results.
 
 With `verify_project`, a fresh verifier runs after the fix with consumer
-`review-and-fix`. Validate its plan and result with the producer's installed
-helpers, then pass the same canonical context, plan, and result to
-`review_workflow.py adapt-verification` and to `finalize-run`. The adapter
+`review-and-fix`. Pass the same canonical context, plan, result, and the
+lead-selected trusted producer directory to `review_workflow.py
+adapt-verification` and to `finalize-run`. The adapter freezes and invokes the
+producer's context, plan, and result validators before it
 independently compares their canonical digests, exact target projection,
 producer and consumer provenance, freshness, evidence sufficiency, protected
 state, and exact plan adherence. Its compact record contains no commands,
@@ -175,9 +176,10 @@ producer adapter:
   validated target-bound project-review JSON, assesses fresh review rounds, and
   finalizes or validates the complete workflow result against a separate
   lead-owned run context.
-- `review_workflow.py adapt-verification` reduces separately producer-validated
-  `verify-project` context, plan, and result files to a compact target-bound gate
-  without importing that skill.
+- `review_workflow.py adapt-verification` freezes and invokes a lead-selected
+  installed `verify-project` validator set, then reduces its validated context,
+  plan, and result files to a compact target-bound gate without importing that
+  skill as a Python library.
 
 The batch finalizer accepts target/source only from a separate lead-owned
 envelope and rejects drafts that try to supply those fields or normalization
@@ -204,8 +206,8 @@ shape.
 
 `finalize-run` and `validate-run` accept the run context separately from the
 agent-produced draft or result. A verify-project run also supplies
-`--verification-context`, `--verification-plan`, and `--verification-result`
-together. The helper derives the exact target, context
+`--verification-context`, `--verification-plan`, `--verification-result`, and
+`--verify-project-dir` together. The helper derives the exact target, context
 digest, reviewer identities, changes-to-applied-plan relationship, validation
 coverage, verification state, status, and stop reason. Fallback validation
 records bind to exact applied

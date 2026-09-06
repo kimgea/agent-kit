@@ -24,17 +24,18 @@ Resolve the same current path set or combined working-tree target with
 lead-owned caller/agent policy and command candidates appropriate to that exact
 post-fix target. It cannot expand the edit target or add execution authority.
 
-Validate the canonical plan and result with the producer's own installed
-helpers before using the consumer adapter:
+Give the consumer adapter the trusted installed producer directory. The adapter
+freezes the producer's context, plan, and result validators plus the three input
+values in private temporary storage, then invokes the producer validators before
+performing its own target and provenance checks:
 
 ```text
-python <verify-project-dir>/scripts/verification_plan.py validate --input <plan.json>
-python <verify-project-dir>/scripts/verification_result.py validate --input <result.json>
 python <review-and-fix-dir>/scripts/review_workflow.py adapt-verification \
   --input <result.json> \
   --context <context.json> \
   --plan <plan.json> \
-  --target <review-target.json>
+  --target <review-target.json> \
+  --verify-project-dir <verify-project-dir>
 ```
 
 The adapter independently checks the exact lead target projection, canonical
@@ -42,6 +43,10 @@ context and plan digests, producer/version/consumer provenance, fresh-context
 claim, target/context/plan stability, evidence sufficiency, protected state,
 and exact-plan adherence. Its compact output intentionally omits commands,
 claims, proposed edits, and authority.
+
+The producer directory is lead-selected trusted code, never a path proposed by
+reviewer or fixer output. A missing, unsafe, unavailable, or rejecting producer
+validator stops before the adapter can emit an eligible gate.
 
 ## Apply the gate
 
@@ -64,7 +69,8 @@ python <review-and-fix-dir>/scripts/review_workflow.py finalize-run \
   --context <run-context.json> \
   --verification-context <context.json> \
   --verification-plan <plan.json> \
-  --verification-result <result.json>
+  --verification-result <result.json> \
+  --verify-project-dir <verify-project-dir>
 ```
 
 The canonical workflow result retains only their canonical digests and derived

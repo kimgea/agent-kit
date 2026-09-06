@@ -1262,6 +1262,13 @@ def build_parser() -> argparse.ArgumentParser:
     finalize_command.add_argument("--output")
     validate_command = commands.add_parser("validate")
     validate_command.add_argument("--input", required=True)
+    validate_context_command = commands.add_parser("validate-context")
+    validate_context_command.add_argument("--input", required=True)
+    validate_context_command.add_argument(
+        "--revalidate",
+        action="store_true",
+        help="also require the original target and protected repository snapshot",
+    )
     render_command = commands.add_parser("render")
     render_command.add_argument("--input", required=True)
     render_command.add_argument("--format", choices=("human", "json", "both"), default="human")
@@ -1277,6 +1284,8 @@ def main(argv: list[str] | None = None) -> int:
             _emit(value, args.format, args.output)
         elif args.command == "validate":
             validate_plan(_read_json(args.input))
+        elif args.command == "validate-context":
+            validate_context(_read_json(args.input), revalidate=args.revalidate)
         else:
             _emit(validate_plan(_read_json(args.input)), args.format, args.output)
         return 0

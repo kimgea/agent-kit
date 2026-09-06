@@ -1,5 +1,6 @@
 import contextlib
 import importlib.util
+import io
 import json
 import os
 import re
@@ -160,7 +161,7 @@ class VerificationContextTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "src").mkdir()
-            (root / "VERIFY.md").write_text("Root requirement.\r\n", encoding="utf-8")
+            (root / "VERIFY.md").write_bytes(b"Root requirement.\r\n")
             (root / "src" / "VERIFY.md").write_text("Nested requirement.\n", encoding="utf-8")
             (root / "src" / "app.py").write_text("print('ok')\n", encoding="utf-8")
 
@@ -224,7 +225,8 @@ class VerificationContextTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             initialize_git(root)
-            (root / "old.py").write_text("OLD = 1\n", encoding="utf-8")
+            run_git(root, "config", "core.autocrlf", "true")
+            (root / "old.py").write_bytes(b"OLD = 1\r\n")
             (root / "gone.py").write_text("GONE = 1\n", encoding="utf-8")
             commit_all(root)
             (root / "old.py").rename(root / "new.py")
@@ -356,6 +358,22 @@ class VerificationContextTests(unittest.TestCase):
             with self.assertRaisesRegex(verification_context.ContextError, "link-like"):
                 verification_context.resolve(
                     context_args(alias / "project", paths=["app.py"])
+                )
+
+    def test_repository_root_rejects_a_git_worktree_subdirectory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            initialize_git(root)
+            (root / "VERIFY.md").write_text("Root requirement.\n", encoding="utf-8")
+            (root / "src").mkdir()
+            (root / "src" / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+            commit_all(root)
+
+            with self.assertRaisesRegex(
+                verification_context.ContextError, "must name the Git worktree root"
+            ):
+                verification_context.resolve(
+                    context_args(root / "src", paths=["app.py"])
                 )
 
     @unittest.skipUnless(os.name == "posix", "POSIX descriptor-relative output probe")
@@ -900,6 +918,30 @@ class VerificationPlanTests(unittest.TestCase):
                 direct_execution_intent=direct,
             )
         )
+
+    def test_validate_context_command_can_revalidate_the_frozen_target(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as lead_directory:
+            root = Path(directory)
+            source = root / "app.py"
+            source.write_text("VALUE = 1\n", encoding="utf-8")
+            context = self.context_with_candidate(root, lead_directory)
+            context_path = Path(lead_directory) / "context.json"
+            context_path.write_text(json.dumps(context), encoding="utf-8")
+
+            self.assertEqual(
+                0,
+                verification_plan.main(
+                    ["validate-context", "--input", str(context_path), "--revalidate"]
+                ),
+            )
+            source.write_text("VALUE = 2\n", encoding="utf-8")
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(
+                    2,
+                    verification_plan.main(
+                        ["validate-context", "--input", str(context_path), "--revalidate"]
+                    ),
+                )
 
     @staticmethod
     def draft(*, with_check=True):
@@ -1616,7 +1658,7 @@ class VerificationResultTests(unittest.TestCase):
             )
             (run_root / "cache").mkdir()
             output = run_root / "cache" / "result.txt"
-            output.write_text("temporary\n", encoding="utf-8")
+            output.write_bytes(b"temporary\n")
             after = verification_result.capture_snapshot(
                 plan,
                 [],

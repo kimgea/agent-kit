@@ -10,6 +10,7 @@ import json
 import os
 import re
 import stat
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -743,6 +744,11 @@ def _canonical_digest(value: Any) -> str:
 
 def _verify_project_digest(value: Any) -> str:
     """Match verify-project's canonical ASCII JSON plus trailing newline."""
+    return hashlib.sha256(_verify_project_bytes(value)).hexdigest()
+
+
+def _verify_project_bytes(value: Any) -> bytes:
+    """Render the exact bounded byte form consumed by verify-project helpers."""
     _assert_bounded_json(value, "verify-project canonical value")
     try:
         encoded = (
@@ -760,7 +766,7 @@ def _verify_project_digest(value: Any) -> str:
         raise WorkflowError(
             f"verify-project canonical value exceeds the {MAX_JSON_BYTES}-byte limit"
         )
-    return hashlib.sha256(encoded).hexdigest()
+    return encoded
 
 
 def _assert_bounded_json(value: Any, label: str) -> None:
@@ -1792,16 +1798,116 @@ def _bind_verify_project_execution(
     return claimed_sufficient and derived_sufficient
 
 
+def _validate_with_verify_project(
+    verify_project_dir: str,
+    context: Any,
+    plan: Any,
+    result: Any,
+) -> None:
+    """Validate frozen values through an independently installed producer."""
+    skill_root = Path(verify_project_dir).absolute()
+    if _has_symlink_component(skill_root):
+        raise WorkflowError(
+            "verify-project skill path must not contain symlinks or reparse points"
+        )
+    try:
+        metadata = skill_root.lstat()
+    except OSError as exc:
+        raise WorkflowError(f"cannot inspect verify-project skill path: {exc}") from exc
+    if _is_link_like(metadata) or not stat.S_ISDIR(metadata.st_mode):
+        raise WorkflowError("verify-project skill path must identify a safe directory")
+
+    source_scripts: dict[str, bytes] = {}
+    for name in (
+        "path_safety.py",
+        "verification_context.py",
+        "verification_plan.py",
+        "verification_result.py",
+    ):
+        source_scripts[name] = _read_regular_bytes(skill_root / "scripts" / name)
+
+    with tempfile.TemporaryDirectory(prefix="review-and-fix-producer-") as temporary:
+        frozen_root = Path(temporary)
+        frozen_scripts = frozen_root / "scripts"
+        frozen_inputs = frozen_root / "inputs"
+        frozen_scripts.mkdir()
+        frozen_inputs.mkdir()
+        for name, data in source_scripts.items():
+            (frozen_scripts / name).write_bytes(data)
+        for name, value in (
+            ("context.json", context),
+            ("plan.json", plan),
+            ("result.json", result),
+        ):
+            (frozen_inputs / name).write_bytes(_verify_project_bytes(value))
+
+        commands = (
+            (
+                "context",
+                frozen_scripts / "verification_plan.py",
+                "validate-context",
+                frozen_inputs / "context.json",
+            ),
+            (
+                "plan",
+                frozen_scripts / "verification_plan.py",
+                "validate",
+                frozen_inputs / "plan.json",
+            ),
+            (
+                "result",
+                frozen_scripts / "verification_result.py",
+                "validate-current",
+                frozen_inputs / "result.json",
+            ),
+        )
+        environment = dict(os.environ)
+        environment.pop("PYTHONHOME", None)
+        environment.pop("PYTHONPATH", None)
+        for label, script, command, input_path in commands:
+            try:
+                completed = subprocess.run(
+                    [
+                        sys.executable,
+                        str(script),
+                        command,
+                        "--input",
+                        str(input_path),
+                    ],
+                    cwd=frozen_root,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                    timeout=60,
+                    env=environment,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise WorkflowError(
+                    f"verify-project {label} validator could not complete: {exc}"
+                ) from exc
+            if completed.returncode != 0:
+                detail = completed.stderr[:4000].decode("utf-8", "replace").strip()
+                raise WorkflowError(
+                    f"verify-project {label} validation failed: "
+                    f"{detail or f'exit {completed.returncode}'}"
+                )
+
+
 def adapt_verify_project(
     result_value: Any,
     context_value: Any,
     plan_value: Any,
     expected_target_value: Any,
+    verify_project_dir: str,
 ) -> dict[str, Any]:
     """Reduce validated verify-project data to a target-bound consumer gate."""
     _assert_bounded_json(result_value, "verify-project result")
     _assert_bounded_json(context_value, "verify-project context")
     _assert_bounded_json(plan_value, "verify-project plan")
+    _validate_with_verify_project(
+        verify_project_dir, context_value, plan_value, result_value
+    )
     expected_target = _target(expected_target_value, "expected review target")
     projected_target = _expected_verification_target(expected_target)
 
@@ -2064,9 +2170,13 @@ def adapt_verify_project(
     }
 
 
-def _verification_bundle(value: Any, target: dict[str, Any]) -> dict[str, Any]:
+def _verification_bundle(
+    value: Any, target: dict[str, Any], verify_project_dir: str
+) -> dict[str, Any]:
     item = _object(value, "verification bundle", {"context", "plan", "result"})
-    return adapt_verify_project(item["result"], item["context"], item["plan"], target)
+    return adapt_verify_project(
+        item["result"], item["context"], item["plan"], target, verify_project_dir
+    )
 
 
 def _validate_verification_record(value: Any) -> dict[str, Any]:
@@ -2580,6 +2690,7 @@ def finalize_run(
     draft: Any,
     context_value: Any,
     verification_value: Any | None = None,
+    verify_project_dir: str | None = None,
 ) -> dict[str, Any]:
     _assert_bounded_json(draft, "run draft")
     _assert_bounded_json(context_value, "run context")
@@ -2595,8 +2706,14 @@ def finalize_run(
         )
     if verification_value is not None and not changes:
         raise WorkflowError("verify-project evidence is valid only after an applied fix")
+    if verification_value is not None and verify_project_dir is None:
+        raise WorkflowError(
+            "verify-project evidence requires its independently installed producer path"
+        )
     verification = (
-        _verification_bundle(verification_value, context["target"])
+        _verification_bundle(
+            verification_value, context["target"], verify_project_dir or ""
+        )
         if verification_value is not None
         else _verification_no_run(profile)
     )
@@ -2637,6 +2754,7 @@ def validate_run(
     value: Any,
     context_value: Any,
     verification_value: Any | None = None,
+    verify_project_dir: str | None = None,
 ) -> dict[str, Any]:
     _assert_bounded_json(value, "run result")
     _assert_bounded_json(context_value, "run context")
@@ -2673,6 +2791,7 @@ def validate_run(
         },
         context_value,
         verification_value,
+        verify_project_dir,
     )
     if item != expected:
         raise WorkflowError("run result is not in canonical finalized form")
@@ -2864,6 +2983,11 @@ def _parser() -> argparse.ArgumentParser:
                 required=True,
                 help="lead-owned expected review-and-fix target JSON path",
             )
+            command.add_argument(
+                "--verify-project-dir",
+                required=True,
+                help="trusted independently installed verify-project skill directory",
+            )
         if name in {"finalize-plan", "validate-plan"}:
             command.add_argument(
                 "--batch",
@@ -2893,6 +3017,10 @@ def _parser() -> argparse.ArgumentParser:
                 "--verification-result",
                 help="canonical verify-project result JSON path",
             )
+            command.add_argument(
+                "--verify-project-dir",
+                help="trusted independently installed verify-project skill directory",
+            )
         command.add_argument("--output", help="explicit JSON output path; stdout when omitted")
         command.add_argument(
             "--replace",
@@ -2917,7 +3045,13 @@ def main(argv: list[str] | None = None) -> int:
             context, _ = _read_json(args.context)
             plan, _ = _read_json(args.plan)
             expected_target, _ = _read_json(args.target)
-            result = adapt_verify_project(value, context, plan, expected_target)
+            result = adapt_verify_project(
+                value,
+                context,
+                plan,
+                expected_target,
+                args.verify_project_dir,
+            )
         elif args.command == "finalize-batch":
             envelope, _ = _read_json(args.envelope)
             result = finalize_batch(value, envelope)
@@ -2944,6 +3078,10 @@ def main(argv: list[str] | None = None) -> int:
                 raise WorkflowError(
                     "verification context, plan, and result paths must be supplied together"
                 )
+            if args.verify_project_dir is not None and not all(verification_paths):
+                raise WorkflowError(
+                    "--verify-project-dir requires verification context, plan, and result paths"
+                )
             verification = (
                 {
                     "context": _read_json(args.verification_context)[0],
@@ -2953,7 +3091,9 @@ def main(argv: list[str] | None = None) -> int:
                 if all(verification_paths)
                 else None
             )
-            result = finalize_run(value, context, verification)
+            result = finalize_run(
+                value, context, verification, args.verify_project_dir
+            )
         elif args.command == "validate-run":
             context, _ = _read_json(args.context)
             verification_paths = (
@@ -2965,6 +3105,10 @@ def main(argv: list[str] | None = None) -> int:
                 raise WorkflowError(
                     "verification context, plan, and result paths must be supplied together"
                 )
+            if args.verify_project_dir is not None and not all(verification_paths):
+                raise WorkflowError(
+                    "--verify-project-dir requires verification context, plan, and result paths"
+                )
             verification = (
                 {
                     "context": _read_json(args.verification_context)[0],
@@ -2974,7 +3118,9 @@ def main(argv: list[str] | None = None) -> int:
                 if all(verification_paths)
                 else None
             )
-            result = validate_run(value, context, verification)
+            result = validate_run(
+                value, context, verification, args.verify_project_dir
+            )
         else:  # pragma: no cover - argparse owns this boundary
             raise WorkflowError(f"unknown command: {args.command}")
         _emit(result, args.output, args.replace)

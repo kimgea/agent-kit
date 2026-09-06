@@ -16,8 +16,9 @@ in `toolkit.toml`.
 - Add lead-owned around-command snapshots, protected-state and exact disposable
   output attribution, bounded run-temporary ownership, claim-level evidence,
   and workflow observations.
-- Add an optional deterministic `verify-project` profile to `review-and-fix`,
-  with separately validated producer context, plan, and result inputs.
+- Add an optional deterministic `verify-project` profile to `review-and-fix`;
+  its consumer adapter freezes and runs the trusted producer's context, plan,
+  and result validators before accepting the bound inputs.
 - Add local behavioral consumer cases for verified pass, failure, incomplete,
   unknown, stale, target-mismatched, forged-authority, non-fresh, and
   no-verifier fallback paths, plus a standalone adapter contract.

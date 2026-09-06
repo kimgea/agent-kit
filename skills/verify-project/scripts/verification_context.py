@@ -147,23 +147,27 @@ def _repository_root(value: str) -> tuple[Path, bool, str | None]:
     assert_no_link_components(supplied, include_final=True)
     if not supplied.exists() or not supplied.is_dir() or is_link_like(supplied):
         raise ContextError(f"repository root is not a safe directory: {supplied}")
+    git_marker = supplied / ".git"
     try:
         output = _git(supplied, ["rev-parse", "--show-toplevel"], timeout=10)
-        discovered = Path(output.decode("utf-8", "strict").strip()).absolute()
-        assert_no_link_components(discovered, include_final=True)
-        if not discovered.is_dir() or is_link_like(discovered):
-            raise ContextError(f"Git worktree root is not a safe directory: {discovered}")
-        same_root = _repository_roots_match(supplied, discovered)
-        if not same_root:
-            raise ContextError(f"--repo must name the Git worktree root: {discovered}")
-        root = discovered if os.name == "nt" else supplied
-        head = _git(root, ["rev-parse", "--verify", "HEAD^{commit}"], timeout=10).decode("ascii").strip()
-        return root, True, head
-    except (ContextError, UnicodeDecodeError):
-        git_marker = supplied / ".git"
+    except ContextError:
         if git_marker.exists():
             raise
         return supplied, False, None
+    try:
+        discovered = Path(output.decode("utf-8", "strict").strip()).absolute()
+    except UnicodeDecodeError as exc:
+        raise ContextError("Git returned a non-UTF-8 worktree root") from exc
+    assert_no_link_components(discovered, include_final=True)
+    if not discovered.is_dir() or is_link_like(discovered):
+        raise ContextError(f"Git worktree root is not a safe directory: {discovered}")
+    if not _repository_roots_match(supplied, discovered):
+        raise ContextError(f"--repo must name the Git worktree root: {discovered}")
+    # Preserve the lead-owned spelling after proving it identifies the Git root.
+    # This keeps target binding stable across Windows short/long path aliases.
+    root = supplied
+    head = _git(root, ["rev-parse", "--verify", "HEAD^{commit}"], timeout=10).decode("ascii").strip()
+    return root, True, head
 
 
 def _repository_roots_match(supplied: Path, discovered: Path) -> bool:
@@ -243,7 +247,7 @@ def _working_tree_changes(root: Path) -> list[dict[str, Any]]:
     consumed_deletions: set[str] = set()
     for path in untracked:
         try:
-            object_id = _git(root, ["hash-object", "--no-filters", "--", path]).decode("ascii").strip()
+            object_id = _git(root, ["hash-object", f"--path={path}", "--", path]).decode("ascii").strip()
         except (ContextError, UnicodeDecodeError):
             object_id = ""
         matches = deletions_by_oid.get(object_id, [])

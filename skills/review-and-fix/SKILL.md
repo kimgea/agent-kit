@@ -174,9 +174,10 @@ For an `auto` or exactly approved plan:
    encounters overlapping user work.
 3. Read [verification-adapter.md](references/verification-adapter.md). When an
    independently trusted `verify-project` installation is available, run it in
-   a fresh context over the exact post-fix target, validate its plan and result
-   with the producer's helpers, and pass the same canonical context, plan, and
-   result through this skill's deterministic adapter. Only a complete,
+   a fresh context over the exact post-fix target and pass its canonical context,
+   plan, result, and lead-selected trusted producer directory through this
+   skill's deterministic adapter. The adapter freezes and runs the producer's
+   own context, plan, and result validators before conversion. Only a complete,
    sufficient, target/context/plan-bound canonical pass may continue.
 4. If `verify-project` is unavailable, use the existing plan-bound validation
    records under normal caller, project, sandbox, and permission rules and label
@@ -235,8 +236,8 @@ do not copy target or status authority into the draft. Finalize and validate it
 with:
 
 ```text
-python <skill-dir>/scripts/review_workflow.py finalize-run --input <draft.json> --context <run-context.json> [--verification-context <context.json> --verification-plan <plan.json> --verification-result <result.json>]
-python <skill-dir>/scripts/review_workflow.py validate-run --input <result.json> --context <run-context.json> [--verification-context <context.json> --verification-plan <plan.json> --verification-result <verification-result.json>]
+python <skill-dir>/scripts/review_workflow.py finalize-run --input <draft.json> --context <run-context.json> [--verification-context <context.json> --verification-plan <plan.json> --verification-result <result.json> --verify-project-dir <verify-project-dir>]
+python <skill-dir>/scripts/review_workflow.py validate-run --input <result.json> --context <run-context.json> [--verification-context <context.json> --verification-plan <plan.json> --verification-result <verification-result.json> --verify-project-dir <verify-project-dir>]
 ```
 
 The helper derives target binding, reviewer identity, decision status, stop

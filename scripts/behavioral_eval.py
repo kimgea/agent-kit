@@ -1484,6 +1484,13 @@ def validate_result_contract(
             [
                 sys.executable,
                 str(verify_root / "scripts" / "verification_plan.py"),
+                "validate-context",
+                "--input",
+                str(verification_context),
+            ],
+            [
+                sys.executable,
+                str(verify_root / "scripts" / "verification_plan.py"),
                 "validate",
                 "--input",
                 str(verification_plan),
@@ -1497,7 +1504,7 @@ def validate_result_contract(
             ],
         )
         for label, producer_command in zip(
-            ("plan", "result"), producer_commands, strict=True
+            ("context", "plan", "result"), producer_commands, strict=True
         ):
             try:
                 producer_completed = subprocess.run(
@@ -1531,6 +1538,8 @@ def validate_result_contract(
                     str(verification_plan),
                     "--verification-result",
                     str(verification_result),
+                    "--verify-project-dir",
+                    str(verify_root),
                 ]
             )
     try:

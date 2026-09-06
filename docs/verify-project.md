@@ -143,10 +143,11 @@ completion, outcome, and next action. The result does not authorize edits,
 commands, publication, or acceptance.
 
 `review-and-fix` is the first shipped consumer. Its deterministic adapter
-independently validates the producer context, plan, and result, then requires a
-fresh, target-matched, complete, sufficiently covered `pass` before invoking the
-fresh acceptance reviewer. Other outcomes stop with the verifier's derived next
-action.
+freezes and invokes the trusted installed producer's validators over the exact
+context, plan, and result before applying its own cross-binding checks. It then
+requires a fresh, target-matched, complete, sufficiently covered `pass` before
+invoking the fresh acceptance reviewer. Other outcomes stop with the verifier's
+derived next action.
 
 Deterministic tests and graders run in the canonical local gate and hosted CI.
 Fresh model-backed behavioral evaluations are opt-in local maintainer runs; no

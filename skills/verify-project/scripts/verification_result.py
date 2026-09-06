@@ -1672,6 +1672,8 @@ def build_parser() -> argparse.ArgumentParser:
     finalize_command.add_argument("--output")
     validate_command = commands.add_parser("validate")
     validate_command.add_argument("--input", required=True)
+    validate_current_command = commands.add_parser("validate-current")
+    validate_current_command.add_argument("--input", required=True)
     render_command = commands.add_parser("render")
     render_command.add_argument("--input", required=True)
     render_command.add_argument("--format", choices=("human", "json", "both"), default="human")
@@ -1693,6 +1695,11 @@ def main(argv: list[str] | None = None) -> int:
             _emit(value, args.format, args.output)
         elif args.command == "validate":
             validate_result(_read_json(args.input))
+        elif args.command == "validate-current":
+            value = validate_result(_read_json(args.input))
+            root = Path(value["target"]["repository_root"])
+            for target in value["targets"]:
+                _revalidate_target(root, target)
         elif args.command == "render":
             _emit(validate_result(_read_json(args.input)), args.format, args.output)
         else:
