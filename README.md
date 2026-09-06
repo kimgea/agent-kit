@@ -173,14 +173,24 @@ global behavior or need project-specific adaptation.
 
 ## Develop and validate
 
-Read [AGENTS.md](AGENTS.md) and [CONTRIBUTING.md](CONTRIBUTING.md), then run the
-same gate used by CI:
+Read [AGENTS.md](AGENTS.md) and [CONTRIBUTING.md](CONTRIBUTING.md), then validate
+the final commit range with the same conservative selector used by pull-request
+CI:
+
+```bash
+python scripts/agent_kit.py validate-range --base BASE_SHA --head HEAD_SHA
+```
+
+The selector uses a focused documentation profile only for the narrow documented
+allowlist in a clean checkout and otherwise runs the full canonical gate. Run
+that full gate directly for release preparation or when an exact clean range is
+unavailable:
 
 ```bash
 python scripts/agent_kit.py check
 ```
 
-The gate validates catalog parity, skill frontmatter and UI metadata, local links,
+The full gate validates catalog parity, skill frontmatter and UI metadata, local links,
 evaluation schemas and executable-suite fixtures, generated-file hygiene, Python
 compilation, all unit tests, and that validation itself does not alter the
 working tree. It never invokes a model. Run model-backed behavioral suites only

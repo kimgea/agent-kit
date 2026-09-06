@@ -61,7 +61,7 @@ Treat this repository and `toolkit.toml` as the source of truth. Do not commit:
    changes.
 5. Update compatibility, security, provenance, and changelog information when
    their claims change.
-6. Run `python scripts/agent_kit.py check` and inspect the final diff.
+6. Run the exact-range validation described below and inspect the final diff.
 
 Every skill requires frontmatter containing only `name` and `description` plus a
 matching `agents/openai.yaml`. Preserve plain Markdown and standard-library Python
@@ -164,13 +164,23 @@ tokens, or secret-bearing command arguments.
 Run:
 
 ```bash
-python scripts/agent_kit.py check
+python scripts/agent_kit.py validate-range --base BASE_SHA --head HEAD_SHA
 python scripts/agent_kit.py doctor
 ```
 
-CI runs the canonical check on Ubuntu and Windows with Python 3.11 and 3.13. Keep
-tests network-free and cover paths containing spaces, non-default agent homes,
-packaged copies, and ownership-aware lifecycle behavior.
+The range validator selects a narrow documentation profile only for changes
+confined to top-level maintainer documents, Markdown under `docs/` or
+`.claude/`, and the pull-request template. It selects the full canonical gate
+for dirty state and every runtime, skill, catalog, schema, test, eval, workflow,
+guidance, unknown, empty, or unclassifiable range. Run
+`python scripts/agent_kit.py check` directly for release preparation or whenever
+an exact clean range is unavailable.
+
+Pull-request CI uses the same deterministic selection on Ubuntu and Windows
+with Python 3.11 and 3.13; pushes to `main` and releases always run the full
+canonical check. Keep tests network-free and cover paths containing spaces,
+non-default agent homes, packaged copies, and ownership-aware lifecycle
+behavior.
 
 Committed CCPM files under `.claude/` are also part of the repository contract.
 Use only its documented PRD, epic, and task status enums; the canonical check

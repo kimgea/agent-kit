@@ -201,12 +201,23 @@ permission grant independently reviewable and removable.
 
 ## Validation
 
-The canonical check validates catalog/resource parity, skill frontmatter, Codex
-metadata, descriptive evaluation JSON, executable suite fixtures and simulated
-grading, local Markdown links, generated-file hygiene, Python compilation, and
-unit tests. It snapshots Git status before and after execution to detect
-validation side effects. It never invokes an agent model; model-backed behavioral
-runs are explicit local operations and never part of hosted CI.
+Validation has two deterministic feedback profiles. The full canonical check
+validates catalog/resource parity, skill frontmatter, Codex metadata,
+descriptive evaluation JSON, executable suite fixtures and simulated grading,
+local Markdown links, generated-file hygiene, Python compilation, and unit
+tests. The documentation profile validates repository controls, every local
+Markdown link, generated-file hygiene, and CCPM tracking consistency without
+compiling Python or running unrelated unit tests.
+
+`agent_kit.py validate-range` derives the profile from an exact Git base and
+head. Its allowlist is intentionally narrow: top-level maintainer documents,
+Markdown under `docs/` or `.claude/`, and the pull-request template. Mixed,
+empty, unknown, unclassifiable, dirty, workflow, guidance, or executable changes
+fall back to full validation. Pull requests use this selector; pushes to `main`
+and releases always use the full gate. Both profiles snapshot the working tree
+before and after execution to detect validation side effects. Neither invokes
+an agent model; model-backed behavioral runs are explicit local operations and
+never part of hosted CI.
 
 Release packaging uses fixed timestamps, sorted paths, stable permissions, and a
 single Linux release job. It emits standalone skill archives, cataloged plugin

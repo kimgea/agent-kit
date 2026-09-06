@@ -17,7 +17,8 @@ Describe the complete scope and why it belongs in agent-kit.
 
 ## Validation
 
-- [ ] `python scripts/agent_kit.py check`
+- [ ] Exact-range validation selected the appropriate documentation or full
+      profile (record the command and result below)
 - [ ] Relevant behavioral evaluation or forward-test completed
 
 Summarize any skipped or environment-specific validation.

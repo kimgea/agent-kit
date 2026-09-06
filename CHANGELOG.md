@@ -25,6 +25,13 @@ in `toolkit.toml`.
 
 ### Changed
 
+- Select a conservative documentation-only validation profile for exact
+  pull-request ranges, while retaining the full canonical gate for runtime,
+  skill, catalog, schema, test, eval, workflow, guidance, unknown, release, and
+  `main` changes.
+- Separate semantic review evidence from verification execution so independent
+  reviewers can consume exact target-bound results without routinely repeating
+  unrelated checks.
 - Include verify-project in the grouped project-review plugin while preserving
   its independent standalone archive and standard-library runtime.
 - Dogfood local verification through a concise root `VERIFY.md` and default

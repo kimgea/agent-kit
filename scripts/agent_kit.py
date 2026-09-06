@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CATALOG_PATH = ROOT / "toolkit.toml"
 RESOURCE_ID = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+GIT_OBJECT_ID = re.compile(r"^[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?$")
 MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 FRONTMATTER = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
 SUPPORTED_AGENTS = {"codex", "claude"}
@@ -496,6 +497,60 @@ def workflow_has_exact_run_command(text: str, command: str) -> bool:
     )
 
 
+def workflow_step_blocks(text: str) -> list[list[str]]:
+    """Return named workflow steps without interpreting project-owned YAML."""
+    lines = text.splitlines()
+    starts: list[tuple[int, str]] = []
+    for index, line in enumerate(lines):
+        match = re.fullmatch(r"(?P<indent>[ \t]*)-\s+name:\s*\S.*", line)
+        if match:
+            starts.append((index, match.group("indent")))
+    blocks: list[list[str]] = []
+    for index, indent in starts:
+        end = len(lines)
+        next_step = re.compile(rf"^{re.escape(indent)}-\s+")
+        for candidate in range(index + 1, len(lines)):
+            if next_step.match(lines[candidate]):
+                end = candidate
+                break
+        blocks.append(lines[index:end])
+    return blocks
+
+
+def workflow_step_has_exact_lines(text: str, *required: str) -> bool:
+    """Require exact active lines to occur together in exactly one named step."""
+    matches = 0
+    for block in workflow_step_blocks(text):
+        active = {
+            line.strip()
+            for line in block
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        if all(line in active for line in required):
+            matches += 1
+    return matches == 1
+
+
+def workflow_checkout_has_full_history(text: str) -> bool:
+    """Bind full-history configuration to one immutable checkout step."""
+    matches = 0
+    for block in workflow_step_blocks(text):
+        active = {
+            line.strip()
+            for line in block
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        checkout = any(
+            re.fullmatch(
+                r"uses: actions/checkout@[0-9a-f]{40}(?:\s+#.*)?", line
+            )
+            for line in active
+        )
+        if checkout and "with:" in active and "fetch-depth: 0" in active:
+            matches += 1
+    return matches == 1
+
+
 def validate_repository_controls(root: Path, catalog: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     required = (
@@ -544,9 +599,36 @@ def validate_repository_controls(root: Path, catalog: dict[str, Any]) -> list[st
             if required_text not in text:
                 errors.append(f"{ci}: missing required matrix/gate value {required_text}")
         canonical = "python scripts/agent_kit.py check"
-        if not workflow_has_exact_run_command(text, canonical):
+        canonical_condition = "if: github.event_name != 'pull_request'"
+        if not (
+            workflow_has_exact_run_command(text, canonical)
+            and workflow_step_has_exact_lines(
+                text, canonical_condition, f"run: {canonical}"
+            )
+        ):
             errors.append(
-                f"{ci}: canonical gate must be exactly one run entry: {canonical}"
+                f"{ci}: canonical gate must have one exact guarded run entry: "
+                f"{canonical_condition}; run: {canonical}"
+            )
+        focused = (
+            "python scripts/agent_kit.py validate-range --base "
+            "${{ github.event.pull_request.base.sha }} --head "
+            "${{ github.event.pull_request.head.sha }}"
+        )
+        focused_condition = "if: github.event_name == 'pull_request'"
+        if not (
+            workflow_has_exact_run_command(text, focused)
+            and workflow_step_has_exact_lines(
+                text, focused_condition, f"run: {focused}"
+            )
+        ):
+            errors.append(
+                f"{ci}: focused pull-request gate must have one exact guarded "
+                f"run entry: {focused_condition}; run: {focused}"
+            )
+        if not workflow_checkout_has_full_history(text):
+            errors.append(
+                f"{ci}: one immutable checkout step must set exact fetch-depth: 0"
             )
     release = workflow_root / "release.yml"
     if release.is_file():
@@ -831,6 +913,125 @@ def validate_repository(root: Path | None = None) -> list[str]:
     return errors
 
 
+DOCUMENTATION_ROOT_FILES = {
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "README.md",
+    "SECURITY.md",
+    "THIRD_PARTY_NOTICES.md",
+}
+
+
+def is_documentation_only_path(value: str) -> bool:
+    """Return whether a changed path is safe for the narrow documentation gate."""
+    if (
+        not value
+        or "\\" in value
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        return False
+    path = Path(value)
+    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+        return False
+    normalized = path.as_posix()
+    if normalized in DOCUMENTATION_ROOT_FILES:
+        return True
+    if normalized == ".github/pull_request_template.md":
+        return True
+    return path.suffix == ".md" and path.parts[0] in {"docs", ".claude"}
+
+
+def check_profile_for_paths(paths: list[str]) -> str:
+    """Select the smallest safe validation profile for an exact changed-path set."""
+    if paths and all(is_documentation_only_path(path) for path in paths):
+        return "documentation"
+    return "full"
+
+
+def changed_paths_between(root: Path, base: str, head: str) -> list[str]:
+    """Return exact changed paths without invoking repository-selected diff helpers."""
+    if not GIT_OBJECT_ID.fullmatch(base) or not GIT_OBJECT_ID.fullmatch(head):
+        raise AgentKitError("range revisions must be full 40- or 64-character object IDs")
+    git = shutil.which("git")
+    if git is None:
+        raise AgentKitError("cannot classify the validation range: git is unavailable")
+    current = subprocess.run(
+        [git, "rev-list", "--parents", "-n", "1", "HEAD"],
+        cwd=root,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    identity = current.stdout.strip().lower().split()
+    exact_head = len(identity) >= 1 and identity[0] == head.lower()
+    exact_merge = (
+        len(identity) == 3
+        and set(identity[1:]) == {base.lower(), head.lower()}
+    )
+    if current.returncode != 0 or not (exact_head or exact_merge):
+        raise AgentKitError(
+            "cannot classify the validation range: checkout is not the exact head or "
+            "its direct base/head merge"
+        )
+    result = subprocess.run(
+        [
+            git,
+            "-c",
+            "core.fsmonitor=false",
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--name-only",
+            "-z",
+            base,
+            head,
+            "--",
+        ],
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise AgentKitError("cannot classify the validation range: git diff failed")
+    try:
+        return sorted(
+            item.decode("utf-8") for item in result.stdout.split(b"\0") if item
+        )
+    except UnicodeDecodeError as exc:
+        raise AgentKitError(
+            "cannot classify the validation range: a changed path is not UTF-8"
+        ) from exc
+
+
+def validation_profile_between(root: Path, base: str, head: str) -> tuple[str, list[str]]:
+    """Select a range profile only when the current checkout is exact and clean."""
+    paths = changed_paths_between(root, base, head)
+    status = git_status(root)
+    if status is None or status:
+        raise AgentKitError(
+            "cannot focus the validation range: checkout has tracked or visible "
+            "untracked changes"
+        )
+    return check_profile_for_paths(paths), paths
+
+
+def validate_documentation_repository(root: Path | None = None) -> list[str]:
+    """Validate contracts affected by the conservative documentation-only profile."""
+    root = ROOT if root is None else root
+    try:
+        catalog = load_catalog(root)
+    except AgentKitError as exc:
+        return [str(exc)]
+    errors = validate_markdown_links(root)
+    errors.extend(validate_generated_artifacts(root))
+    errors.extend(validate_repository_controls(root, catalog))
+    errors.extend(validate_project_tracking(root))
+    return errors
+
+
 def source_python_files(root: Path) -> list[Path]:
     roots = [root / name for name in ("scripts", "skills", "hooks", "tools", "tests")]
     return sorted(
@@ -860,9 +1061,18 @@ def git_status(root: Path) -> str | None:
     git = shutil.which("git")
     if git is None:
         raise AgentKitError("cannot inspect the Git working tree: git is unavailable")
+    config_overrides = _git_filter_overrides(root)
+    command = [git, "-c", "core.fsmonitor=false"]
+    for key, value in config_overrides:
+        command.extend(("-c", f"{key}={value}"))
+    command.extend(("status", "--porcelain=v1", "--untracked-files=all", "--no-renames"))
+    environment = os.environ.copy()
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    environment.pop("GIT_EXTERNAL_DIFF", None)
     result = subprocess.run(
-        [git, "status", "--porcelain=v1", "--untracked-files=all"],
+        command,
         cwd=root,
+        env=environment,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
@@ -930,9 +1140,12 @@ def _git_source_paths(root: Path, *arguments: str) -> list[bytes]:
     git = shutil.which("git")
     if git is None:
         raise AgentKitError("cannot inspect the Git working tree: git is unavailable")
+    environment = os.environ.copy()
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
     result = subprocess.run(
-        [git, "ls-files", "-z", *arguments],
+        [git, "-c", "core.fsmonitor=false", "ls-files", "-z", *arguments],
         cwd=root,
+        env=environment,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         check=False,
@@ -940,6 +1153,72 @@ def _git_source_paths(root: Path, *arguments: str) -> list[bytes]:
     if result.returncode != 0:
         raise AgentKitError("cannot inspect the Git working tree: git ls-files failed")
     return sorted(item for item in result.stdout.split(b"\0") if item)
+
+
+def _git_filter_overrides(root: Path) -> tuple[tuple[str, str], ...]:
+    """Disable external clean/process filters selected for visible source paths."""
+    git = shutil.which("git")
+    if git is None:
+        raise AgentKitError("cannot inspect the Git working tree: git is unavailable")
+    paths = sorted(
+        set(
+            _git_source_paths(root, "--cached")
+            + _git_source_paths(root, "--others", "--exclude-standard")
+        )
+    )
+    drivers: set[str] = set()
+    environment = os.environ.copy()
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    for offset in range(0, len(paths), 256):
+        payload = b"\0".join(paths[offset : offset + 256]) + b"\0"
+        result = subprocess.run(
+            [
+                git,
+                "-c",
+                "core.fsmonitor=false",
+                "check-attr",
+                "-z",
+                "--stdin",
+                "filter",
+            ],
+            cwd=root,
+            env=environment,
+            input=payload,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise AgentKitError(
+                "cannot inspect the Git working tree: git check-attr failed"
+            )
+        fields = result.stdout.split(b"\0")
+        if fields and fields[-1] == b"":
+            fields.pop()
+        if len(fields) % 3:
+            raise AgentKitError("git returned malformed filter attributes")
+        for index in range(0, len(fields), 3):
+            _path, attribute, raw_value = fields[index : index + 3]
+            if attribute != b"filter":
+                raise AgentKitError("git returned unexpected filter attributes")
+            try:
+                value = raw_value.decode("utf-8", "strict")
+            except UnicodeDecodeError as exc:
+                raise AgentKitError("git returned a non-UTF-8 filter driver") from exc
+            if value in {"unspecified", "unset", "set"}:
+                continue
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", value):
+                raise AgentKitError("git selected an unsafe filter driver")
+            drivers.add(value)
+    return tuple(
+        item
+        for driver in sorted(drivers)
+        for item in (
+            (f"filter.{driver}.clean", ""),
+            (f"filter.{driver}.process", ""),
+            (f"filter.{driver}.required", "false"),
+        )
+    )
 
 
 def _validation_file_signature(value: os.stat_result) -> tuple[int, ...]:
@@ -1921,19 +2200,22 @@ def command_doctor(args: argparse.Namespace) -> int:
     return 0 if healthy else 1
 
 
-def command_check(args: argparse.Namespace) -> int:
+def run_check(*, documentation_only: bool, skip_tests: bool = False) -> int:
     before = validation_snapshot(ROOT)
     failed = False
     changed = False
     try:
-        errors = validate_repository()
-        errors.extend(compile_repository(ROOT))
+        if documentation_only:
+            errors = validate_documentation_repository()
+        else:
+            errors = validate_repository()
+            errors.extend(compile_repository(ROOT))
         if errors:
             print(f"agent-kit check failed with {len(errors)} error(s):", file=sys.stderr)
             for error in errors:
                 print(f"  - {error}", file=sys.stderr)
             failed = True
-        elif not args.skip_tests and run_tests(ROOT) != 0:
+        elif not documentation_only and not skip_tests and run_tests(ROOT) != 0:
             print("agent-kit check failed: unit tests failed", file=sys.stderr)
             failed = True
     finally:
@@ -1947,8 +2229,26 @@ def command_check(args: argparse.Namespace) -> int:
         failed = True
     if failed:
         return 1
-    print("agent-kit check passed")
+    profile = "documentation" if documentation_only else "full"
+    print(f"agent-kit check passed ({profile} profile)")
     return 0
+
+
+def command_check(args: argparse.Namespace) -> int:
+    return run_check(documentation_only=False, skip_tests=args.skip_tests)
+
+
+def command_validate_range(args: argparse.Namespace) -> int:
+    try:
+        profile, paths = validation_profile_between(ROOT, args.base, args.head)
+    except AgentKitError as exc:
+        print(f"agent-kit validate-range: {exc}; using full profile", file=sys.stderr)
+        return run_check(documentation_only=False)
+    print(
+        f"agent-kit validate-range selected {profile} profile "
+        f"for {len(paths)} changed path(s)"
+    )
+    return run_check(documentation_only=profile == "documentation")
 
 
 def command_package(args: argparse.Namespace) -> int:
@@ -1976,6 +2276,14 @@ def build_parser() -> argparse.ArgumentParser:
     command = subparsers.add_parser("check", help="run the canonical repository validation gate")
     command.add_argument("--skip-tests", action="store_true", help=argparse.SUPPRESS)
     command.set_defaults(handler=command_check)
+
+    command = subparsers.add_parser(
+        "validate-range",
+        help="select a conservative validation profile for an exact commit range",
+    )
+    command.add_argument("--base", required=True)
+    command.add_argument("--head", required=True)
+    command.set_defaults(handler=command_validate_range)
 
     for name, help_text, handler in (
         ("install", "preview or install/update one skill", install_skill),

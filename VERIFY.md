@@ -2,11 +2,14 @@
 
 ## Required for pass
 
-- Run `python scripts/agent_kit.py check` after all source, catalog,
-  documentation, tracking, test, and evaluation changes are complete.
-- Use focused standard-library unit tests while iterating, then rely on the
-  canonical gate to check catalog parity, links, packages, generated-file
-  hygiene, schemas, evaluation fixtures, and the full test suite.
+- On the final commit, run `python scripts/agent_kit.py validate-range --base
+  BASE_SHA --head HEAD_SHA` from a clean exact-head or direct merge checkout.
+- The documentation profile is limited to the named root maintainer documents,
+  `docs/**/*.md`, `.claude/**/*.md`, and the pull-request template. Every mixed,
+  empty, unknown, unclassifiable, runtime, guidance, workflow, or release change
+  uses `python scripts/agent_kit.py check`; never relabel one manually.
+- Use focused standard-library tests while iterating. The selected final profile
+  then checks its documented repository, tracking, compilation, and test scope.
 - For platform-sensitive path, locking, process, or permission behavior, retain
   Linux and Windows coverage. A local Linux result does not establish native
   Windows behavior.

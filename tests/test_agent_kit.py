@@ -4,9 +4,11 @@ import importlib.util
 import io
 import json
 import os
+import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -52,9 +54,15 @@ class CatalogAndValidationTests(unittest.TestCase):
         }
         self.assertEqual(skills, catalog_skills)
         self.assertEqual([], agent_kit.validate_repository(ROOT))
+        self.assertEqual([], agent_kit.validate_documentation_repository(ROOT))
 
     def test_workflow_gate_requires_one_exact_non_bypassable_command(self):
         command = "python scripts/agent_kit.py check"
+        range_command = (
+            "python scripts/agent_kit.py validate-range --base "
+            "${{ github.event.pull_request.base.sha }} --head "
+            "${{ github.event.pull_request.head.sha }}"
+        )
         self.assertTrue(agent_kit.workflow_has_exact_run_command(f"run: {command}\n", command))
         self.assertFalse(
             agent_kit.workflow_has_exact_run_command(
@@ -83,9 +91,256 @@ class CatalogAndValidationTests(unittest.TestCase):
             )
             errors = agent_kit.validate_repository_controls(fixture, catalog)
             self.assertTrue(
-                any("ci.yml: canonical gate must be exactly one run entry" in item for item in errors),
+                any("ci.yml: canonical gate must have one exact guarded run entry" in item for item in errors),
                 errors,
             )
+
+            shutil.copy2(ROOT / ".github" / "workflows" / "ci.yml", ci)
+            ci.write_text(
+                ci.read_text(encoding="utf-8").replace(
+                    f"run: {range_command}", f"run: {range_command} --skip"
+                ),
+                encoding="utf-8",
+            )
+            errors = agent_kit.validate_repository_controls(fixture, catalog)
+            self.assertTrue(
+                any("focused pull-request gate must have one exact guarded" in item for item in errors),
+                errors,
+            )
+
+            shutil.copy2(ROOT / ".github" / "workflows" / "ci.yml", ci)
+            ci.write_text(
+                ci.read_text(encoding="utf-8").replace(
+                    "fetch-depth: 0", "# fetch-depth: 0"
+                ),
+                encoding="utf-8",
+            )
+            errors = agent_kit.validate_repository_controls(fixture, catalog)
+            self.assertTrue(
+                any("checkout step must set exact fetch-depth: 0" in item for item in errors),
+                errors,
+            )
+
+            shutil.copy2(ROOT / ".github" / "workflows" / "ci.yml", ci)
+            text = ci.read_text(encoding="utf-8")
+            text = text.replace(
+                "if: github.event_name == 'pull_request'",
+                "if: github.event_name == 'pull_request' && false",
+            )
+            ci.write_text(text, encoding="utf-8")
+            errors = agent_kit.validate_repository_controls(fixture, catalog)
+            self.assertTrue(
+                any("focused pull-request gate must have one exact guarded" in item for item in errors),
+                errors,
+            )
+
+            shutil.copy2(ROOT / ".github" / "workflows" / "ci.yml", ci)
+            text = ci.read_text(encoding="utf-8")
+            text = text.replace(
+                "if: github.event_name == 'pull_request'", "if: __focused__"
+            ).replace(
+                "if: github.event_name != 'pull_request'",
+                "if: github.event_name == 'pull_request'",
+            ).replace(
+                "if: __focused__", "if: github.event_name != 'pull_request'"
+            )
+            ci.write_text(text, encoding="utf-8")
+            errors = agent_kit.validate_repository_controls(fixture, catalog)
+            self.assertTrue(
+                any("focused pull-request gate must have one exact guarded" in item for item in errors),
+                errors,
+            )
+            self.assertTrue(
+                any("canonical gate must have one exact guarded" in item for item in errors),
+                errors,
+            )
+
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertTrue(agent_kit.workflow_has_exact_run_command(workflow, command))
+        self.assertTrue(
+            agent_kit.workflow_has_exact_run_command(workflow, range_command)
+        )
+        self.assertIn("fetch-depth: 0", workflow)
+
+    def test_documentation_profile_is_conservative(self):
+        accepted = [
+            "README.md",
+            "docs/architecture.md",
+            ".claude/epics/example/001.md",
+            ".github/pull_request_template.md",
+        ]
+        self.assertEqual("documentation", agent_kit.check_profile_for_paths(accepted))
+        for path in (
+            "AGENTS.md",
+            "VERIFY.md",
+            "toolkit.toml",
+            "skills/example/SKILL.md",
+            "evals/example/fixtures/case/README.md",
+            ".github/workflows/ci.yml",
+            "docs/example.json",
+            "docs\\architecture.md",
+            "docs/control\nname.md",
+            "../README.md",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual("full", agent_kit.check_profile_for_paths([path]))
+        self.assertEqual("full", agent_kit.check_profile_for_paths([]))
+
+    def test_changed_paths_select_documentation_then_full(self):
+        git = shutil.which("git")
+        if git is None:
+            self.skipTest("git is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary)
+
+            def git_run(*arguments, capture=False):
+                result = subprocess.run(
+                    [git, *arguments],
+                    cwd=fixture,
+                    text=True,
+                    stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
+                    check=True,
+                )
+                return result.stdout.strip() if capture else ""
+
+            def commit(message):
+                git_run("add", "-A")
+                git_run("commit", "-qm", message)
+                return git_run("rev-parse", "HEAD", capture=True)
+
+            git_run("init", "-q")
+            git_run("config", "user.email", "tests@example.invalid")
+            git_run("config", "user.name", "Agent Kit Tests")
+            docs = fixture / "docs"
+            docs.mkdir()
+            guide = docs / "guide.md"
+            guide.write_text("# Guide\n", encoding="utf-8")
+            base = commit("base")
+
+            guide.write_text("# Better guide\n", encoding="utf-8")
+            docs_head = commit("docs")
+            paths = agent_kit.changed_paths_between(fixture, base, docs_head)
+            self.assertEqual(["docs/guide.md"], paths)
+            self.assertEqual("documentation", agent_kit.check_profile_for_paths(paths))
+            self.assertEqual(
+                ("documentation", ["docs/guide.md"]),
+                agent_kit.validation_profile_between(fixture, base, docs_head),
+            )
+
+            git_run("checkout", "-q", "--detach", base)
+            git_run("merge", "-q", "--no-ff", "--no-edit", docs_head)
+            self.assertEqual(
+                ["docs/guide.md"],
+                agent_kit.changed_paths_between(fixture, base, docs_head),
+            )
+            git_run("checkout", "-q", "--detach", docs_head)
+
+            scripts = fixture / "scripts"
+            scripts.mkdir()
+            (scripts / "tool.py").write_text("VALUE = 1\n", encoding="utf-8")
+            with self.assertRaisesRegex(agent_kit.AgentKitError, "tracked or visible"):
+                agent_kit.validation_profile_between(fixture, base, docs_head)
+            code_head = commit("code")
+            paths = agent_kit.changed_paths_between(fixture, docs_head, code_head)
+            self.assertEqual(["scripts/tool.py"], paths)
+            self.assertEqual("full", agent_kit.check_profile_for_paths(paths))
+            with self.assertRaisesRegex(
+                agent_kit.AgentKitError, "exact head or its direct base/head merge"
+            ):
+                agent_kit.changed_paths_between(fixture, base, docs_head)
+
+    @unittest.skipUnless(os.name == "posix", "portable Git command probes")
+    def test_range_cleanliness_never_executes_repository_git_helpers(self):
+        git = shutil.which("git")
+        if git is None:
+            self.skipTest("git is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            base_directory = Path(temporary)
+            fixture = base_directory / "project"
+            fixture.mkdir()
+
+            def git_run(*arguments, capture=False):
+                result = subprocess.run(
+                    [git, *arguments],
+                    cwd=fixture,
+                    text=True,
+                    stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
+                    check=True,
+                )
+                return result.stdout.strip() if capture else ""
+
+            def commit(message):
+                git_run("add", "-A")
+                git_run("commit", "-qm", message)
+                return git_run("rev-parse", "HEAD", capture=True)
+
+            git_run("init", "-q")
+            git_run("config", "user.email", "tests@example.invalid")
+            git_run("config", "user.name", "Agent Kit Tests")
+            marker = base_directory / "helper-ran"
+            helper = base_directory / "helper.py"
+            helper.write_text(
+                "import pathlib, sys\n"
+                f"pathlib.Path({str(marker)!r}).write_text('ran', encoding='utf-8')\n"
+                "sys.stdout.buffer.write(sys.stdin.buffer.read())\n",
+                encoding="utf-8",
+            )
+            helper_command = " ".join(
+                (shlex.quote(sys.executable), shlex.quote(str(helper)))
+            )
+            git_run("config", "filter.untrusted.clean", helper_command)
+            (fixture / ".gitattributes").write_text(
+                "*.md filter=untrusted\n", encoding="utf-8"
+            )
+            guide = fixture / "README.md"
+            guide.write_text("# Initial\n", encoding="utf-8")
+            base = commit("base")
+            guide.write_text("# Updated\n", encoding="utf-8")
+            head = commit("docs")
+            marker.unlink(missing_ok=True)
+            git_run("config", "core.fsmonitor", helper_command)
+
+            self.assertEqual(
+                ("documentation", ["README.md"]),
+                agent_kit.validation_profile_between(fixture, base, head),
+            )
+            self.assertFalse(marker.exists())
+
+    def test_documentation_profile_skips_compilation_and_unit_tests(self):
+        with mock.patch.object(
+            agent_kit, "validation_snapshot", return_value=("git", "stable")
+        ), mock.patch.object(
+            agent_kit, "validate_documentation_repository", return_value=[]
+        ) as documentation, mock.patch.object(
+            agent_kit, "validate_repository"
+        ) as full, mock.patch.object(
+            agent_kit, "compile_repository"
+        ) as compile_repository, mock.patch.object(
+            agent_kit, "run_tests"
+        ) as run_tests:
+            self.assertEqual(
+                0, agent_kit.run_check(documentation_only=True)
+            )
+        documentation.assert_called_once_with()
+        full.assert_not_called()
+        compile_repository.assert_not_called()
+        run_tests.assert_not_called()
+
+    def test_validate_range_falls_back_to_full_when_classification_fails(self):
+        args = type(
+            "Args",
+            (),
+            {"base": "0" * 40, "head": "1" * 40},
+        )()
+        with mock.patch.object(
+            agent_kit,
+            "changed_paths_between",
+            side_effect=agent_kit.AgentKitError("unavailable"),
+        ), mock.patch.object(agent_kit, "run_check", return_value=0) as run_check:
+            self.assertEqual(0, agent_kit.command_validate_range(args))
+        run_check.assert_called_once_with(documentation_only=False)
 
     def test_check_detects_worktree_mutation_on_every_failure_path(self):
         args = type("Args", (), {"skip_tests": False})()
