@@ -96,7 +96,9 @@ Local runs create a new ignored directory under `.eval-results/` by default:
 
 Mutation and verification cases additionally retain compact host-owned mutation
 or command evidence and the canonical verification context, plan, and result
-needed for deterministic regrading.
+needed for deterministic regrading. Regrading uses structural producer
+validation and recorded target bindings; it does not require an old ephemeral
+fixture path to remain live or treat a historical result as fresh authority.
 
 The summary binds the observation to the frozen suite, skill, fixed dependency
 digests, harness, runner, Codex version, explicit model, reasoning effort, and

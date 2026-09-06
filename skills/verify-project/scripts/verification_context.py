@@ -246,15 +246,48 @@ def _working_tree_changes(root: Path) -> list[dict[str, Any]]:
             deletions_by_oid.setdefault(change["_old_oid"], []).append(change)
     consumed_deletions: set[str] = set()
     for path in untracked:
-        try:
-            object_id = _git(root, ["hash-object", f"--path={path}", "--", path]).decode("ascii").strip()
-        except (ContextError, UnicodeDecodeError):
-            object_id = ""
-        matches = deletions_by_oid.get(object_id, [])
+        candidate_ids: set[str] = set()
+        if deletions_by_oid:
+            try:
+                candidate_path = safe_repo_path(root, path)
+                metadata = candidate_path.lstat()
+                if metadata.st_size > MAX_TARGET_BYTES:
+                    raise ContextError("untracked rename candidate is oversized")
+                _, candidate = read_regular(
+                    candidate_path,
+                    MAX_TARGET_BYTES,
+                    require_single_link=True,
+                )
+                object_id_lengths = {len(value) for value in deletions_by_oid}
+                candidate_ids = {
+                    _git_blob_object_id(candidate, length)
+                    for length in object_id_lengths
+                }
+                normalized = candidate.replace(b"\r\n", b"\n")
+                if normalized != candidate:
+                    candidate_ids.update(
+                        _git_blob_object_id(normalized, length)
+                        for length in object_id_lengths
+                    )
+            except (ContextError, SafetyError, OSError, ValueError):
+                pass
+        matched_deletions = {
+            item["path"]: item
+            for object_id in candidate_ids
+            for item in deletions_by_oid.get(object_id, [])
+        }
+        matches = list(matched_deletions.values())
         if len(matches) == 1 and matches[0]["path"] not in consumed_deletions:
             deleted = matches[0]
             consumed_deletions.add(deleted["path"])
-            changes.append({"path": path, "old_path": deleted["path"], "change_kind": "renamed", "_old_oid": object_id})
+            changes.append(
+                {
+                    "path": path,
+                    "old_path": deleted["path"],
+                    "change_kind": "renamed",
+                    "_old_oid": deleted["_old_oid"],
+                }
+            )
         else:
             changes.append({"path": path, "old_path": None, "change_kind": "untracked", "_old_oid": ""})
     changes = [item for item in changes if not (item["change_kind"] == "deleted" and item["path"] in consumed_deletions)]
@@ -267,6 +300,16 @@ def _working_tree_changes(root: Path) -> list[dict[str, Any]]:
         {key: value for key, value in merged[path].items() if not key.startswith("_")}
         for path in sorted(merged)
     ]
+
+
+def _git_blob_object_id(data: bytes, hexadecimal_length: int) -> str:
+    """Hash raw bytes as a Git blob without invoking repository filters."""
+    header = f"blob {len(data)}\0".encode("ascii")
+    if hexadecimal_length == 40:
+        return hashlib.sha1(header + data, usedforsecurity=False).hexdigest()
+    elif hexadecimal_length == 64:
+        return hashlib.sha256(header + data).hexdigest()
+    raise ValueError("unsupported Git object identifier length")
 
 
 def _git_visible_paths(root: Path) -> list[str]:

@@ -26,8 +26,9 @@ post-fix target. It cannot expand the edit target or add execution authority.
 
 Give the consumer adapter the trusted installed producer directory. The adapter
 freezes the producer's context, plan, and result validators plus the three input
-values in private temporary storage, then invokes the producer validators before
-performing its own target and provenance checks:
+values in private temporary storage, then invokes the producer validators with
+Python environment and site startup disabled. It performs its own target and
+provenance checks before the producer may inspect the current target:
 
 ```text
 python <review-and-fix-dir>/scripts/review_workflow.py adapt-verification \
@@ -76,6 +77,12 @@ python <review-and-fix-dir>/scripts/review_workflow.py finalize-run \
 The canonical workflow result retains only their canonical digests and derived
 gate state. Keep the producer files only when the caller requests a durable
 structured result that must be revalidated later.
+
+`finalize-run` and direct `adapt-verification` are live workflow operations and
+revalidate the exact current target before they can produce an eligible pass.
+`validate-run` is the historical canonical-validation path: it validates the
+retained producer context, plan, and result structurally and recomputes the same
+record without reopening an ephemeral project path that may no longer exist.
 
 ## Fallback
 

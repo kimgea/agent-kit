@@ -48,8 +48,9 @@ With `verify_project`, a fresh verifier runs after the fix with consumer
 `review-and-fix`. Pass the same canonical context, plan, result, and the
 lead-selected trusted producer directory to `review_workflow.py
 adapt-verification` and to `finalize-run`. The adapter freezes and invokes the
-producer's context, plan, and result validators before it
-independently compares their canonical digests, exact target projection,
+producer's context, plan, and result validators with Python environment and
+site startup disabled. It independently compares their canonical digests and
+exact target projection before permitting current-target inspection, then binds
 producer and consumer provenance, freshness, evidence sufficiency, protected
 state, and exact plan adherence. Its compact record contains no commands,
 claims, edit paths, or authority.
@@ -239,6 +240,13 @@ Windows reparse points, directories, devices, and duplicate JSON member names
 are rejected before authority fields are interpreted.
 Runtime results, raw reviewer output, and plans are user data and must not be
 committed by default.
+
+`finalize-run` and direct `adapt-verification` revalidate the current producer
+target before an eligible pass. `validate-run` instead provides deterministic
+historical validation: it reruns the producer's structural validators and all
+consumer bindings without requiring the original ephemeral checkout to remain
+available. Historical validation confirms what the retained run recorded; it
+does not authorize a new fresh-review transition.
 
 Repository tests exercise conversion, lead-owned provenance and selection,
 target-bound proposals, route derivation, symlink/hard-link output safety,

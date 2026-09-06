@@ -79,6 +79,10 @@ non-Git sources use `current_filesystem`. A changed or new working-tree
 A rename carries its destination chain in `guidance_chain_id` and, when the
 source hierarchy differs, its source chain in `old_guidance_chain_id`. Both
 remain applicable evidence requirements for the moved target.
+Unstaged rename matching hashes bounded current bytes locally, with a CRLF-to-LF
+candidate for portable text checkouts. It never invokes repository-configured
+clean filters; an ambiguous or oversized candidate remains separate deletion
+and untracked records.
 
 The plan records interpreted guidance requirements and explicit scoped
 replacements. A replacement must cite both source IDs, identify the broader

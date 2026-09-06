@@ -1803,6 +1803,8 @@ def _validate_with_verify_project(
     context: Any,
     plan: Any,
     result: Any,
+    *,
+    revalidate_current: bool = False,
 ) -> None:
     """Validate frozen values through an independently installed producer."""
     skill_root = Path(verify_project_dir).absolute()
@@ -1857,7 +1859,7 @@ def _validate_with_verify_project(
             (
                 "result",
                 frozen_scripts / "verification_result.py",
-                "validate-current",
+                "validate-current" if revalidate_current else "validate",
                 frozen_inputs / "result.json",
             ),
         )
@@ -1869,6 +1871,8 @@ def _validate_with_verify_project(
                 completed = subprocess.run(
                     [
                         sys.executable,
+                        "-E",
+                        "-S",
                         str(script),
                         command,
                         "--input",
@@ -1900,13 +1904,19 @@ def adapt_verify_project(
     plan_value: Any,
     expected_target_value: Any,
     verify_project_dir: str,
+    *,
+    revalidate_current: bool = True,
 ) -> dict[str, Any]:
     """Reduce validated verify-project data to a target-bound consumer gate."""
     _assert_bounded_json(result_value, "verify-project result")
     _assert_bounded_json(context_value, "verify-project context")
     _assert_bounded_json(plan_value, "verify-project plan")
     _validate_with_verify_project(
-        verify_project_dir, context_value, plan_value, result_value
+        verify_project_dir,
+        context_value,
+        plan_value,
+        result_value,
+        revalidate_current=False,
     )
     expected_target = _target(expected_target_value, "expected review target")
     projected_target = _expected_verification_target(expected_target)
@@ -2150,6 +2160,14 @@ def adapt_verify_project(
         state, reason, next_action = "passed", "verified_pass", "none"
 
     eligible = state == "passed"
+    if revalidate_current and target_matched:
+        _validate_with_verify_project(
+            verify_project_dir,
+            context_value,
+            plan_value,
+            result_value,
+            revalidate_current=True,
+        )
     return {
         "profile": "verify_project",
         "producer": "verify-project",
@@ -2171,11 +2189,20 @@ def adapt_verify_project(
 
 
 def _verification_bundle(
-    value: Any, target: dict[str, Any], verify_project_dir: str
+    value: Any,
+    target: dict[str, Any],
+    verify_project_dir: str,
+    *,
+    revalidate_current: bool = True,
 ) -> dict[str, Any]:
     item = _object(value, "verification bundle", {"context", "plan", "result"})
     return adapt_verify_project(
-        item["result"], item["context"], item["plan"], target, verify_project_dir
+        item["result"],
+        item["context"],
+        item["plan"],
+        target,
+        verify_project_dir,
+        revalidate_current=revalidate_current,
     )
 
 
@@ -2691,6 +2718,8 @@ def finalize_run(
     context_value: Any,
     verification_value: Any | None = None,
     verify_project_dir: str | None = None,
+    *,
+    revalidate_verification_current: bool = True,
 ) -> dict[str, Any]:
     _assert_bounded_json(draft, "run draft")
     _assert_bounded_json(context_value, "run context")
@@ -2712,7 +2741,10 @@ def finalize_run(
         )
     verification = (
         _verification_bundle(
-            verification_value, context["target"], verify_project_dir or ""
+            verification_value,
+            context["target"],
+            verify_project_dir or "",
+            revalidate_current=revalidate_verification_current,
         )
         if verification_value is not None
         else _verification_no_run(profile)
@@ -2792,6 +2824,7 @@ def validate_run(
         context_value,
         verification_value,
         verify_project_dir,
+        revalidate_verification_current=False,
     )
     if item != expected:
         raise WorkflowError("run result is not in canonical finalized form")

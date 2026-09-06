@@ -4,7 +4,9 @@ import importlib.util
 import io
 import json
 import os
+import site
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -1415,6 +1417,74 @@ class WorkflowResultTests(unittest.TestCase):
                             str(linked_skill),
                         )
 
+    def test_producer_validation_ignores_user_site_startup_hooks(self):
+        with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as user_base:
+            bundle = producer_valid_verify_project_bundle(Path(temporary))
+            expected_target = {
+                **bundle["context"]["target"],
+                "head_revision": None,
+                "working_tree_mode": None,
+            }
+            marker = Path(user_base) / "startup-ran"
+            user_site = Path(site._get_path(user_base))
+            user_site.mkdir(parents=True)
+            (user_site / "sitecustomize.py").write_text(
+                "import os, pathlib\n"
+                f"pathlib.Path({str(marker)!r}).write_text('ran', encoding='utf-8')\n"
+                "os._exit(0)\n",
+                encoding="utf-8",
+            )
+
+            real_run = subprocess.run
+            with mock.patch.dict(
+                os.environ, {"PYTHONUSERBASE": user_base}
+            ), mock.patch.object(
+                workflow.subprocess, "run", wraps=real_run
+            ) as run:
+                gate = workflow.adapt_verify_project(
+                    bundle["result"],
+                    bundle["context"],
+                    bundle["plan"],
+                    expected_target,
+                    str(VERIFY_SCRIPT_DIR.parent),
+                )
+
+            self.assertTrue(gate["fresh_review_eligible"])
+            self.assertFalse(marker.exists())
+            self.assertTrue(run.call_args_list)
+            self.assertTrue(
+                all(call.args[0][1:3] == ["-E", "-S"] for call in run.call_args_list)
+            )
+
+    def test_retained_run_validation_is_structural_not_live_target_revalidation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = producer_valid_verify_project_bundle(Path(temporary))
+            review_target = {
+                **bundle["context"]["target"],
+                "head_revision": None,
+                "working_tree_mode": None,
+            }
+            context = run_context(review_target)
+            context["verification_profile"] = "verify_project"
+            draft = accepted_run_draft(review_target)
+            draft["validation"] = []
+            result = workflow.finalize_run(
+                draft,
+                context,
+                bundle,
+                str(VERIFY_SCRIPT_DIR.parent),
+            )
+
+        self.assertEqual(
+            result,
+            workflow.validate_run(
+                result,
+                context,
+                bundle,
+                str(VERIFY_SCRIPT_DIR.parent),
+            ),
+        )
+
     def test_adapter_cross_binds_candidates_checks_claims_and_commands(self):
         with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as lead:
             bundle = producer_valid_command_verify_project_bundle(
@@ -1568,15 +1638,23 @@ class WorkflowResultTests(unittest.TestCase):
                 "head_revision": None,
                 "working_tree_mode": None,
             }
-            mismatch = workflow.adapt_verify_project(
-                bundle["result"],
-                bundle["context"],
-                bundle["plan"],
-                expected_target,
-                str(VERIFY_SCRIPT_DIR.parent),
-            )
+            real_run = subprocess.run
+            with mock.patch.object(
+                workflow.subprocess, "run", wraps=real_run
+            ) as run:
+                mismatch = workflow.adapt_verify_project(
+                    bundle["result"],
+                    bundle["context"],
+                    bundle["plan"],
+                    expected_target,
+                    str(VERIFY_SCRIPT_DIR.parent),
+                )
             self.assertEqual(("incomplete", "target_mismatch"), (mismatch["state"], mismatch["reason"]))
             self.assertFalse(mismatch["fresh_review_eligible"])
+            self.assertNotIn(
+                "validate-current",
+                [argument for call in run.call_args_list for argument in call.args[0]],
+            )
 
             for field in ("context_sha256", "plan_sha256"):
                 drifted = copy.deepcopy(bundle)

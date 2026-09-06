@@ -1188,7 +1188,14 @@ def _resolve_verification_harness_context(
     context_helper: Path,
 ) -> dict[str, Any]:
     target = case["target"]
-    command = [sys.executable, str(context_helper), "--repo", str(fixture)]
+    command = [
+        sys.executable,
+        "-E",
+        "-S",
+        str(context_helper),
+        "--repo",
+        str(fixture),
+    ]
     if target["kind"] == "part":
         command.extend(
             [
@@ -1309,6 +1316,8 @@ def _resolve_verify_project_context(
         })
     command = [
         sys.executable,
+        "-E",
+        "-S",
         str(context_helper),
         "--repo",
         str(fixture),
@@ -1412,7 +1421,14 @@ def resolve_context(
             case, fixture, output, root, contract_paths["context"]
         )
     if contract["context_kind"] == "review-guidance-audit":
-        command = [sys.executable, str(contract_paths["context"]), "--repo", str(fixture)]
+        command = [
+            sys.executable,
+            "-E",
+            "-S",
+            str(contract_paths["context"]),
+            "--repo",
+            str(fixture),
+        ]
         if target["kind"] == "part":
             command.extend(
                 [
@@ -1426,6 +1442,8 @@ def resolve_context(
     else:
         command = [
             sys.executable,
+            "-E",
+            "-S",
             str(contract_paths["context"]),
             "--repo",
             str(fixture),
@@ -1483,6 +1501,8 @@ def validate_result_contract(
         producer_commands = (
             [
                 sys.executable,
+                "-E",
+                "-S",
                 str(verify_root / "scripts" / "verification_plan.py"),
                 "validate-context",
                 "--input",
@@ -1490,6 +1510,8 @@ def validate_result_contract(
             ],
             [
                 sys.executable,
+                "-E",
+                "-S",
                 str(verify_root / "scripts" / "verification_plan.py"),
                 "validate",
                 "--input",
@@ -1497,6 +1519,8 @@ def validate_result_contract(
             ],
             [
                 sys.executable,
+                "-E",
+                "-S",
                 str(verify_root / "scripts" / "verification_result.py"),
                 "validate",
                 "--input",
@@ -1522,6 +1546,8 @@ def validate_result_contract(
                 return False, message or f"verify-project {label} validator failed"
     command = [
         sys.executable,
+        "-E",
+        "-S",
         str(contract_paths["validator"]),
         "validate" if contract["validator_kind"] == "simple" else "validate-run",
         "--input",

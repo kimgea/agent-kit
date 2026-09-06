@@ -4,6 +4,7 @@ import io
 import json
 import os
 import re
+import shlex
 import stat
 import subprocess
 import sys
@@ -241,6 +242,42 @@ class VerificationContextTests(unittest.TestCase):
             self.assertEqual(records["new.py"]["old_path"], "old.py")
             self.assertEqual(records["gone.py"]["presence"], "absent")
             self.assertIsNone(records["gone.py"]["sha256"])
+
+    @unittest.skipUnless(os.name == "posix", "portable clean-filter command probe")
+    def test_untracked_rename_detection_never_executes_repository_clean_filter(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "project"
+            root.mkdir()
+            initialize_git(root)
+            marker = base / "filter-ran"
+            filter_script = base / "clean_filter.py"
+            filter_script.write_text(
+                "import pathlib, sys\n"
+                f"pathlib.Path({str(marker)!r}).write_text('ran', encoding='utf-8')\n"
+                "sys.stdout.buffer.write(sys.stdin.buffer.read())\n",
+                encoding="utf-8",
+            )
+            filter_command = " ".join(
+                (shlex.quote(sys.executable), shlex.quote(str(filter_script)))
+            )
+            run_git(root, "config", "filter.untrusted.clean", filter_command)
+            (root / ".gitattributes").write_text(
+                "*.txt filter=untrusted\n", encoding="utf-8"
+            )
+            (root / "old.txt").write_text("VALUE = 1\n", encoding="utf-8")
+            commit_all(root)
+            marker.unlink(missing_ok=True)
+            (root / "old.txt").rename(root / "new.txt")
+
+            context = verification_context.resolve(
+                context_args(root, scope="working-tree", max_discovery=0)
+            )
+
+            records = {item["path"]: item for item in context["targets"]}
+            self.assertEqual("renamed", records["new.txt"]["change_kind"])
+            self.assertEqual("old.txt", records["new.txt"]["old_path"])
+            self.assertFalse(marker.exists())
 
     def test_rename_retains_distinct_source_and_destination_guidance(self):
         with tempfile.TemporaryDirectory() as directory:

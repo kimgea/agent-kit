@@ -178,3 +178,5 @@ Install the complete `skills/verify-project` directory. Runtime helpers use only
 Python 3.11 standard-library modules and import only files shipped inside that
 directory. Git is required for combined working-tree scope and improves
 discovery; explicit non-Git path verification remains supported.
+Working-tree rename matching hashes bounded file bytes locally and never invokes
+repository-configured clean filters before command authority is established.

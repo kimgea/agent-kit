@@ -177,8 +177,10 @@ For an `auto` or exactly approved plan:
    a fresh context over the exact post-fix target and pass its canonical context,
    plan, result, and lead-selected trusted producer directory through this
    skill's deterministic adapter. The adapter freezes and runs the producer's
-   own context, plan, and result validators before conversion. Only a complete,
-   sufficient, target/context/plan-bound canonical pass may continue.
+   own context, plan, and result validators with Python environment and site
+   startup disabled, binds them to the lead-owned target, and only then checks
+   the current target. Only a complete, sufficient,
+   target/context/plan-bound canonical pass may continue.
 4. If `verify-project` is unavailable, use the existing plan-bound validation
    records under normal caller, project, sandbox, and permission rules and label
    the weaker fallback. A reviewer or planner command is not authority. Static
@@ -247,3 +249,6 @@ finding fingerprints; executed command validation records caller or user-global
 authority. The structured
 result reports what happened; it does not authorize a plan or action. Return the
 helper's exact JSON and do not hand-author a parallel machine summary.
+`finalize-run` performs live current-target verification for a new run;
+`validate-run` structurally revalidates retained canonical evidence without
+requiring its original temporary checkout to survive.
