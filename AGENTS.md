@@ -50,6 +50,30 @@ repository. `CLAUDE.md` points Claude Code to the same contract.
   supplement skills, but installed skills must work safely without private
   profiles or repository mappings.
 
+## Change and pull-request scope
+
+- Prefer the smallest coherent change that delivers one independently testable
+  outcome. Judge scope by behavior and reviewability, not an arbitrary line or
+  file count; a self-contained skill may legitimately touch its catalog, docs,
+  tests, evaluations, and packaging surfaces together.
+- Do not mix unrelated cleanup, refactors, documentation, release work, or
+  follow-ups into an active change. Capture or deliver them separately unless
+  they are required for the selected outcome to be correct.
+- Split large initiatives at stable task or contract boundaries. Each pull
+  request must leave its own public and internal contracts consistent and must
+  not depend on an unreviewable future cleanup to become safe.
+- During development, use focused checks and bounded reviews for the current
+  task. Assemble final tracking and required documentation before requesting the
+  complete exact-head review; avoid appending unrelated bookkeeping afterward.
+  Any changed head still requires a new exact-head review before merge.
+- Run an independent pull-request review from an isolated checkout or worktree
+  pinned to the selected head whenever the active checkout may be changed by
+  another session. A shared mutable checkout is not a trustworthy review
+  boundary.
+- If a pull request cannot be kept small, state why the cross-cutting scope is
+  atomic and organize commits and evidence so reviewers can inspect it in
+  coherent slices.
+
 ## GitHub access
 
 - For every read-only GitHub REST API request, use `gh-api-get`. Direct `gh api`
@@ -72,6 +96,12 @@ repository. `CLAUDE.md` points Claude Code to the same contract.
   merge it through the repository's gated merge workflow. If the active GitHub
   identity cannot formally approve its own pull request, record the clean review
   without claiming approval and merge only when repository policy permits.
+- Keep review and verification separate. The pull-request reviewer uses
+  `project-review` for semantic analysis and consumes already-produced,
+  target-bound verification evidence when available. Do not routinely rerun the
+  canonical gate, package build, retained evaluations, and hosted checks inside
+  every reviewer; repeat a check only when evidence is missing, stale,
+  mismatched, inconclusive, or necessary to verify a candidate finding.
 
 ## Project reviews
 
@@ -105,6 +135,10 @@ repository. `CLAUDE.md` points Claude Code to the same contract.
 - If the caller explicitly requests a different review method, follow that
   request instead. Do not silently combine methods that have incompatible
   verdict, evidence, or command-execution rules.
+- Keep the requested diff or path set as review scope. Read callers, tests,
+  schemas, documentation, and history only as related context; do not promote
+  them to reviewed targets or report unrelated findings merely because they were
+  inspected.
 - When asked to assess or improve the usefulness, placement, coverage, or
   compactness of `REVIEW.md` guidance, use the analysis-only
   `review-guidance-audit` skill unless the caller explicitly selects another
@@ -153,6 +187,44 @@ repository. `CLAUDE.md` points Claude Code to the same contract.
   A pass is meaningful only when completion is complete, every material claim
   has sufficient evidence, required guidance is satisfied, and protected state
   remains unchanged.
+
+## Focused delivery routing
+
+Use each capability for its owned decision instead of stacking every skill on
+every change:
+
+- `project-review` owns semantic review of the selected diff or paths. Static
+  inspection is its default; it does not own routine validation, fixes, or
+  delivery.
+- `verify-project` owns relevant local checks and canonical evidence. Start with
+  focused checks and expand only when dependency reach, risk, `VERIFY.md`, or an
+  evidence gap requires it. Run the repository-wide final gate after the full
+  deliverable state is assembled, not after every intermediate edit.
+- `review-and-fix` owns remediation only when selected actionable findings need
+  changes. Do not invoke it for a clean review or use it as a publishing layer.
+- `review-guidance-audit` is selected when `REVIEW.md` quality, placement,
+  coverage, or compactness is itself under review. It is not an extra pass over
+  ordinary code changes.
+- `verification-harness-audit` is selected when tests, linters, builds,
+  fixtures, CI wiring, or verification quality is itself the target, or when
+  concrete evidence exposes a harness gap. It is not a routine substitute for
+  running relevant checks.
+
+The lead prepares one bounded review packet: exact base and head, changed paths,
+applicable guidance, and any canonical verification result with its digest.
+The independent reviewer validates the packet and reviews the code; it does not
+recreate valid evidence simply to demonstrate independence. Fresh agents belong
+at judgment boundaries, while deterministic validators and renderers may be
+reused directly.
+
+After a review finding is corrected, the new exact head still needs independent
+acceptance. Reuse a prior canonical review only as evidence for unchanged paths:
+validate it, compare the old and new targets, and freshly inspect the correction
+plus affected callers, contracts, tests, and guidance. Perform a full re-review
+when the review method or guidance changed, the correction affects a broad
+runtime/security/schema boundary, dependency impact is uncertain, or reusable
+evidence is unavailable. Until deterministic review-lineage tooling exists, do
+not claim machine-proven incremental coverage.
 
 ## Required validation
 

@@ -2,6 +2,11 @@
 
 Describe the complete scope and why it belongs in agent-kit.
 
+- [ ] This pull request delivers one coherent outcome; unrelated work is split
+      out or the atomic cross-cutting scope is explained above.
+- [ ] Semantic review and verification are routed separately: the review is
+      bounded to this change, and checks expand only when risk or evidence does.
+
 ## Safety and compatibility
 
 - [ ] I reviewed `AGENTS.md` and the affected resource instructions.
