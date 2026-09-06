@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CATALOG_PATH = ROOT / "toolkit.toml"
 RESOURCE_ID = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+GIT_OBJECT_ID = re.compile(r"^[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?$")
 MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 FRONTMATTER = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
 SUPPORTED_AGENTS = {"codex", "claude"}
@@ -548,6 +549,23 @@ def validate_repository_controls(root: Path, catalog: dict[str, Any]) -> list[st
             errors.append(
                 f"{ci}: canonical gate must be exactly one run entry: {canonical}"
             )
+        focused = (
+            "python scripts/agent_kit.py validate-range --base "
+            "${{ github.event.pull_request.base.sha }} --head "
+            "${{ github.event.pull_request.head.sha }}"
+        )
+        if not workflow_has_exact_run_command(text, focused):
+            errors.append(
+                f"{ci}: focused pull-request gate must be exactly one run entry: "
+                f"{focused}"
+            )
+        for required_text in (
+            "fetch-depth: 0",
+            "if: github.event_name == 'pull_request'",
+            "if: github.event_name != 'pull_request'",
+        ):
+            if required_text not in text:
+                errors.append(f"{ci}: missing focused validation boundary {required_text}")
     release = workflow_root / "release.yml"
     if release.is_file():
         text = release.read_text(encoding="utf-8")
@@ -828,6 +846,113 @@ def validate_repository(root: Path | None = None) -> list[str]:
     )
     if "@AGENTS.md" not in (line.strip() for line in claude_lines):
         errors.append("CLAUDE.md must import AGENTS.md with @AGENTS.md")
+    return errors
+
+
+DOCUMENTATION_ROOT_FILES = {
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "README.md",
+    "SECURITY.md",
+    "THIRD_PARTY_NOTICES.md",
+}
+
+
+def is_documentation_only_path(value: str) -> bool:
+    """Return whether a changed path is safe for the narrow documentation gate."""
+    if (
+        not value
+        or "\\" in value
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        return False
+    path = Path(value)
+    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+        return False
+    normalized = path.as_posix()
+    if normalized in DOCUMENTATION_ROOT_FILES:
+        return True
+    if normalized == ".github/pull_request_template.md":
+        return True
+    return path.suffix == ".md" and path.parts[0] in {"docs", ".claude"}
+
+
+def check_profile_for_paths(paths: list[str]) -> str:
+    """Select the smallest safe validation profile for an exact changed-path set."""
+    if paths and all(is_documentation_only_path(path) for path in paths):
+        return "documentation"
+    return "full"
+
+
+def changed_paths_between(root: Path, base: str, head: str) -> list[str]:
+    """Return exact changed paths without invoking repository-selected diff helpers."""
+    if not GIT_OBJECT_ID.fullmatch(base) or not GIT_OBJECT_ID.fullmatch(head):
+        raise AgentKitError("range revisions must be full 40- or 64-character object IDs")
+    git = shutil.which("git")
+    if git is None:
+        raise AgentKitError("cannot classify the validation range: git is unavailable")
+    current = subprocess.run(
+        [git, "rev-list", "--parents", "-n", "1", "HEAD"],
+        cwd=root,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    identity = current.stdout.strip().lower().split()
+    exact_head = len(identity) >= 1 and identity[0] == head.lower()
+    exact_merge = (
+        len(identity) == 3
+        and set(identity[1:]) == {base.lower(), head.lower()}
+    )
+    if current.returncode != 0 or not (exact_head or exact_merge):
+        raise AgentKitError(
+            "cannot classify the validation range: checkout is not the exact head or "
+            "its direct base/head merge"
+        )
+    result = subprocess.run(
+        [
+            git,
+            "-c",
+            "core.fsmonitor=false",
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--name-only",
+            "-z",
+            base,
+            head,
+            "--",
+        ],
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise AgentKitError("cannot classify the validation range: git diff failed")
+    try:
+        return sorted(
+            item.decode("utf-8") for item in result.stdout.split(b"\0") if item
+        )
+    except UnicodeDecodeError as exc:
+        raise AgentKitError(
+            "cannot classify the validation range: a changed path is not UTF-8"
+        ) from exc
+
+
+def validate_documentation_repository(root: Path | None = None) -> list[str]:
+    """Validate contracts affected by the conservative documentation-only profile."""
+    root = ROOT if root is None else root
+    try:
+        catalog = load_catalog(root)
+    except AgentKitError as exc:
+        return [str(exc)]
+    errors = validate_markdown_links(root)
+    errors.extend(validate_generated_artifacts(root))
+    errors.extend(validate_repository_controls(root, catalog))
+    errors.extend(validate_project_tracking(root))
     return errors
 
 
@@ -1921,19 +2046,22 @@ def command_doctor(args: argparse.Namespace) -> int:
     return 0 if healthy else 1
 
 
-def command_check(args: argparse.Namespace) -> int:
+def run_check(*, documentation_only: bool, skip_tests: bool = False) -> int:
     before = validation_snapshot(ROOT)
     failed = False
     changed = False
     try:
-        errors = validate_repository()
-        errors.extend(compile_repository(ROOT))
+        if documentation_only:
+            errors = validate_documentation_repository()
+        else:
+            errors = validate_repository()
+            errors.extend(compile_repository(ROOT))
         if errors:
             print(f"agent-kit check failed with {len(errors)} error(s):", file=sys.stderr)
             for error in errors:
                 print(f"  - {error}", file=sys.stderr)
             failed = True
-        elif not args.skip_tests and run_tests(ROOT) != 0:
+        elif not documentation_only and not skip_tests and run_tests(ROOT) != 0:
             print("agent-kit check failed: unit tests failed", file=sys.stderr)
             failed = True
     finally:
@@ -1947,8 +2075,27 @@ def command_check(args: argparse.Namespace) -> int:
         failed = True
     if failed:
         return 1
-    print("agent-kit check passed")
+    profile = "documentation" if documentation_only else "full"
+    print(f"agent-kit check passed ({profile} profile)")
     return 0
+
+
+def command_check(args: argparse.Namespace) -> int:
+    return run_check(documentation_only=False, skip_tests=args.skip_tests)
+
+
+def command_validate_range(args: argparse.Namespace) -> int:
+    try:
+        paths = changed_paths_between(ROOT, args.base, args.head)
+    except AgentKitError as exc:
+        print(f"agent-kit validate-range: {exc}; using full profile", file=sys.stderr)
+        return run_check(documentation_only=False)
+    profile = check_profile_for_paths(paths)
+    print(
+        f"agent-kit validate-range selected {profile} profile "
+        f"for {len(paths)} changed path(s)"
+    )
+    return run_check(documentation_only=profile == "documentation")
 
 
 def command_package(args: argparse.Namespace) -> int:
@@ -1976,6 +2123,14 @@ def build_parser() -> argparse.ArgumentParser:
     command = subparsers.add_parser("check", help="run the canonical repository validation gate")
     command.add_argument("--skip-tests", action="store_true", help=argparse.SUPPRESS)
     command.set_defaults(handler=command_check)
+
+    command = subparsers.add_parser(
+        "validate-range",
+        help="select a conservative validation profile for an exact commit range",
+    )
+    command.add_argument("--base", required=True)
+    command.add_argument("--head", required=True)
+    command.set_defaults(handler=command_validate_range)
 
     for name, help_text, handler in (
         ("install", "preview or install/update one skill", install_skill),

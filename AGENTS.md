@@ -228,7 +228,19 @@ not claim machine-proven incremental coverage.
 
 ## Required validation
 
-Run this canonical gate before committing:
+After the final commit is assembled, select validation from the exact base and
+head rather than assuming every pull request needs the complete suite:
+
+```bash
+python scripts/agent_kit.py validate-range --base BASE_SHA --head HEAD_SHA
+```
+
+The range command uses the documentation profile only when every changed path
+is in the repository's narrow documentation/tracking allowlist. It fails closed
+to the full profile for skills, scripts, schemas, tests, evals, workflows,
+catalog or guidance files, unknown paths, empty ranges, and classification
+errors. Run the full canonical gate directly for release preparation or when a
+trusted exact range is unavailable:
 
 ```bash
 python scripts/agent_kit.py check

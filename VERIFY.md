@@ -2,11 +2,19 @@
 
 ## Required for pass
 
-- Run `python scripts/agent_kit.py check` after all source, catalog,
-  documentation, tracking, test, and evaluation changes are complete.
+- After the final commit is assembled, run `python scripts/agent_kit.py
+  validate-range --base BASE_SHA --head HEAD_SHA`. It may select the
+  documentation profile only for changes confined to top-level maintainer
+  documents, `docs/**/*.md`, `.claude/**/*.md`, and the pull-request template.
+- Run `python scripts/agent_kit.py check` for source, catalog, skill, guidance,
+  schema, workflow, test, evaluation, packaging, unknown, or unclassifiable
+  changes, and for release preparation.
 - Use focused standard-library unit tests while iterating, then rely on the
-  canonical gate to check catalog parity, links, packages, generated-file
-  hygiene, schemas, evaluation fixtures, and the full test suite.
+  selected final profile. The full profile checks catalog parity, links,
+  generated-file hygiene, schemas, evaluation fixtures, Python compilation,
+  and the complete test suite. The documentation profile checks repository
+  controls, all local Markdown links, generated-file hygiene, and CCPM tracking
+  consistency without compiling or running unrelated unit tests.
 - For platform-sensitive path, locking, process, or permission behavior, retain
   Linux and Windows coverage. A local Linux result does not establish native
   Windows behavior.
@@ -23,6 +31,9 @@
 - Apply the additional permission-boundary proofs in `AGENTS.md` when changing
   installers, permission setup, safe dispatchers, hooks, or command
   classification.
+- A push to `main`, a release, an empty range, or any failure to classify the
+  exact range uses the full profile. Never manually relabel a mixed change as
+  documentation-only.
 
 ## Expected disposable artifacts
 

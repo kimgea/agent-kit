@@ -26,10 +26,15 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Run focused pull-request validation
+        if: github.event_name == 'pull_request'
+        run: python scripts/agent_kit.py validate-range --base ${{ github.event.pull_request.base.sha }} --head ${{ github.event.pull_request.head.sha }}
       - name: Run canonical validation
+        if: github.event_name != 'pull_request'
         run: python scripts/agent_kit.py check
