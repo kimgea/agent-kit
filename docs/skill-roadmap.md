@@ -54,7 +54,8 @@ the result and independently decides whether a related path remains context or
 becomes part of its own target or claims.
 
 The accepted design and implementation are tracked in
-`.claude/prds/change-impact.md` and `.claude/epics/change-impact/` while active.
+`.claude/prds/change-impact.md` and
+`.claude/epics/archived/change-impact/`.
 
 ## Shipped foundation: verify-project
 

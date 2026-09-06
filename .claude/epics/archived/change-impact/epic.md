@@ -1,9 +1,9 @@
 ---
 name: change-impact
-status: in-progress
+status: completed
 created: 2026-09-06T19:05:24Z
-updated: 2026-09-06T19:49:27Z
-progress: 83%
+updated: 2026-09-06T23:15:20+02:00
+progress: 100%
 prd: .claude/prds/change-impact.md
 github: (will be set on sync)
 ---
@@ -92,7 +92,7 @@ canonical range-selected gate only on the frozen final commit before review.
 - [x] 003.md - Implement canonical result helper (parallel: false)
 - [x] 004.md - Integrate public and package surfaces (parallel: false)
 - [x] 005.md - Add unit and behavioral evidence (parallel: false)
-- [ ] 006.md - Dogfood, review, and deliver (parallel: false)
+- [x] 006.md - Dogfood, review, and deliver (parallel: false)
 
 Total tasks: 6
 Parallel tasks: 0

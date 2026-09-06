@@ -1,7 +1,7 @@
 ---
 name: change-impact
 description: Map the evidence-backed consequences of exact local changes without silently expanding authority.
-status: active
+status: completed
 created: 2026-09-06T19:05:24Z
 ---
 
