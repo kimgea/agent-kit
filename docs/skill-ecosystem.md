@@ -104,6 +104,32 @@ The pattern is reusable; the whole sequence does not belong in one universal
 orchestrator. Keep orchestrators focused on coherent outcomes such as
 `review-and-fix`.
 
+### Delivery routing
+
+Repository delivery composes existing roles without turning them into one
+always-run pipeline:
+
+1. The lead selects one coherent change and uses `verify-project` for the
+   smallest sufficient local evidence while iterating.
+2. Once the complete deliverable state is stable, the lead runs the required
+   final verification and retains its canonical target-bound result.
+3. A fresh `project-review` agent reviews the exact diff semantically and may
+   consume that verification result after validating its target and provenance.
+   Independence does not require repeating already valid deterministic work.
+4. Findings selected for remediation may enter `review-and-fix`; a clean review
+   does not.
+5. `review-guidance-audit` and `verification-harness-audit` join only when their
+   respective policy or harness boundaries are actual targets or when concrete
+   evidence identifies a corresponding gap.
+
+Related implementation, tests, schemas, documentation, and history remain
+review context unless they are selected targets. A new head always needs fresh
+acceptance, but a narrowly corrected head may reuse a validated prior result for
+unchanged paths when the reviewer checks the delta and its dependency impact.
+Broad runtime, security, schema, guidance, or reviewer-method changes invalidate
+that shortcut. Deterministic lineage proof remains a future enhancement; until
+it exists, incremental reuse is an explicitly disclosed reviewer judgment.
+
 ## Tiered contracts
 
 Every skill follows a lightweight baseline:

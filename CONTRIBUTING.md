@@ -4,6 +4,42 @@ Read `AGENTS.md` first. Work from a non-default branch and deliver changes throu
 a pull request. Never develop in an installed copy under `.codex/skills`,
 `.claude/skills`, a plugin cache, or a user data directory.
 
+## Keep pull requests focused
+
+Prefer one coherent, independently testable outcome per pull request. Size is
+about behavioral scope and reviewability rather than a fixed line or file limit:
+a skill change may need matching catalog, documentation, tests, evaluations, and
+packaging updates, and those belong together when they describe one contract.
+
+Split unrelated cleanup, refactors, release work, and follow-ups into separate
+changes. For a larger initiative, use stable task or contract boundaries so each
+pull request is internally consistent and safe on its own. Complete required
+documentation and tracking before the final exact-head review; changing the head
+afterward requires another review and repeats the full cross-platform gate.
+
+When a change must remain broad, explain why it is atomic and organize its
+commits and validation evidence into coherent review slices.
+
+## Route review and verification deliberately
+
+Use `project-review` for semantic review of the selected change and
+`verify-project` for relevant local checks. Supply the resulting canonical
+verification evidence to the independent reviewer instead of asking that
+reviewer to rerun every successful command. A reviewer should repeat a check
+only when the evidence is stale, mismatched, incomplete, or needed to establish
+a suspected defect.
+
+Use `review-and-fix` only to remediate selected findings. Use
+`review-guidance-audit` only when review guidance is itself in scope, and use
+`verification-harness-audit` only when harness quality is in scope or concrete
+evidence exposes a harness gap. Related files may inform a review without
+becoming targets for unrelated findings.
+
+Run independent reviews in a checkout pinned to the exact reviewed head when
+other sessions may use the primary checkout. Finish required documentation and
+tracking before the final review so a bookkeeping-only follow-up does not force
+another complete delivery cycle.
+
 ## Source and generated state
 
 Treat this repository and `toolkit.toml` as the source of truth. Do not commit:
