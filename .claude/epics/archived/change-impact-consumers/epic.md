@@ -1,9 +1,9 @@
 ---
 name: change-impact-consumers
-status: in-progress
+status: completed
 created: 2026-09-06T21:55:08Z
-updated: 2026-09-06T23:00:01Z
-progress: 83%
+updated: 2026-09-07T10:20:01Z
+progress: 100%
 prd: .claude/prds/change-impact-consumers.md
 github: (will be set on sync)
 ---
@@ -62,7 +62,7 @@ Finish by aligning versions, public docs, packaging, and retained evidence.
 - [x] 003.md - Integrate verify-project (parallel: false)
 - [x] 004.md - Integrate review-and-fix (parallel: false)
 - [x] 005.md - Align public and package surfaces (parallel: false)
-- [ ] 006.md - Evaluate, dogfood, review, and deliver (parallel: false)
+- [x] 006.md - Evaluate, dogfood, review, and deliver (parallel: false)
 
 Total tasks: 6
 Parallel tasks: 0

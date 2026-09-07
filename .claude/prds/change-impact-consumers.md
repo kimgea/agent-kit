@@ -1,7 +1,7 @@
 ---
 name: change-impact-consumers
 description: Let review, verification, and remediation workflows use change-impact only when it adds bounded decision value.
-status: active
+status: completed
 created: 2026-09-06T21:55:08Z
 ---
 

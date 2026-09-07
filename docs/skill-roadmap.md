@@ -61,9 +61,9 @@ Conditional consumption is also shipped. `project-review`, `verify-project`,
 and `review-and-fix` use a common trigger principle—run impact only for explicit
 intent or unresolved material cross-contract reach—then apply consumer-specific
 target and authority rules. Paired local behavioral cases prove invocation for
-cross-cutting work and skipping for contained work. The integration is tracked
-in `.claude/prds/change-impact-consumers.md` and
-`.claude/epics/change-impact-consumers/` while delivery is active.
+cross-cutting work and skipping for contained work. The shipped integration is
+tracked in `.claude/prds/change-impact-consumers.md` and
+`.claude/epics/archived/change-impact-consumers/`.
 
 ## Shipped foundation: verify-project
 
