@@ -109,16 +109,21 @@ orchestrator. Keep orchestrators focused on coherent outcomes such as
 Repository delivery composes existing roles without turning them into one
 always-run pipeline:
 
-1. The lead selects one coherent change and uses `verify-project` for the
+1. The active review, verification, or remediation lead invokes `change-impact`
+   only when initial bounded inspection leaves material cross-contract reach
+   unresolved. It validates one target-bound result; bounded consumer agents
+   reuse that advisory without rerunning the producer while the target is
+   unchanged.
+2. The lead selects one coherent change and uses `verify-project` for the
    smallest sufficient local evidence while iterating.
-2. Once the complete deliverable state is stable, the lead runs the required
+3. Once the complete deliverable state is stable, the lead runs the required
    final verification and retains its canonical target-bound result.
-3. A fresh `project-review` agent reviews the exact diff semantically and may
+4. A fresh `project-review` agent reviews the exact diff semantically and may
    consume that verification result after validating its target and provenance.
    Independence does not require repeating already valid deterministic work.
-4. Findings selected for remediation may enter `review-and-fix`; a clean review
+5. Findings selected for remediation may enter `review-and-fix`; a clean review
    does not.
-5. `review-guidance-audit` and `verification-harness-audit` join only when their
+6. `review-guidance-audit` and `verification-harness-audit` join only when their
    respective policy or harness boundaries are actual targets or when concrete
    evidence identifies a corresponding gap.
 

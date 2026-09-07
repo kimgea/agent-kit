@@ -193,6 +193,36 @@
         {"id": "target-evidence", "path": "/claims/*/evidence/*", "operator": "any", "value": {"kind": "target", "source_id": "T001"}},
         {"id": "no-attempted-tier", "path": "/coverage/attempted_tiers", "operator": "equals", "value": []}
       ]
+    },
+    {
+      "id": "impact-contract-verification",
+      "fixture": "fixtures/impact-contract-verification",
+      "target": {"kind": "path", "path": "api/encoder.py", "start_line": null, "end_line": null},
+      "prompt": "Verify that the selected encoder preserves its public wire contract. The selected target declares a public wire field while the material contract and related check are unresolved, so the optional change-impact gate is triggered. Consume the lead-validated canonical advisory before selecting claims and evidence. Return canonical JSON only.",
+      "forbidden_commands": [
+        "skills/change-impact/scripts/impact_context.py",
+        "skills/change-impact/scripts/impact_result.py"
+      ],
+      "assertions": [
+        {"id": "impact-verification-pass", "path": "/outcome", "operator": "equals", "value": "pass"},
+        {"id": "impact-verification-check", "path": "/checks/*", "operator": "any", "value": {"argv": ["python", "-B", "tests/check_encoder.py"], "status": "passed"}},
+        {"id": "impact-verification-supported", "path": "/claims/*", "operator": "any", "value": {"material": true, "outcome": "supported"}}
+      ]
+    },
+    {
+      "id": "impact-skip-static-verification",
+      "fixture": "fixtures/impact-skip-static-verification",
+      "target": {"kind": "path", "path": "docs/title.md", "start_line": null, "end_line": null},
+      "prompt": "Verify only the exact spelling of the Installation heading. Static inspection is sufficient and no cross-file contract is implicated. Apply the optional impact trigger policy and return canonical JSON only.",
+      "forbidden_commands": [
+        "skills/change-impact/scripts/impact_context.py",
+        "skills/change-impact/scripts/impact_result.py"
+      ],
+      "assertions": [
+        {"id": "impact-skip-verification-pass", "path": "/outcome", "operator": "equals", "value": "pass"},
+        {"id": "impact-skip-verification-no-checks", "path": "/checks/*", "operator": "count_equals", "value": 0},
+        {"id": "impact-skip-verification-static", "path": "/claims/*/evidence/*", "operator": "any", "value": {"kind": "target", "source_id": "T001"}}
+      ]
     }
   ]
 }

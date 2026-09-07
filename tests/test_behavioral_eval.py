@@ -6,6 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1451,7 +1452,7 @@ class ProjectReviewContractTests(unittest.TestCase):
             self.assertIn("omits a resolver-owned limitation", message)
 
     def test_suite_has_pass_block_incomplete_nonblocking_and_command_boundary_cases(self):
-        self.assertEqual(6, len(self.suite["cases"]))
+        self.assertEqual(8, len(self.suite["cases"]))
         ids = {item["id"] for item in self.suite["cases"]}
         self.assertIn("nested-tenant-rule", ids)
         self.assertIn("non-blocking-maintainability", ids)
@@ -1804,6 +1805,7 @@ class ReviewAndFixContractTests(unittest.TestCase):
             base = Path(temporary)
             (base / "skills").mkdir()
             runtime_skills = {
+                "change-impact": base / "skills" / "change-impact",
                 "review-and-fix": base / "skills" / "review-and-fix",
                 "project-review": base / "skills" / "project-review",
             }
@@ -1826,10 +1828,31 @@ class ReviewAndFixContractTests(unittest.TestCase):
             )
             self.assertIn(str(runtime_skills["review-and-fix"] / "SKILL.md"), prompt)
             self.assertIn(str(runtime_skills["project-review"] / "SKILL.md"), prompt)
+            self.assertIn(str(base / "work" / "impact-context-initial.json"), prompt)
+            self.assertIn(str(base / "work" / "impact-context.json"), prompt)
+            self.assertIn(str(base / "work" / "impact-draft.json"), prompt)
+            self.assertIn(str(base / "work" / "impact-result.json"), prompt)
+            self.assertIn("Supplying paths and the dependency does not itself trigger", prompt)
             self.assertNotIn(self.case["expected_mutations"][0]["after_sha256"], prompt)
             self.assertNotIn("suite.json", prompt)
             self.assertIn(str(host_context), prompt)
             self.assertNotIn("do not write inside\nthe repository", prompt)
+            self.assertIn("deliberately not a Git repository", prompt)
+            self.assertIn("never in a separate checkout", prompt)
+
+            triggered_case = behavioral_eval._case_by_id(
+                self.suite, "impact-security-remedy"
+            )
+            triggered_prompt = behavioral_eval._runner_prompt(
+                self.suite,
+                triggered_case,
+                base / "fixture",
+                base / "work",
+                runtime_skills,
+                host_context,
+            )
+            self.assertIn("lead has already produced a canonical advisory", triggered_prompt)
+            self.assertIn("Do not regenerate or revalidate it", triggered_prompt)
 
     def test_review_and_fix_reviewer_selection_is_fixed_and_case_scoped(self):
         selected = {
@@ -1846,7 +1869,8 @@ class ReviewAndFixContractTests(unittest.TestCase):
                 self.assertEqual(reviewer, resolved)
                 self.assertEqual(result_contract, profile["result_contract"])
                 self.assertEqual(
-                    [reviewer], behavioral_eval._case_dependencies(self.suite, case)
+                    ["change-impact", reviewer],
+                    behavioral_eval._case_dependencies(self.suite, case),
                 )
 
         with self.assertRaisesRegex(
@@ -1893,7 +1917,12 @@ class ReviewAndFixContractTests(unittest.TestCase):
             work = base / "work"
             runtime_skills = {
                 skill_id: base / "skills" / skill_id
-                for skill_id in ("review-and-fix", "project-review", "verify-project")
+                for skill_id in (
+                    "change-impact",
+                    "review-and-fix",
+                    "project-review",
+                    "verify-project",
+                )
             }
             prompt = behavioral_eval._runner_prompt(
                 self.suite,
@@ -2013,7 +2042,7 @@ class ReviewAndFixContractTests(unittest.TestCase):
             )
 
     def test_suite_covers_fix_decision_authorization_and_scope_stops(self):
-        self.assertEqual(15, len(self.suite["cases"]))
+        self.assertEqual(17, len(self.suite["cases"]))
         ids = {item["id"] for item in self.suite["cases"]}
         self.assertEqual(
             {
@@ -2032,6 +2061,8 @@ class ReviewAndFixContractTests(unittest.TestCase):
                 "out-of-target-remedy",
                 "guidance-duplicate-cleanup",
                 "harness-policy-triage",
+                "impact-security-remedy",
+                "impact-skip-routine-fix",
             },
             ids,
         )
@@ -2047,7 +2078,7 @@ class ReviewAndFixContractTests(unittest.TestCase):
         verified = behavioral_eval._case_by_id(self.suite, "verified-heading-fix")
         self.assertEqual("verify_project", verified["verification_profile"])
         self.assertEqual(
-            ["project-review", "verify-project"],
+            ["change-impact", "project-review", "verify-project"],
             behavioral_eval._case_dependencies(self.suite, verified),
         )
 
@@ -2057,7 +2088,7 @@ class VerifyProjectContractTests(unittest.TestCase):
         self.suite = behavioral_eval.load_suite(ROOT, "verify-project")
 
     def test_suite_covers_fixed_behavioral_matrix_and_expected_additions(self):
-        self.assertEqual(14, len(self.suite["cases"]))
+        self.assertEqual(16, len(self.suite["cases"]))
         case = behavioral_eval._case_by_id(self.suite, "allowed-cache-output")
         self.assertEqual(
             ["build/report.txt"],
@@ -2266,7 +2297,10 @@ class VerifyProjectContractTests(unittest.TestCase):
                 case,
                 base / "fixture",
                 work,
-                {"verify-project": skill},
+                {
+                    "change-impact": base / "evaluated-skills" / "change-impact",
+                    "verify-project": skill,
+                },
                 base / "host" / "context.json",
             )
 
@@ -2766,6 +2800,124 @@ class CodexRunnerTests(unittest.TestCase):
                 ["/bin/bash -lc './scripts/expensive-check'"], forbidden
             ),
         )
+
+    def test_host_prepares_one_valid_target_bound_consumer_advisory(self):
+        suite = behavioral_eval.load_suite(ROOT, "project-review")
+        case = behavioral_eval._case_by_id(suite, "impact-contract-review")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "fixture"
+            work = base / "work"
+            shutil.copytree(
+                ROOT / "evals" / "project-review" / case["fixture"], fixture
+            )
+            work.mkdir()
+
+            evidence = behavioral_eval._prepare_consumer_change_impact(
+                case,
+                fixture,
+                work,
+                ROOT,
+                {"change-impact": ROOT / "skills" / "change-impact"},
+            )
+
+            self.assertTrue(behavioral_eval._impact_advisory_evidence_valid(evidence))
+            self.assertEqual(
+                {
+                    "prepared",
+                    "validated",
+                    "target_bound",
+                    "context_sha256",
+                    "result_sha256",
+                },
+                set(evidence),
+            )
+            self.assertTrue((work / "impact-context-initial.json").is_file())
+            self.assertTrue((work / "impact-context.json").is_file())
+            self.assertTrue((work / "impact-result.json").is_file())
+
+    def test_skip_case_receives_no_consumer_advisory(self):
+        suite = behavioral_eval.load_suite(ROOT, "project-review")
+        case = behavioral_eval._case_by_id(suite, "impact-skip-contained-review")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "fixture"
+            work = base / "work"
+            shutil.copytree(
+                ROOT / "evals" / "project-review" / case["fixture"], fixture
+            )
+            work.mkdir()
+
+            evidence = behavioral_eval._prepare_consumer_change_impact(
+                case,
+                fixture,
+                work,
+                ROOT,
+                {"change-impact": ROOT / "skills" / "change-impact"},
+            )
+
+            self.assertIsNone(evidence)
+            self.assertEqual([], list(work.iterdir()))
+
+    def test_required_execution_distinguishes_reading_from_running(self):
+        required = [
+            "skills/change-impact/scripts/impact_context.py",
+            "skills/change-impact/scripts/impact_result.py",
+        ]
+        report = behavioral_eval._required_command_report(
+            [
+                "cat /tmp/skills/change-impact/scripts/impact_context.py",
+                "python inspect.py /tmp/skills/change-impact/scripts/impact_context.py",
+                "python /tmp/skills/change-impact/scripts/impact_result.py validate --input result.json",
+            ],
+            required,
+        )
+
+        self.assertEqual(required, report["expected"])
+        self.assertEqual(
+            ["skills/change-impact/scripts/impact_result.py"], report["observed"]
+        )
+        self.assertEqual(
+            ["skills/change-impact/scripts/impact_context.py"], report["missing"]
+        )
+        self.assertFalse(
+            behavioral_eval._required_commands_satisfied(report, required)
+        )
+        complete = behavioral_eval._required_command_report(
+            [
+                "python -B /tmp/evaluated-skills/change-impact/scripts/impact_context.py paths src/app.py",
+                "python /tmp/evaluated-skills/change-impact/scripts/impact_result.py validate --input result.json",
+            ],
+            required,
+        )
+        self.assertTrue(
+            behavioral_eval._required_commands_satisfied(complete, required)
+        )
+        self.assertFalse(
+            behavioral_eval._required_command_report_valid(
+                {"expected": required, "observed": [{}], "missing": []}, required
+            )
+        )
+
+    def test_suite_rejects_overlapping_required_and_forbidden_commands(self):
+        suite_path = ROOT / "evals" / "project-review" / "suite.json"
+        manifest = json.loads(suite_path.read_text(encoding="utf-8"))
+        manifest["cases"][0]["required_commands"] = ["scripts/check"]
+        manifest["cases"][0]["forbidden_commands"] = ["scripts/check"]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            shutil.copytree(ROOT / "evals", root / "evals")
+            shutil.copytree(ROOT / "skills", root / "skills")
+            shutil.copy2(ROOT / "toolkit.toml", root / "toolkit.toml")
+            target = root / "evals" / "project-review" / "suite.json"
+            target.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(
+                behavioral_eval.EvalError, "cannot require and forbid"
+            ):
+                behavioral_eval.load_suite(root, "project-review")
 
     def test_failed_event_is_detected_without_extracting_its_content(self):
         data = (

@@ -17,7 +17,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = "1.0.0"
-SKILL_REVISION = "project-review@1.0.0"
+SKILL_REVISION = "project-review@1.1.0"
 VERDICTS = {"PASS", "BLOCK", "INCOMPLETE"}
 DISPOSITIONS = ("blocker", "suggestion", "nit")
 SEVERITIES = {"critical", "high", "medium", "low"}

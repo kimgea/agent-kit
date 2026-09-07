@@ -80,7 +80,7 @@ def canonical_guidance(path="src/example.py"):
                 {
                     "source_kind": "skill",
                     "path": "SKILL.md",
-                    "revision": "project-review@1.0.0",
+                    "revision": "project-review@1.1.0",
                     "sha256": "0" * 64,
                     "bytes": 1,
                 }
@@ -129,7 +129,7 @@ def finding(
             "source_kind": "skill",
             "path": "SKILL.md",
             "section": "Review for behavior",
-            "revision": "project-review@1.0.0",
+            "revision": "project-review@1.1.0",
         },
         "safe_direction": "Return the failure or restore valid state before reporting success.",
     }
@@ -929,7 +929,7 @@ class ReviewResultTests(unittest.TestCase):
 
         versionless_skill = draft()
         versionless_skill["guidance"][0]["sources"][0]["revision"] = None
-        with self.assertRaisesRegex(review_result.ResultError, "project-review@1.0.0"):
+        with self.assertRaisesRegex(review_result.ResultError, "project-review@1.1.0"):
             review_result.finalize_draft(versionless_skill)
 
         revised_global = draft()

@@ -43,7 +43,8 @@ The [artifact host guide](docs/artifact-host.md) covers temporary interactive
 visuals, framework output, lifecycle limits, and provider-neutral browser access.
 The [change-impact guide](docs/change-impact.md) explains exact target binding,
 bounded related context, impact relationships, and advisory handoffs into review,
-verification, and remediation planning.
+verification, and remediation planning. Those three consumers now invoke it
+conditionally for unresolved material reach and skip it for contained work.
 The [project-review guide](docs/project-review.md) covers hierarchical review
 policy, trusted-base behavior, structured findings, and verification authority.
 The [review-and-fix guide](docs/review-and-fix.md) explains neutral reviewer
@@ -73,7 +74,7 @@ for repeatable use. For an ownership-aware installation, clone the tagged toolki
 release, then install only the selected skill:
 
 ```bash
-git clone --branch v1.12.0 --depth 1 https://github.com/kimgea/agent-kit.git
+git clone --branch v1.13.0 --depth 1 https://github.com/kimgea/agent-kit.git
 cd agent-kit
 python scripts/agent_kit.py list
 ```

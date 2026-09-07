@@ -96,14 +96,24 @@ target is supported. `INCOMPLETE` never becomes “no impact.”
 
 ## Consumers
 
-`project-review` can use impact paths as candidate context, `verify-project` can
-use them as candidate claims and check-selection evidence, and `review-and-fix`
-can use them while assessing remedy scope. These are compositional conventions,
-not runtime imports. Each consumer validates the producer result, matches it to
-its own lead-owned target, and retains all action and acceptance authority.
+`project-review`, `verify-project`, and `review-and-fix` now carry optional
+consumer instructions. They apply a cheap trigger from inspection the consumer
+already needs: explicit impact intent or unresolved material reach across a
+public contract, schema, generated surface, platform, safety boundary, or
+ownership boundary. Narrow self-contained work, static text changes, and
+singular mechanical fixes skip the analyzer. Installation alone is never a
+trigger.
 
-Third-party consumers may use the same canonical JSON. V1 intentionally ships no
-automatic adapter, publisher, persistence backend, or mandatory integration.
+The integration remains compositional rather than a runtime import. Each
+consumer invokes a trusted installed producer only when needed, validates its
+context and result, matches the producer target to its own lead-owned target,
+and retains all action and acceptance authority. Review context, candidate
+verification claims, and remedy-risk information remain advisory. Target,
+command, or edit expansion always goes through the consuming workflow's own
+scope and authority rules.
+
+Third-party consumers may use the same canonical JSON. The producer still ships
+no publisher, persistence backend, fixer, or authority-granting adapter.
 
 ## Evaluation and installation
 

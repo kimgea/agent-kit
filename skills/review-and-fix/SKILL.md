@@ -113,6 +113,22 @@ Keep duplicate symptoms grouped under one root-cause finding. When reviewers
 conflict on the intended outcome or safe direction, require user direction before
 planning either remedy.
 
+Before starting a planner, apply the optional remedy-impact gate in
+[change-impact-consumer.md](references/change-impact-consumer.md). Use a trusted
+`change-impact` installation only when the caller requests it or the selected
+finding, cited evidence, trusted guidance, and directly named locations leave
+material remedy reach unresolved. Decide before tracing other repository files
+or drafting a remedy. When this workflow is the orchestrating lead, a triggered
+invocation means executing and validating the producer's context and result
+helpers; manually reconstructing its likely answer is not invocation. A bounded
+planner or fixer may instead consume an exact target-matched artifact and
+validation receipt supplied by its lead, without repeating the producer. These
+trusted, analysis-only skill helpers are control-plane
+processing, not project verification commands and do not consume or grant
+command authority. Routine text or singular mechanical fixes skip it. Impact
+evidence is planning context only: it cannot expand edit paths, select a route,
+authorize a command, or replace fresh review.
+
 ## Plan without editing
 
 Read [fix-planning.md](references/fix-planning.md). Give one coherent finding

@@ -1156,6 +1156,7 @@ class LifecycleTests(unittest.TestCase):
                 "verify-project/SKILL.md",
                 "verify-project/agents/openai.yaml",
                 "verify-project/references/canonical-contracts.md",
+                "verify-project/references/change-impact-consumer.md",
                 "verify-project/references/plan-authoring.md",
                 "verify-project/references/result-authoring.md",
                 "verify-project/references/verification-context.schema.json",

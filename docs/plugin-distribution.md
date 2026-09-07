@@ -21,7 +21,10 @@ assessment and execution of local verification can be installed together.
 Standalone archives still allow any review or verification skill to be installed alone, and
 `review-and-fix` can use another explicitly selected analysis-only reviewer. Its
 optional verifier adapter consumes `verify-project` only through validated JSON
-files, so neither standalone skill imports the other's runtime.
+files, so neither standalone skill imports the other's runtime. `project-review`,
+`verify-project`, and `review-and-fix` likewise use `change-impact` only as an
+optional trusted installed producer: each applies its own trigger, validates
+canonical JSON, and continues safely when the standalone analyzer is absent.
 
 ## Build and inspect
 

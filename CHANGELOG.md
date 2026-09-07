@@ -4,6 +4,35 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
+## 1.13.0 - 2026-09-07
+
+### Added
+
+- Let `project-review`, `verify-project`, and `review-and-fix` conditionally use
+  validated `change-impact` evidence when cross-contract reach is materially
+  uncertain, while keeping every consumer independently installable.
+- Add consumer-specific progressive references for target matching, advisory
+  purpose mapping, fallback, result reuse, and authority preservation.
+- Add bounded behavioral `required_commands` evidence so local evals can prove
+  that a conditional helper ran, not merely that an agent read or mentioned it.
+- Add six local behavioral cases proving one lead-owned impact invocation plus
+  bounded consumption without duplicate helper runs, and one deliberate
+  no-advisory skip for each integrated consumer.
+
+### Changed
+
+- Bump `project-review` and `verify-project` to 1.1.0,
+  `review-and-fix` to 1.4.0, and the grouped project-review plugin to 1.8.0.
+- Keep impact analysis off the hot path for narrow self-contained, statically
+  provable, and singular mechanical work; installed availability alone never
+  triggers it.
+
+### Security
+
+- Require consumers to validate producer context and result, match exact target
+  semantics and source state, and independently own every review path, claim,
+  command, edit, routing, and acceptance decision.
+
 ## 1.12.0 - 2026-09-06
 
 ### Added

@@ -26,6 +26,12 @@ The lead inspects behavior, optionally delegates coherent groups, and verifies
 every candidate finding. A helper derives and validates one canonical result;
 the human report is rendered from that same data.
 
+When initial inspection exposes unresolved cross-contract reach, the reviewer
+may conditionally invoke an installed `change-impact` producer. It validates the
+producer artifacts and exact target before using `review_context` paths. A
+`review_target_candidate` never enters finding scope without explicit rescope
+and a new resolver context. Narrow, self-contained reviews skip the analyzer.
+
 ## Guidance locations
 
 For `a/b/c.py`, repository guidance loads in this order:
@@ -216,12 +222,14 @@ network access, or agent-specific dependency.
 ## Executable behavioral evidence
 
 The cataloged `evals/project-review/suite.json` exercises the installed resolver
-and canonical result helper over six disposable synthetic repositories. It
+and canonical result helper over eight disposable synthetic repositories. It
 covers nested touched-code policy, a compatibility counterexample, a distinct
 non-blocking maintainability suggestion, an ordinary cross-file defect with an
 explicit must-not-ship basis, inconclusive conflicting contracts, and repository
-text that claims command authority. The host binds target, changes, and guidance
-to its own resolved context and rejects every fixture mutation.
+text that claims command authority. A paired consumer case proves impact runs for
+an unresolved wire contract and is skipped for contained documentation. The host
+binds target, changes, and guidance to its own resolved context and rejects every
+fixture mutation.
 
 Run the deterministic suite check through the canonical gate or explicitly:
 

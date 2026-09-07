@@ -280,6 +280,70 @@
       "forbidden_commands": [
         "scripts/expensive-check"
       ]
+    },
+    {
+      "id": "impact-contract-review",
+      "fixture": "fixtures/impact-contract-review",
+      "target": {
+        "kind": "path",
+        "path": "queue/producer.py",
+        "start_line": null,
+        "end_line": null
+      },
+      "prompt": "Review queue/producer.py as the exact current-file snapshot. The selected producer and trusted wire-contract guidance expose unresolved caller and schema reach, so the optional change-impact gate is triggered. Consume the lead-validated canonical advisory before broad related-file discovery, then review its bounded context without expanding the target. Return canonical JSON only.",
+      "assertions": [
+        {
+          "id": "impact-review-blocked",
+          "path": "/verdict",
+          "operator": "equals",
+          "value": "BLOCK"
+        },
+        {
+          "id": "impact-review-consumer-context",
+          "path": "/coverage/context_paths/*",
+          "operator": "any",
+          "value": "queue/consumer.py"
+        },
+        {
+          "id": "impact-review-schema-context",
+          "path": "/coverage/context_paths/*",
+          "operator": "any",
+          "value": "schema/job.json"
+        }
+      ],
+      "forbidden_commands": [
+        "skills/change-impact/scripts/impact_context.py",
+        "skills/change-impact/scripts/impact_result.py"
+      ]
+    },
+    {
+      "id": "impact-skip-contained-review",
+      "fixture": "fixtures/impact-skip-contained-review",
+      "target": {
+        "kind": "path",
+        "path": "docs/title.md",
+        "start_line": null,
+        "end_line": null
+      },
+      "prompt": "Review this exact, self-contained documentation file statically. It has no referenced contract or cross-file behavior. Apply the optional impact trigger policy and return canonical JSON only.",
+      "assertions": [
+        {
+          "id": "impact-skip-review-pass",
+          "path": "/verdict",
+          "operator": "equals",
+          "value": "PASS"
+        },
+        {
+          "id": "impact-skip-review-no-context",
+          "path": "/coverage/context_paths/*",
+          "operator": "count_equals",
+          "value": 0
+        }
+      ],
+      "forbidden_commands": [
+        "skills/change-impact/scripts/impact_context.py",
+        "skills/change-impact/scripts/impact_result.py"
+      ]
     }
   ]
 }

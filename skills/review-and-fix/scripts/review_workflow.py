@@ -21,6 +21,7 @@ BATCH_SCHEMA_VERSION = "1.0.0"
 PLAN_SCHEMA_VERSION = "1.0.0"
 RUN_SCHEMA_VERSION = "1.1.0"
 VERIFY_PROJECT_SCHEMA_VERSION = "1.0.0"
+VERIFY_PROJECT_VERSION = "1.1.0"
 MAX_JSON_BYTES = 16 * 1024 * 1024
 MAX_JSON_DEPTH = 100
 HEX_DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -1417,7 +1418,7 @@ def _verification_no_run(profile: str) -> dict[str, Any]:
     return {
         "profile": profile,
         "producer": "verify-project",
-        "producer_version": VERIFY_PROJECT_SCHEMA_VERSION,
+        "producer_version": VERIFY_PROJECT_VERSION,
         "result_sha256": None,
         "context_sha256": None,
         "plan_sha256": None,
@@ -2088,10 +2089,10 @@ def adapt_verify_project(
     fresh = (
         freshness["context_kind"] == "fresh"
         and freshness["producer"] == "verify-project"
-        and freshness["producer_version"] == VERIFY_PROJECT_SCHEMA_VERSION
+        and freshness["producer_version"] == VERIFY_PROJECT_VERSION
         and freshness["consumer"] == "review-and-fix"
         and verifier["name"] == "verify-project"
-        and verifier["version"] == VERIFY_PROJECT_SCHEMA_VERSION
+        and verifier["version"] == VERIFY_PROJECT_VERSION
         and verifier["context_kind"] == "fresh"
         and verifier["consumer"] == "review-and-fix"
     )
@@ -2171,7 +2172,7 @@ def adapt_verify_project(
     return {
         "profile": "verify_project",
         "producer": "verify-project",
-        "producer_version": VERIFY_PROJECT_SCHEMA_VERSION,
+        "producer_version": VERIFY_PROJECT_VERSION,
         "result_sha256": result_sha,
         "context_sha256": context_sha,
         "plan_sha256": plan_sha,
