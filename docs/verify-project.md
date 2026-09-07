@@ -149,6 +149,15 @@ requires a fresh, target-matched, complete, sufficiently covered `pass` before
 invoking the fresh acceptance reviewer. Other outcomes stop with the verifier's
 derived next action.
 
+`verify-project` can itself consume `change-impact` as optional discovery
+evidence. It does so only when initial inspection leaves a material contract,
+generated, platform, data, safety, or ownership reach unresolved. Valid
+`verification_context` paths become normal frozen discovery records, and
+`verification_claim_candidate` entries must be re-established from verifier-
+owned evidence. Impact output never supplies argv, command authority,
+sufficiency, or a passing result. Narrow static work and already sufficient
+exact checks skip the analyzer.
+
 Deterministic tests and graders run in the canonical local gate and hosted CI.
 Fresh model-backed behavioral evaluations are opt-in local maintainer runs; no
 agent model is invoked by GitHub Actions.

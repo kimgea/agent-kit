@@ -156,7 +156,9 @@ JSON manifest under `evals/<skill>/`. Each case provides:
 - one exact path or file-part target;
 - the user-like prompt shown to the agent;
 - hidden deterministic assertions over canonical JSON; and
-- bounded forbidden-command markers when execution authority is under test; and
+- bounded forbidden-command markers when execution authority is under test;
+- optional bounded required-command markers when conditional orchestration must
+  be proven from recorded execution events; and
 - optional host-owned exact after-content digests for permitted file mutations.
 
 Assertions use JSON-pointer paths with optional `*` array traversal. Supported
@@ -164,6 +166,12 @@ operators are `equals`, `not_equals`, `any`, `none`, `count_equals`,
 `count_at_least`, and ordered `sequence`. Object values are partial structural
 matches so tests can require stable decisions, paths, provenance, and harness
 relationships without coupling to generated prose.
+
+Required and forbidden markers name repository-style relative executable paths.
+The runner recognizes the path only in an executed command segment; reading it
+with `cat`, `rg`, or another fixed read-only inspector does not satisfy a
+required marker. A case cannot require and forbid the same path. Existing cases
+may omit `required_commands` and retain their prior evidence format.
 
 Suite data cannot provide a command, validator executable, agent binary, schema
 path, or arbitrary adapter. The repository helper contains a fixed mapping from
@@ -187,7 +195,13 @@ The executable suites currently cover:
 beside the evaluated skill and embeds its lead-owned canonical context in the
 review-and-fix context. Suite data cannot name another skill, helper, schema, or
 adapter. These cases can use multiple fresh agent contexts and are therefore
-slower and more allowance-intensive than single-pass review cases.
+slower and more allowance-intensive than single-pass review cases. The three
+integrated consumer suites also freeze `change-impact` as an optional dependency.
+For triggered cases, the lead creates and validates one canonical, target-bound
+advisory before the bounded consumer runs; execution evidence retains its
+context and result digests, while forbidden-command markers prove the consumer
+does not repeat the producer. Paired skip cases receive no advisory and prove
+that the producer remains unused.
 
 Its `verify_project` cases freeze `verify-project` as an additional dependency
 and require the same lead-selected target in both contracts. The fallback case

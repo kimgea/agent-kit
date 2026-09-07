@@ -355,7 +355,7 @@ def verify_project_bundle(
             "freshness": {
                 "context_kind": "fresh" if fresh else "existing",
                 "producer": "verify-project",
-                "producer_version": workflow.VERIFY_PROJECT_SCHEMA_VERSION,
+                "producer_version": workflow.VERIFY_PROJECT_VERSION,
                 "consumer": "review-and-fix",
             },
             "tier_cap": None,
@@ -408,7 +408,7 @@ def verify_project_bundle(
         "discovery": [],
         "verifier": {
             "name": "verify-project",
-            "version": workflow.VERIFY_PROJECT_SCHEMA_VERSION,
+            "version": workflow.VERIFY_PROJECT_VERSION,
             "context_kind": "fresh" if fresh else "existing",
             "consumer": "review-and-fix",
             "target_matched": target_matched,
@@ -766,7 +766,7 @@ def project_review_result():
                     "source_kind": "skill",
                     "path": "SKILL.md",
                     "section": "Review for behavior",
-                    "revision": "project-review@1.0.0",
+                    "revision": "project-review@1.1.0",
                 },
                 "safe_direction": "Return the documented value.",
             }

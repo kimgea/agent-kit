@@ -99,6 +99,24 @@ Subreviewers never set the final verdict. If delegation is unavailable, continue
 in the lead. Return `INCOMPLETE` only when the remaining scope cannot be reviewed
 materially, not merely because review is sequential.
 
+Before broad related-context discovery, apply the optional impact gate in
+[change-impact-consumer.md](references/change-impact-consumer.md). Make this
+decision from the selected target, trusted guidance, and caller context—not by
+first searching the repository yourself. Invoke the trusted producer when the
+caller requests impact analysis or that bounded evidence exposes a material
+cross-contract reach whose callers, contracts, tests, or docs are not already
+known. When this reviewer is the orchestrating lead, a triggered invocation
+means executing and validating the producer's context and result helpers;
+reading its instructions or manually reconstructing its likely answer is not
+invocation. A bounded reviewer may instead consume an exact target-matched
+artifact and validation receipt supplied by its lead, without repeating the
+producer. These trusted, analysis-only skill helpers
+are control-plane processing, not project verification commands governed by the
+later execution gate. They never authorize project code, tests, builds, or
+repository-provided scripts. Availability alone is not a trigger. Keep accepted
+impact paths as context; a target candidate requires an explicit rescope and a
+new review context.
+
 ## Review for behavior
 
 Check both ordinary engineering defects and applicable repository-specific

@@ -1,0 +1,7 @@
+{
+  "required": ["timeout_seconds"],
+  "properties": {
+    "timeout_seconds": {"type": "integer"}
+  }
+}
+

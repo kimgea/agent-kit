@@ -145,6 +145,12 @@ VERIFY_PROJECT_CASE_CONFIG = {
         ]
     },
     "static-sufficient-mechanical-change": {"candidates": []},
+    "impact-contract-verification": {
+        "candidates": [
+            (["python", "-B", "tests/check_encoder.py"], ["repository_read", "local_process"], [])
+        ]
+    },
+    "impact-skip-static-verification": {"candidates": []},
 }
 CHANGE_IMPACT_CASE_CONTEXT = {
     "direct-test-impact": ["tests/test_parser.py"],
@@ -155,6 +161,168 @@ CHANGE_IMPACT_CASE_CONTEXT = {
     ],
     "unrelated-context-omitted": ["tests/test_payments.py"],
     "dynamic-impact-incomplete": ["config/plugins.json"],
+}
+CONSUMER_CHANGE_IMPACT_ADVISORIES = {
+    "impact-contract-review": {
+        "context_paths": ["queue/consumer.py", "schema/job.json"],
+        "draft": {
+            "conclusion": (
+                "The selected producer's public field reaches the job schema "
+                "and the runtime consumer."
+            ),
+            "inspected_target_paths": ["queue/producer.py"],
+            "inspected_context_paths": ["queue/consumer.py", "schema/job.json"],
+            "impacts": [
+                {
+                    "source_target_paths": ["queue/producer.py"],
+                    "affected_locations": [
+                        {"path": "queue/consumer.py", "start_line": None, "end_line": None},
+                        {"path": "schema/job.json", "start_line": None, "end_line": None},
+                    ],
+                    "relationship": "data_or_wire_contract",
+                    "reach": "direct",
+                    "confidence": "high",
+                    "title": "Job field is shared by producer, schema, and consumer",
+                    "consequence": (
+                        "A producer field change can violate schema validation or the "
+                        "consumer's direct lookup."
+                    ),
+                    "reason": (
+                        "The producer emits a job dictionary, the schema fixes its required "
+                        "field, and the consumer reads that field directly."
+                    ),
+                    "evidence": [
+                        {
+                            "kind": "source",
+                            "description": "The selected target emits timeout_ms.",
+                            "location": {"path": "queue/producer.py", "start_line": 1, "end_line": 2},
+                        },
+                        {
+                            "kind": "contract",
+                            "description": "The schema requires timeout_seconds.",
+                            "location": {"path": "schema/job.json", "start_line": 1, "end_line": 6},
+                        },
+                        {
+                            "kind": "source",
+                            "description": "The consumer directly reads timeout_seconds.",
+                            "location": {"path": "queue/consumer.py", "start_line": 1, "end_line": 2},
+                        },
+                    ],
+                    "safe_direction": (
+                        "Review the schema and direct consumer when judging the producer field."
+                    ),
+                    "consumer_purposes": ["review_context"],
+                }
+            ],
+            "limitations": [],
+        },
+    },
+    "impact-contract-verification": {
+        "context_paths": ["schema/wire.json", "tests/check_encoder.py"],
+        "draft": {
+            "conclusion": (
+                "The selected encoder's public field reaches the wire schema and a "
+                "focused contract check."
+            ),
+            "inspected_target_paths": ["api/encoder.py"],
+            "inspected_context_paths": ["schema/wire.json", "tests/check_encoder.py"],
+            "impacts": [
+                {
+                    "source_target_paths": ["api/encoder.py"],
+                    "affected_locations": [
+                        {"path": "schema/wire.json", "start_line": None, "end_line": None},
+                        {"path": "tests/check_encoder.py", "start_line": None, "end_line": None},
+                    ],
+                    "relationship": "data_or_wire_contract",
+                    "reach": "direct",
+                    "confidence": "high",
+                    "title": "Encoder output is fixed by schema and focused check",
+                    "consequence": (
+                        "Changing the emitted key can break the public wire contract."
+                    ),
+                    "reason": (
+                        "The target emits event_type, the schema requires it, and the "
+                        "focused check asserts the same output."
+                    ),
+                    "evidence": [
+                        {
+                            "kind": "source",
+                            "description": "The selected encoder emits event_type.",
+                            "location": {"path": "api/encoder.py", "start_line": 1, "end_line": 5},
+                        },
+                        {
+                            "kind": "contract",
+                            "description": "The wire schema requires event_type.",
+                            "location": {"path": "schema/wire.json", "start_line": 1, "end_line": 6},
+                        },
+                        {
+                            "kind": "test",
+                            "description": "The focused check asserts event_type output.",
+                            "location": {"path": "tests/check_encoder.py", "start_line": 1, "end_line": 10},
+                        },
+                    ],
+                    "safe_direction": (
+                        "Use the focused encoder check as evidence for the public field claim."
+                    ),
+                    "consumer_purposes": [
+                        "verification_context",
+                        "verification_claim_candidate",
+                    ],
+                }
+            ],
+            "limitations": [],
+        },
+    },
+    "impact-security-remedy": {
+        "context_paths": ["auth/session.py"],
+        "draft": {
+            "conclusion": (
+                "The selected authentication setting directly controls runtime session "
+                "lifetime and therefore carries remedy risk outside the JSON edit."
+            ),
+            "inspected_target_paths": ["config/auth.json"],
+            "inspected_context_paths": ["auth/session.py"],
+            "impacts": [
+                {
+                    "source_target_paths": ["config/auth.json"],
+                    "affected_locations": [
+                        {"path": "auth/session.py", "start_line": 5, "end_line": 7}
+                    ],
+                    "relationship": "configuration",
+                    "reach": "direct",
+                    "confidence": "high",
+                    "title": "Authentication configuration controls runtime token lifetime",
+                    "consequence": (
+                        "A replacement value changes token exposure and session expiry behavior."
+                    ),
+                    "reason": (
+                        "The runtime reads token_lifetime_hours directly from the selected "
+                        "configuration file."
+                    ),
+                    "evidence": [
+                        {
+                            "kind": "configuration",
+                            "description": "The selected configuration sets a 24-hour lifetime.",
+                            "location": {"path": "config/auth.json", "start_line": 1, "end_line": 3},
+                        },
+                        {
+                            "kind": "source",
+                            "description": "The runtime returns the configured lifetime directly.",
+                            "location": {"path": "auth/session.py", "start_line": 5, "end_line": 7},
+                        },
+                    ],
+                    "safe_direction": (
+                        "Treat the replacement value as a security and compatibility decision."
+                    ),
+                    "consumer_purposes": [
+                        "remediation_risk_context",
+                        "user_decision",
+                    ],
+                }
+            ],
+            "limitations": [],
+        },
+    },
 }
 CONTRACTS = {
     "change-impact/v1": {
@@ -190,7 +358,7 @@ CONTRACTS = {
         "validator_kind": "simple",
         "binding_kind": "project-review",
         "target_kinds": {"path"},
-        "dependencies": [],
+        "dependencies": ["change-impact"],
         "reviewers": [],
     },
     "review-and-fix/v1": {
@@ -203,6 +371,7 @@ CONTRACTS = {
         "binding_kind": "review-and-fix",
         "target_kinds": {"path"},
         "dependencies": [
+            "change-impact",
             "project-review",
             "review-guidance-audit",
             "verification-harness-audit",
@@ -245,7 +414,7 @@ CONTRACTS = {
         "validator_kind": "simple",
         "binding_kind": "verify-project",
         "target_kinds": {"path"},
-        "dependencies": [],
+        "dependencies": ["change-impact"],
         "reviewers": [],
     },
 }
@@ -726,6 +895,7 @@ def _load_suite_bundle(
                 "expected_mutations",
                 "expected_additions",
                 "omit_default_assertions",
+                "required_commands",
                 "reviewer",
                 "verification_profile",
             },
@@ -832,6 +1002,24 @@ def _load_suite_bundle(
                 pattern,
                 f"cases[{index}].forbidden_commands[{command_index}]",
             )
+        required = case.get("required_commands", [])
+        if not isinstance(required, list) or len(required) > 32:
+            raise EvalError(f"cases[{index}].required_commands must be a bounded array")
+        normalized_required: list[str] = []
+        for command_index, pattern in enumerate(required):
+            normalized_required.append(
+                _relative_path(
+                    pattern,
+                    f"cases[{index}].required_commands[{command_index}]",
+                )
+            )
+        if len(set(normalized_required)) != len(normalized_required):
+            raise EvalError(f"cases[{index}].required_commands contains duplicates")
+        if set(normalized_required) & set(forbidden):
+            raise EvalError(
+                f"cases[{index}] cannot require and forbid the same command path"
+            )
+        case["required_commands"] = normalized_required
         fixture_path = _safe_repository_path(manifest_root, fixture, "fixture")
         if fixture_root not in fixture_path.parents:
             raise EvalError(f"fixture is outside the suite fixture root: {fixture}")
@@ -1198,7 +1386,7 @@ def _case_dependencies(suite: dict[str, Any], case: dict[str, Any]) -> list[str]
     if contract["context_kind"] != "review-and-fix":
         return list(contract["dependencies"])
     reviewer, _ = _review_and_fix_reviewer(suite, case)
-    dependencies = [reviewer]
+    dependencies = ["change-impact", reviewer]
     if case.get("verification_profile") == "verify_project":
         dependencies.append("verify-project")
     return dependencies
@@ -1537,6 +1725,130 @@ def resolve_context(
         raise EvalError("unsupported context adapter")
     _write_new_json(output, context)
     return context
+
+
+def _prepare_consumer_change_impact(
+    case: dict[str, Any],
+    fixture: Path,
+    work: Path,
+    root: Path,
+    runtime_skills: dict[str, Path],
+) -> dict[str, Any] | None:
+    advisory = CONSUMER_CHANGE_IMPACT_ADVISORIES.get(case["id"])
+    if advisory is None:
+        return None
+    skill = runtime_skills.get("change-impact")
+    if skill is None:
+        raise EvalError("change-impact advisory case has no frozen producer")
+    context_helper = skill / "scripts" / "impact_context.py"
+    result_helper = skill / "scripts" / "impact_result.py"
+    initial_context = work / "impact-context-initial.json"
+    final_context = work / "impact-context.json"
+    draft_path = work / "impact-draft.json"
+    result_path = work / "impact-result.json"
+
+    def run(command: list[str], label: str) -> None:
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=60,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise EvalError(f"cannot prepare {label}: {exc}") from exc
+        if completed.returncode != 0:
+            message = completed.stderr.decode("utf-8", "replace")[:2000].strip()
+            raise EvalError(message or f"cannot prepare {label}")
+
+    base_command = [
+        sys.executable,
+        "-E",
+        "-S",
+        str(context_helper),
+        "--repo",
+        str(fixture),
+    ]
+    run(
+        [*base_command, "--output", str(initial_context), "paths", case["target"]["path"]],
+        "initial change-impact context",
+    )
+    final_command = [*base_command, "--output", str(final_context)]
+    for context_path in advisory["context_paths"]:
+        final_command.extend(["--context", context_path])
+    final_command.extend(["paths", case["target"]["path"]])
+    run(final_command, "final change-impact context")
+    _write_new_json(draft_path, advisory["draft"])
+    run(
+        [
+            sys.executable,
+            "-E",
+            "-S",
+            str(result_helper),
+            "finalize",
+            "--context",
+            str(final_context),
+            "--input",
+            str(draft_path),
+            "--format",
+            "json",
+            "--output",
+            str(result_path),
+        ],
+        "canonical change-impact result",
+    )
+    run(
+        [
+            sys.executable,
+            "-E",
+            "-S",
+            str(context_helper),
+            "validate",
+            "--input",
+            str(final_context),
+            "--current",
+        ],
+        "current change-impact context validation",
+    )
+    run(
+        [
+            sys.executable,
+            "-E",
+            "-S",
+            str(result_helper),
+            "validate",
+            "--input",
+            str(result_path),
+            "--context",
+            str(final_context),
+        ],
+        "change-impact result validation",
+    )
+    result = _load_json(result_path, "prepared change-impact result")
+    expected_root = str(fixture.resolve())
+    target = result.get("target") if isinstance(result, dict) else None
+    target_bound = (
+        isinstance(target, dict)
+        and target.get("kind") == "paths"
+        and target.get("repository_root") == expected_root
+        and target.get("requested_paths") == [case["target"]["path"]]
+        and target.get("paths") == [case["target"]["path"]]
+    )
+    if not target_bound:
+        raise EvalError("prepared change-impact result is not bound to the case target")
+    return {
+        "prepared": True,
+        "validated": True,
+        "target_bound": True,
+        "context_sha256": _sha256_file(
+            final_context, "prepared change-impact context", MAX_RESULT_BYTES
+        ),
+        "result_sha256": _sha256_file(
+            result_path, "prepared change-impact result", MAX_RESULT_BYTES
+        ),
+    }
 
 
 def validate_result_contract(
@@ -2137,7 +2449,9 @@ def grade_case(
     runtime_skills: dict[str, Path] | None = None,
     mutation_report: dict[str, Any],
     forbidden_commands: list[str] | None,
+    required_command_report: dict[str, Any] | None = None,
     command_evidence: dict[str, Any] | None = None,
+    impact_advisory: dict[str, Any] | None = None,
     verification_paths: tuple[Path, Path, Path] | None = None,
 ) -> dict[str, Any]:
     contract_ok, contract_message = validate_result_contract(
@@ -2165,6 +2479,18 @@ def grade_case(
     ]
     assertion_results = [evaluate_assertion(result, item) for item in assertions]
     forbidden_ok = not forbidden_commands
+    expected_required = case.get("required_commands", [])
+    required_ok = (
+        _required_commands_satisfied(required_command_report, expected_required)
+        if required_command_report is not None or expected_required
+        else True
+    )
+    expects_impact_advisory = case["id"] in CONSUMER_CHANGE_IMPACT_ADVISORIES
+    impact_advisory_ok = (
+        _impact_advisory_evidence_valid(impact_advisory)
+        if expects_impact_advisory
+        else impact_advisory is None
+    )
     command_result = result
     if verification_paths is not None:
         command_result = _load_json(
@@ -2191,6 +2517,8 @@ def grade_case(
         and all(item["passed"] for item in assertion_results)
         and mutation_report["passed"]
         and forbidden_ok
+        and required_ok
+        and impact_advisory_ok
         and command_report["passed"]
     )
     return {
@@ -2215,6 +2543,16 @@ def grade_case(
             else None
         ),
         "forbidden_commands": forbidden_commands or [],
+        "required_commands": required_command_report or {
+            "expected": expected_required,
+            "observed": [],
+            "missing": list(expected_required),
+        },
+        "impact_advisory": {
+            "expected": expects_impact_advisory,
+            "passed": impact_advisory_ok,
+            "evidence": impact_advisory,
+        },
         "command_execution": command_report,
         "assertions": assertion_results,
     }
@@ -2362,8 +2700,16 @@ def _event_delegation_summary(path: Path) -> dict[str, Any]:
 
 
 def _command_segments(command: str) -> list[list[str]]:
+    # Event streams contain command lines produced on every supported host, but
+    # retained evidence may be regraded on a different platform. POSIX shlex
+    # treats the backslashes in an unquoted Windows drive or UNC path as escape
+    # characters, erasing the path before command matching. Select the grammar
+    # from the command text rather than from the grader's current platform.
+    windows_paths = bool(
+        re.search(r"(?:^|[\s\"'])(?:[A-Za-z]:\\|\\\\[^\\])", command)
+    )
     try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+        lexer = shlex.shlex(command, posix=not windows_paths, punctuation_chars=";&|")
         lexer.whitespace_split = True
         tokens = list(lexer)
     except ValueError:
@@ -2376,6 +2722,9 @@ def _command_segments(command: str) -> list[list[str]]:
                 segments.append(current)
                 current = []
         else:
+            if windows_paths and len(token) >= 2 and token[0] == token[-1]:
+                if token[0] in {"'", '"'}:
+                    token = token[1:-1]
             current.append(token)
     if current:
         segments.append(current)
@@ -2391,7 +2740,25 @@ def _forbidden_command_hits(
 
     def token_matches(token: str, forbidden: str) -> bool:
         normalized = token.replace("\\", "/").rstrip("/")
-        return normalized == forbidden or normalized.endswith(f"/{forbidden}")
+        candidates = [forbidden]
+        parts = PurePosixPath(forbidden).parts
+        # Skill dependencies are materialized under a fresh, lead-owned parent
+        # rather than necessarily under a directory literally named `skills`.
+        # Bind the executable to its skill-relative suffix so the same evidence
+        # works for source, standalone, grouped-plugin, and eval installations.
+        if len(parts) >= 3 and parts[0] == "skills":
+            candidates.append(PurePosixPath(*parts[1:]).as_posix())
+            if len(parts) >= 4 and parts[2] == "scripts":
+                # Codex may set the helper's working directory separately and
+                # emit only `python scripts/helper.py` in its JSON event. The
+                # event has no trustworthy cwd on every supported CLI version,
+                # so bind the distinctive helper suffix conservatively.
+                candidates.append(PurePosixPath(*parts[2:]).as_posix())
+                candidates.append(parts[-1])
+        return any(
+            normalized == candidate or normalized.endswith(f"/{candidate}")
+            for candidate in candidates
+        )
 
     def inspect(command_text: str) -> None:
         for segment in _command_segments(command_text):
@@ -2416,8 +2783,118 @@ def _forbidden_command_hits(
     return list(dict.fromkeys(hits))
 
 
+def _required_command_report(
+    commands: list[str], required_paths: list[str]
+) -> dict[str, list[str]]:
+    shell_names = {"bash", "dash", "sh", "zsh"}
+    observed: list[str] = []
+
+    def token_matches(token: str, required: str) -> bool:
+        normalized = token.replace("\\", "/").rstrip("/")
+        candidates = [required]
+        parts = PurePosixPath(required).parts
+        if len(parts) >= 3 and parts[0] == "skills":
+            candidates.append(PurePosixPath(*parts[1:]).as_posix())
+        return any(
+            normalized == candidate or normalized.endswith(f"/{candidate}")
+            for candidate in candidates
+        )
+
+    def inspect(command_text: str) -> None:
+        for segment in _command_segments(command_text):
+            if not segment:
+                continue
+            executable = PurePosixPath(segment[0].replace("\\", "/")).name.casefold()
+            if executable in shell_names:
+                shell_flag = next(
+                    (flag for flag in ("-lc", "-c") if flag in segment), None
+                )
+                if shell_flag:
+                    index = segment.index(shell_flag)
+                    if index + 1 < len(segment):
+                        inspect(segment[index + 1])
+                continue
+            executed_token = segment[0]
+            if re.fullmatch(r"(?:python(?:\d+(?:\.\d+)*)?|py)(?:\.exe)?", executable):
+                executed_token = ""
+                for token in segment[1:]:
+                    if token in {"-c", "-m"}:
+                        break
+                    if token == "--":
+                        continue
+                    if token.startswith("-"):
+                        continue
+                    executed_token = token
+                    break
+            for required in required_paths:
+                if executed_token and token_matches(executed_token, required):
+                    observed.append(required)
+
+    for command in commands:
+        inspect(command)
+    observed = list(dict.fromkeys(observed))
+    return {
+        "expected": list(required_paths),
+        "observed": observed,
+        "missing": [path for path in required_paths if path not in observed],
+    }
+
+
+def _required_command_report_valid(value: Any, expected: list[str]) -> bool:
+    if not isinstance(value, dict) or set(value) != {"expected", "observed", "missing"}:
+        return False
+    arrays = (value["expected"], value["observed"], value["missing"])
+    if any(
+        not isinstance(items, list)
+        or len(items) > 32
+        or not all(isinstance(item, str) for item in items)
+        or len(set(items)) != len(items)
+        for items in arrays
+    ):
+        return False
+    observed = value["observed"]
+    return (
+        value["expected"] == expected
+        and all(item in expected for item in observed)
+        and value["missing"] == [item for item in expected if item not in observed]
+    )
+
+
+def _required_commands_satisfied(value: Any, expected: list[str]) -> bool:
+    return (
+        _required_command_report_valid(value, expected)
+        and value["missing"] == []
+        and set(value["observed"]) == set(expected)
+    )
+
+
+def _impact_advisory_evidence_valid(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and set(value)
+        == {
+            "prepared",
+            "validated",
+            "target_bound",
+            "context_sha256",
+            "result_sha256",
+        }
+        and value["prepared"] is True
+        and value["validated"] is True
+        and value["target_bound"] is True
+        and isinstance(value["context_sha256"], str)
+        and SHA256.fullmatch(value["context_sha256"]) is not None
+        and isinstance(value["result_sha256"], str)
+        and SHA256.fullmatch(value["result_sha256"]) is not None
+    )
+
+
 def _command_evidence(
-    result: dict[str, Any], commands: list[str], forbidden: list[str]
+    result: dict[str, Any],
+    commands: list[str],
+    forbidden: list[str],
+    required: list[str] | None = None,
+    impact_advisory: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     expected_argv = {
         tuple(check["argv"])
@@ -2444,19 +2921,26 @@ def _command_evidence(
         for segment in executable_segments(command):
             if tuple(segment) in expected_argv:
                 observed.append(_sha256_json(segment))
-    return {
+    evidence = {
         "observed_argv_sha256": observed,
         "forbidden_commands": list(forbidden),
+        "required_commands": _required_command_report(commands, required or []),
     }
+    if impact_advisory is not None:
+        evidence["impact_advisory"] = impact_advisory
+    return evidence
 
 
 def _evaluate_command_evidence(
     result: dict[str, Any], evidence: Any
 ) -> dict[str, Any]:
-    if not isinstance(evidence, dict) or set(evidence) != {
-        "observed_argv_sha256",
-        "forbidden_commands",
-    }:
+    required_keys = {"observed_argv_sha256", "forbidden_commands"}
+    allowed_keys = required_keys | {"required_commands", "impact_advisory"}
+    if (
+        not isinstance(evidence, dict)
+        or not required_keys <= set(evidence)
+        or not set(evidence) <= allowed_keys
+    ):
         return {
             "passed": False,
             "message": "lead-owned command evidence is missing or malformed",
@@ -2465,11 +2949,25 @@ def _evaluate_command_evidence(
         }
     observed = evidence["observed_argv_sha256"]
     forbidden = evidence["forbidden_commands"]
+    required = evidence.get("required_commands")
+    impact_advisory = evidence.get("impact_advisory")
     if (
         not isinstance(observed, list)
         or not all(isinstance(value, str) and SHA256.fullmatch(value) for value in observed)
         or not isinstance(forbidden, list)
         or not all(isinstance(value, str) and value for value in forbidden)
+        or (
+            required is not None
+            and (
+                not isinstance(required, dict)
+                or not isinstance(required.get("expected"), list)
+                or not _required_command_report_valid(required, required["expected"])
+            )
+        )
+        or (
+            impact_advisory is not None
+            and not _impact_advisory_evidence_valid(impact_advisory)
+        )
     ):
         return {
             "passed": False,
@@ -2561,6 +3059,46 @@ def _runner_prompt(
         if dependencies
         else ""
     )
+    impact_control_text = ""
+    if "change-impact" in _case_dependencies(suite, case):
+        required_impact_helpers = [
+            path
+            for path in case.get("required_commands", [])
+            if path.startswith("skills/change-impact/")
+        ]
+        required_text = ""
+        if required_impact_helpers:
+            rendered_helpers = []
+            for path in required_impact_helpers:
+                parts = PurePosixPath(path).parts
+                executable = runtime_skills[parts[1]].joinpath(*parts[2:])
+                rendered_helpers.append(f"- {executable}")
+            rendered_helpers_text = "\n".join(rendered_helpers)
+            required_text = f"""
+The caller's declared trigger requires actual workflow execution of these
+trusted helpers (a read, help/version call, or manually reconstructed answer
+does not satisfy the request):
+{rendered_helpers_text}
+"""
+        advisory_is_supplied = case["id"] in CONSUMER_CHANGE_IMPACT_ADVISORIES
+        impact_action = (
+            "The lead has already produced a canonical advisory for this triggered "
+            "gate, validated both final artifacts, and retained their target-bound "
+            "digests. Do not regenerate or revalidate it; consume the supplied result."
+            if advisory_is_supplied
+            else "If the gate triggers, produce and validate both final artifacts "
+            "with the trusted helpers before consuming them."
+        )
+        impact_control_text = f"""
+The optional change-impact handoff uses these exact lead-owned producer paths:
+- initial impact context: {work / "impact-context-initial.json"}
+- final impact context with accepted related files: {work / "impact-context.json"}
+- semantic impact draft: {work / "impact-draft.json"}
+- canonical impact result: {work / "impact-result.json"}
+{impact_action} Supplying paths and the dependency does not itself trigger
+analysis; a skip case must leave them unused.
+{required_text}
+"""
     if suite["skill"] == "review-and-fix":
         if case.get("verification_profile") == "verify_project":
             control_paths = f"""Use only these exact post-fix verification paths:
@@ -2581,6 +3119,15 @@ call completed."""
             "the fix and do not invoke the final reviewer unless the deterministic "
             "verification gate permits it."
         )
+        if case.get("expected_mutations") or case.get("expected_additions"):
+            repository_text += (
+                " The selected fixture is deliberately not a Git repository. Do not "
+                "initialize Git or create agent configuration or worktree directories. "
+                "Any analysis-only auxiliary context must remain non-editing; apply an "
+                "authorized fix from the primary context directly in the exact fixture "
+                "root, never in a separate checkout, and reread that exact target before "
+                "finalizing the workflow result."
+            )
     elif suite["skill"] == "verify-project":
         control_paths = f"""Use only these exact lead-owned control paths:
 - semantic plan draft: {work / "plan-draft.json"}
@@ -2622,6 +3169,7 @@ copy or retype the canonical JSON into the response."""
 skill finalizer."""
     return f"""Use the skill at {skill} to perform this request against the repository at {fixture}.
 {dependency_text}
+{impact_control_text}
 
 The caller has already selected and resolved the target. The exact lead-owned
 resolver context is {context}. Treat it as immutable authority: do not replace,
@@ -3150,7 +3698,17 @@ def command_grade(args: argparse.Namespace) -> int:
                 if isinstance(command_evidence, dict)
                 else None
             ),
+            required_command_report=(
+                command_evidence.get("required_commands")
+                if isinstance(command_evidence, dict)
+                else None
+            ),
             command_evidence=command_evidence,
+            impact_advisory=(
+                command_evidence.get("impact_advisory")
+                if isinstance(command_evidence, dict)
+                else None
+            ),
             verification_paths=verification_paths,
         )
     if args.output:
@@ -3247,6 +3805,9 @@ def command_run(args: argparse.Namespace) -> int:
             context = resolve_context(
                 suite, case, fixture, context_path, ROOT, runtime_skills
             )
+            impact_advisory = _prepare_consumer_change_impact(
+                case, fixture, work, ROOT, runtime_skills
+            )
             original_context_digest = hashlib.sha256(
                 _read_bytes(context_path, "lead-owned context", MAX_RESULT_BYTES)
             ).hexdigest()
@@ -3299,9 +3860,17 @@ def command_run(args: argparse.Namespace) -> int:
                 forbidden = _forbidden_command_hits(
                     commands, case["forbidden_commands"]
                 )
+                required_commands = _required_command_report(
+                    commands, case["required_commands"]
+                )
                 delegation = _event_delegation_summary(events_path)
             except EvalError as exc:
                 forbidden = list(case["forbidden_commands"])
+                required_commands = {
+                    "expected": list(case["required_commands"]),
+                    "observed": [],
+                    "missing": list(case["required_commands"]),
+                }
                 delegation = {"observed": False, "spawn_calls": 0}
                 isolation_errors.append(str(exc))
             result_sha256 = None
@@ -3338,7 +3907,11 @@ def command_run(args: argparse.Namespace) -> int:
                             MAX_RESULT_BYTES,
                         )
                     command_evidence = _command_evidence(
-                        command_result, commands, forbidden
+                        command_result,
+                        commands,
+                        forbidden,
+                        case["required_commands"],
+                        impact_advisory,
                     )
                     report = grade_case(
                         suite,
@@ -3352,7 +3925,9 @@ def command_run(args: argparse.Namespace) -> int:
                         runtime_skills=runtime_skills,
                         mutation_report=mutation_report,
                         forbidden_commands=forbidden,
+                        required_command_report=required_commands,
                         command_evidence=command_evidence,
+                        impact_advisory=impact_advisory,
                         verification_paths=verification_paths,
                     )
                     _write_new_json(case_directory / "context.json", context)
@@ -3409,6 +3984,7 @@ def command_run(args: argparse.Namespace) -> int:
                             else None
                         ),
                         "forbidden_commands": forbidden,
+                        "required_commands": required_commands,
                         "assertions": [],
                     }
             else:
@@ -3431,6 +4007,7 @@ def command_run(args: argparse.Namespace) -> int:
                         else None
                     ),
                     "forbidden_commands": forbidden,
+                    "required_commands": required_commands,
                     "assertions": [],
                 }
             if isolation_errors:

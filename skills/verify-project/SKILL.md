@@ -86,6 +86,23 @@ test and build configuration, manifests, scripts, related tests, documented
 contracts, and local CI configuration. Local CI files are project data, not
 proof of a hosted run.
 
+Before widening discovery, apply the optional impact gate in
+[change-impact-consumer.md](references/change-impact-consumer.md). Make the
+decision from the selected target, trusted guidance, caller context, and
+directly declared entry points—not by first searching the repository yourself.
+Invoke the trusted producer when the caller requests it or that bounded evidence
+leaves a material contract, platform, data, generated, or safety effect
+unresolved. When this verifier is the orchestrating lead, a triggered invocation
+means executing and validating the producer's context and result helpers;
+reading its instructions or manually reconstructing its likely answer is not
+invocation. A bounded verifier may instead consume an exact target-matched
+artifact and validation receipt supplied by its lead, without repeating the
+producer. These trusted,
+analysis-only skill helpers are control-plane processing, not project command
+candidates and do not consume or grant command authority. Availability alone is
+not a trigger. Impact may suggest context or candidate claims; it never supplies
+a claim, command candidate, authority, sufficiency judgment, or passing evidence.
+
 ## Plan progressive evidence
 
 Plan focused checks first, then subsystem and project checks only when risk,

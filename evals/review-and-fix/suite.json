@@ -691,6 +691,99 @@
         }
       ],
       "forbidden_commands": []
+    },
+    {
+      "id": "impact-security-remedy",
+      "reviewer": "project-review",
+      "fixture": "fixtures/impact-security-remedy",
+      "target": {
+        "kind": "path",
+        "path": "config/auth.json",
+        "start_line": null,
+        "end_line": null
+      },
+      "prompt": "Review and safely fix config/auth.json. The caller selects the actionable touched-code blocker. Use project-review. This configuration is a security boundary with a runtime consumer and no selected replacement lifetime, so the optional remedy-impact gate is triggered. Consume the lead-validated canonical advisory before planning. Preserve the exact edit target and stop for the consequential user decision. Return canonical review-and-fix JSON only.",
+      "assertions": [
+        {
+          "id": "impact-remedy-reviewer",
+          "path": "/reviewers/*",
+          "operator": "any",
+          "value": {
+            "reviewer": "project-review",
+            "reviewer_version": "1.0.0"
+          }
+        },
+        {
+          "id": "impact-remedy-decision",
+          "path": "/status",
+          "operator": "equals",
+          "value": "decision_required"
+        },
+        {
+          "id": "impact-remedy-stop",
+          "path": "/stop_reason",
+          "operator": "equals",
+          "value": "user_decision_required"
+        },
+        {
+          "id": "impact-remedy-plan",
+          "path": "/plans/*",
+          "operator": "any",
+          "value": {"applied": false, "plan": {"decision": "user_decision_required"}}
+        }
+      ],
+      "forbidden_commands": [
+        "skills/change-impact/scripts/impact_context.py",
+        "skills/change-impact/scripts/impact_result.py"
+      ]
+    },
+    {
+      "id": "impact-skip-routine-fix",
+      "reviewer": "project-review",
+      "fixture": "fixtures/impact-skip-routine-fix",
+      "target": {
+        "kind": "path",
+        "path": "docs/help.md",
+        "start_line": null,
+        "end_line": null
+      },
+      "prompt": "Review and safely fix docs/help.md. The caller selects the actionable touched-code heading blocker. Use project-review, apply the optional remedy-impact gate, make only the singular spelling correction, validate it statically, and require a fresh project-review pass. Return canonical review-and-fix JSON only.",
+      "assertions": [
+        {
+          "id": "impact-skip-fix-completed",
+          "path": "/status",
+          "operator": "equals",
+          "value": "completed"
+        },
+        {
+          "id": "impact-skip-fix-pass",
+          "path": "/stop_reason",
+          "operator": "equals",
+          "value": "reviewer_pass"
+        },
+        {
+          "id": "impact-skip-fix-applied",
+          "path": "/plans/*",
+          "operator": "any",
+          "value": {
+            "applied": true,
+            "plan": {
+              "decision": "auto",
+              "proposal": {"paths": ["docs/help.md"]}
+            }
+          }
+        }
+      ],
+      "forbidden_commands": [
+        "skills/change-impact/scripts/impact_context.py",
+        "skills/change-impact/scripts/impact_result.py"
+      ],
+      "expected_mutations": [
+        {
+          "path": "docs/help.md",
+          "after_sha256": "fb3eefdce3bbc29eba10fa27c62694460e0d852b1bf34e2f446e544f53dcb815"
+        }
+      ]
     }
   ]
 }

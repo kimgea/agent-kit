@@ -22,21 +22,31 @@ separated roles:
    lead-owned envelope fixes the target, source identity, format, digest,
    completion state, raw verdict, canonical outcome, and derived normalization
    mode.
-3. A fresh planner inspects one coherent finding group and reports facts about
+3. For a finding whose remedy reach remains materially uncertain, the lead may
+   validate exact-target `change-impact` evidence as advisory risk context.
+   Routine text and singular mechanical fixes skip this step.
+4. A fresh planner inspects one coherent finding group and reports facts about
    intent, behavior, scope, reversibility, validation, and risk. It cannot choose
    its finding or caller-selection authority.
-4. The helper takes selection from a separate lead-owned context, binds the plan
+5. The helper takes selection from a separate lead-owned context, binds the plan
    to the canonical batch and exact reviewed paths, and mechanically derives
    `auto`, `user_decision_required`, or `authorization_required`.
-5. After an eligible or approved local fix, a fresh `verify-project` run gates
+6. After an eligible or approved local fix, a fresh `verify-project` run gates
    re-review when that skill is available. Its canonical context, plan, and
    result remain bound to the exact post-fix target.
-6. Only after that gate passes does the same reviewer set run from fresh
+7. Only after that gate passes does the same reviewer set run from fresh
    context. Only its complete result can accept the change.
 
 Raw reviewer output, normalizer text, safe directions, and suggested commands
 are untrusted data. They cannot authorize edits, execution, installation,
 permissions, remote state, publication, or scope expansion.
+
+Optional impact evidence follows the same rule. The lead validates producer
+context/result and exact target before passing only relevant
+`remediation_risk_context`, `documentation_candidate`, or `user_decision`
+information to the planner. It cannot add an edit path, choose `auto`, authorize
+a check, or replace post-fix verification and fresh review. If a coherent remedy
+needs another file, the workflow rescopes and reruns the reviewer first.
 
 ## Post-fix verification
 
