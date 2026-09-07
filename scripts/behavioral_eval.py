@@ -2700,8 +2700,16 @@ def _event_delegation_summary(path: Path) -> dict[str, Any]:
 
 
 def _command_segments(command: str) -> list[list[str]]:
+    # Event streams contain command lines produced on every supported host, but
+    # retained evidence may be regraded on a different platform. POSIX shlex
+    # treats the backslashes in an unquoted Windows drive or UNC path as escape
+    # characters, erasing the path before command matching. Select the grammar
+    # from the command text rather than from the grader's current platform.
+    windows_paths = bool(
+        re.search(r"(?:^|[\s\"'])(?:[A-Za-z]:\\|\\\\[^\\])", command)
+    )
     try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+        lexer = shlex.shlex(command, posix=not windows_paths, punctuation_chars=";&|")
         lexer.whitespace_split = True
         tokens = list(lexer)
     except ValueError:
@@ -2714,6 +2722,9 @@ def _command_segments(command: str) -> list[list[str]]:
                 segments.append(current)
                 current = []
         else:
+            if windows_paths and len(token) >= 2 and token[0] == token[-1]:
+                if token[0] in {"'", '"'}:
+                    token = token[1:-1]
             current.append(token)
     if current:
         segments.append(current)

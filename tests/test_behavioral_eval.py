@@ -2901,6 +2901,28 @@ class CodexRunnerTests(unittest.TestCase):
             )
         )
 
+    def test_required_execution_preserves_windows_command_paths(self):
+        required = ["skills/change-impact/scripts/impact_context.py"]
+        command = (
+            r"C:\Python\python.exe "
+            r"C:\tmp\evaluated-skills\change-impact\scripts\impact_context.py "
+            "paths src/app.py"
+        )
+
+        self.assertEqual(
+            [
+                [
+                    r"C:\Python\python.exe",
+                    r"C:\tmp\evaluated-skills\change-impact\scripts\impact_context.py",
+                    "paths",
+                    "src/app.py",
+                ]
+            ],
+            behavioral_eval._command_segments(command),
+        )
+        report = behavioral_eval._required_command_report([command], required)
+        self.assertTrue(behavioral_eval._required_commands_satisfied(report, required))
+
     def test_suite_rejects_overlapping_required_and_forbidden_commands(self):
         suite_path = ROOT / "evals" / "project-review" / "suite.json"
         manifest = json.loads(suite_path.read_text(encoding="utf-8"))
