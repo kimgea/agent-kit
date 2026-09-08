@@ -58,7 +58,7 @@ _CODEX_RUNNER_SPEC.loader.exec_module(_CODEX_RUNNER)
 RunnerError = _CODEX_RUNNER.RunnerError
 
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 MAX_JSON_BYTES = 4 * 1024 * 1024
 MAX_ARCHIVE_BYTES = 16 * 1024 * 1024
 MAX_ARCHIVE_CONTENT = 8 * 1024 * 1024
@@ -599,7 +599,7 @@ def _validate_experiment_candidate(value: Any, label: str) -> None:
 
 def _validate_suite_recommendation(value: Any, label: str) -> None:
     recommendation = _mapping(value, label)
-    _exact(recommendation, label, ("recommendation_id", "case_ids", "action", "strength", "reason", "confidence", "evidence", "unique_coverage", "replacement_coverage", "cost_effect", "decision_required", "ready", "limitations"))
+    _exact(recommendation, label, ("recommendation_id", "case_ids", "action", "strength", "reason", "confidence", "evidence", "basis", "unique_coverage", "replacement_coverage", "coverage_effect", "cost_effect", "decision_required", "ready", "limitations"))
     _identifier(recommendation["recommendation_id"], f"{label}.recommendation_id", PROFILE_ID)
     cases = _unique_strings(recommendation["case_ids"], f"{label}.case_ids", maximum=256)
     if not cases:
@@ -609,22 +609,65 @@ def _validate_suite_recommendation(value: Any, label: str) -> None:
     action = _enum(recommendation["action"], f"{label}.action", {"keep", "refresh", "merge", "simplify", "demote", "retire"})
     _enum(recommendation["strength"], f"{label}.strength", {"strong", "moderate", "optional"})
     _text(recommendation["reason"], f"{label}.reason", maximum=2000)
-    _enum(recommendation["confidence"], f"{label}.confidence", {"high", "medium", "low", "unknown"})
+    confidence = _enum(recommendation["confidence"], f"{label}.confidence", {"high", "medium", "low", "unknown"})
     evidence = _array(recommendation["evidence"], f"{label}.evidence", maximum=256, minimum=1)
     for index, item in enumerate(evidence):
         _validate_evidence_reference(item, f"{label}.evidence[{index}]")
+    basis = _enum(
+        recommendation["basis"],
+        f"{label}.basis",
+        {
+            "removed_behavior",
+            "duplicate_coverage",
+            "superseded_coverage",
+            "obsolete_fixture",
+            "obsolete_architecture",
+            "no_unique_agent_value",
+            "cost_without_unique_coverage",
+            "healthy_unique_coverage",
+            "stale_but_relevant",
+            "compaction",
+            "other",
+        },
+    )
+    if action == "retire" and basis not in {
+        "removed_behavior",
+        "duplicate_coverage",
+        "superseded_coverage",
+        "obsolete_fixture",
+        "obsolete_architecture",
+        "no_unique_agent_value",
+        "cost_without_unique_coverage",
+    }:
+        raise EvalError(f"{label} retire lacks a permitted retirement basis")
     _text(recommendation["unique_coverage"], f"{label}.unique_coverage", maximum=2000)
-    _text(recommendation["replacement_coverage"], f"{label}.replacement_coverage", maximum=2000)
-    _enum(recommendation["cost_effect"], f"{label}.cost_effect", {"decrease", "none", "increase", "unknown"})
+    replacement = _mapping(recommendation["replacement_coverage"], f"{label}.replacement_coverage")
+    _exact(replacement, f"{label}.replacement_coverage", ("status", "case_ids", "explanation"))
+    replacement_status = _enum(replacement["status"], f"{label}.replacement_coverage.status", {"none", "partial", "complete", "unknown"})
+    replacement_cases = _unique_strings(replacement["case_ids"], f"{label}.replacement_coverage.case_ids", maximum=256)
+    for case_id in replacement_cases:
+        _identifier(case_id, f"{label}.replacement_coverage.case_ids", PROFILE_ID)
+    if (replacement_status == "none") != (not replacement_cases):
+        raise EvalError(f"{label}.replacement_coverage status and case_ids disagree")
+    _text(replacement["explanation"], f"{label}.replacement_coverage.explanation", maximum=2000)
+    coverage = _enum(recommendation["coverage_effect"], f"{label}.coverage_effect", {"preserved", "loss", "changed", "unknown"})
+    cost = _enum(recommendation["cost_effect"], f"{label}.cost_effect", {"decrease", "none", "increase", "unknown"})
     decision = _boolean(recommendation["decision_required"], f"{label}.decision_required")
     ready = _boolean(recommendation["ready"], f"{label}.ready")
     limitations = _array(recommendation["limitations"], f"{label}.limitations", maximum=64)
     for index, item in enumerate(limitations):
         _validate_limitation(item, f"{label}.limitations[{index}]")
-    if ready and (decision or any(item["material"] for item in limitations)):
-        raise EvalError(f"{label} cannot be ready while a decision or material limitation remains")
-    if action == "keep" and ready:
-        raise EvalError(f"{label} keep recommendations are informational, not ready mutations")
+    expected_decision = action != "keep" and (
+        action == "demote" or coverage != "preserved" or cost in {"increase", "unknown"}
+    )
+    expected_ready = (
+        action != "keep"
+        and not expected_decision
+        and confidence in {"high", "medium"}
+        and not any(item["material"] for item in limitations)
+    )
+    if decision != expected_decision or ready != expected_ready:
+        raise EvalError(f"{label} readiness is inconsistent")
 
 
 def validate_run_result(value: Any) -> dict[str, Any]:
@@ -874,7 +917,7 @@ def _validate_family_result(value: Any, family: str) -> dict[str, Any]:
         ),
         "suite-audit": (
             "eval-suite-audit-result/v1",
-            ("schema_version", "producer", "completion", "outcome", "next_action", "repository_sha256", "suite_digest", "recommendations", "limitations"),
+            ("schema_version", "producer", "context_sha256", "completion", "outcome", "next_action", "repository_sha256", "suite_digest", "recommendations", "limitations"),
             {"pass", "maintenance_recommended", "unknown"},
             {"none", "maintain", "decision", "retry", "manual"},
             "recommendations",
@@ -897,6 +940,7 @@ def _validate_family_result(value: Any, family: str) -> dict[str, Any]:
         if target["suite_sha256"] is not None:
             _digest(target["suite_sha256"], "candidate.target.suite_sha256")
     elif family == "suite-audit":
+        _digest(result["context_sha256"], "suite-audit.context_sha256")
         _digest(result["repository_sha256"], "suite-audit.repository_sha256")
         _digest(result["suite_digest"], "suite-audit.suite_digest")
     else:
@@ -942,6 +986,20 @@ def _validate_family_result(value: Any, family: str) -> dict[str, Any]:
         item["action"] != "keep" for item in collection
     ):
         raise EvalError("maintenance_recommended requires a non-keep recommendation")
+    if family == "suite-audit":
+        changes = [item for item in collection if item["action"] != "keep"]
+        if completion == "incomplete":
+            expected_suite_audit = ("unknown", "retry")
+        elif not changes:
+            expected_suite_audit = ("pass", "none")
+        elif any(item["decision_required"] for item in changes):
+            expected_suite_audit = ("maintenance_recommended", "decision")
+        elif any(item["ready"] for item in changes):
+            expected_suite_audit = ("maintenance_recommended", "maintain")
+        else:
+            expected_suite_audit = ("maintenance_recommended", "manual")
+        if (result["outcome"], result["next_action"]) != expected_suite_audit:
+            raise EvalError("suite-audit outcome or next_action is inconsistent")
     if family == "experiment" and result["outcome"] == "clear_improvement" and not any(
         item["classification"] == "clear_improvement" for item in collection
     ):

@@ -4,6 +4,29 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
+## 1.14.0 - 2026-09-09
+
+### Added
+
+- Add independently installable `project-eval` and `eval-candidate-audit`
+  skills for bounded local evaluation runs and evidence-backed case proposals.
+- Add the analysis-only `eval-suite-audit` skill for evidence-preserving keep,
+  refresh, merge, simplify, demote, and retire recommendations.
+- Add canonical local protocols, committed suite and fixture binding, explicit
+  evidence selection, deterministic human/JSON output, and model-free plus
+  behavioral eval coverage for the coordinated workflow.
+
+### Changed
+
+- Bump `project-eval` to 1.1.0 and its grouped plugin to 1.2.0 for canonical
+  suite-audit consumption and lifecycle curation.
+
+### Security
+
+- Validate complete producer contracts before using selected run or candidate
+  evidence, bind every fixture to committed and live-matching content, and keep
+  audit recommendations separate from edit authority.
+
 ## 1.13.0 - 2026-09-07
 
 ### Added

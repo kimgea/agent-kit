@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "suite": "eval-suite-audit",
+  "skill": "eval-suite-audit",
+  "result_contract": "eval-suite-audit/v1",
+  "default_assertions": [
+    {"id": "canonical-version", "path": "/schema_version", "operator": "equals", "value": "eval-suite-audit-result/v1"},
+    {"id": "complete", "path": "/completion", "operator": "equals", "value": "complete"}
+  ],
+  "cases": [
+    {
+      "id": "unsafe-retirement",
+      "fixture": "fixtures/unsafe-retirement",
+      "target": {"kind": "path", "path": "suite.json", "start_line": null, "end_line": null},
+      "prompt": "Audit the selected committed eval suite and supplied compatible evidence for lifecycle maintenance. Return canonical JSON only.",
+      "assertions": [
+        {"id": "keep", "path": "/recommendations/*/action", "operator": "any", "value": "keep"},
+        {"id": "not-retire", "path": "/recommendations/*/action", "operator": "none", "value": "retire"}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "safe-merge",
+      "fixture": "fixtures/safe-merge",
+      "target": {"kind": "path", "path": "suite.json", "start_line": null, "end_line": null},
+      "prompt": "Audit the selected committed eval suite and supplied compatible evidence for lifecycle maintenance. Return canonical JSON only.",
+      "assertions": [
+        {"id": "merge", "path": "/recommendations/*/action", "operator": "any", "value": "merge"},
+        {"id": "ready", "path": "/recommendations/*/ready", "operator": "any", "value": true},
+        {"id": "maintain", "path": "/next_action", "operator": "equals", "value": "maintain"}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "stale-fixture",
+      "fixture": "fixtures/stale-fixture",
+      "target": {"kind": "path", "path": "suite.json", "start_line": null, "end_line": null},
+      "prompt": "Audit the selected committed eval suite and supplied compatible evidence for lifecycle maintenance. Return canonical JSON only.",
+      "assertions": [
+        {"id": "refresh", "path": "/recommendations/*/action", "operator": "any", "value": "refresh"},
+        {"id": "not-retire", "path": "/recommendations/*/action", "operator": "none", "value": "retire"}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "high-cost-duplicates",
+      "fixture": "fixtures/high-cost-duplicates",
+      "target": {"kind": "path", "path": "suite.json", "start_line": null, "end_line": null},
+      "prompt": "Audit the selected committed eval suite and supplied compatible evidence for lifecycle maintenance. Return canonical JSON only.",
+      "assertions": [
+        {"id": "compact", "path": "/recommendations/*/action", "operator": "any", "value": "merge"},
+        {"id": "cost", "path": "/recommendations/*/cost_effect", "operator": "any", "value": "decrease"}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "unique-regression",
+      "fixture": "fixtures/unique-regression",
+      "target": {"kind": "path", "path": "suite.json", "start_line": null, "end_line": null},
+      "prompt": "Audit the selected committed eval suite and supplied compatible evidence for lifecycle maintenance. Return canonical JSON only.",
+      "assertions": [
+        {"id": "keep", "path": "/recommendations/*/action", "operator": "any", "value": "keep"},
+        {"id": "not-retire", "path": "/recommendations/*/action", "operator": "none", "value": "retire"}
+      ],
+      "forbidden_commands": []
+    },
+    {
+      "id": "compact-healthy",
+      "fixture": "fixtures/compact-healthy",
+      "target": {"kind": "path", "path": "suite.json", "start_line": null, "end_line": null},
+      "prompt": "Audit the selected committed eval suite and supplied compatible evidence for lifecycle maintenance. Return canonical JSON only.",
+      "assertions": [
+        {"id": "pass", "path": "/outcome", "operator": "equals", "value": "pass"},
+        {"id": "none", "path": "/next_action", "operator": "equals", "value": "none"}
+      ],
+      "forbidden_commands": []
+    }
+  ]
+}

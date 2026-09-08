@@ -2,8 +2,8 @@
 name: project-eval-system
 status: in-progress
 created: 2026-09-08T13:34:04Z
-updated: 2026-09-08T21:04:43Z
-progress: 62%
+updated: 2026-09-09T00:03:00Z
+progress: 75%
 prd: .claude/prds/project-eval-system.md
 github: (will be set on sync)
 ---
@@ -172,8 +172,8 @@ local, bounded work.
 - [x] 002.md - Build isolated case preparation and grading (parallel: false)
 - [x] 003.md - Add the fixed Codex runner and measurement (parallel: false)
 - [x] 004.md - Deliver the project-eval vertical slice (parallel: false)
-- [ ] 005.md - Add eval candidate audit (parallel: true)
-- [ ] 006.md - Add eval suite lifecycle audit (parallel: true)
+- [x] 005.md - Add eval candidate audit (parallel: true)
+- [x] 006.md - Add eval suite lifecycle audit (parallel: true)
 - [ ] 007.md - Add paired harness experimentation (parallel: true)
 - [ ] 008.md - Integrate, dogfood, validate, and deliver (parallel: false)
 

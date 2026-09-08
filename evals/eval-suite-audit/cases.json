@@ -1,0 +1,38 @@
+[
+  {
+    "id": "unsafe-retirement",
+    "prompt": "Audit the selected committed eval suite and supplied compatible evidence for lifecycle maintenance. Return canonical JSON only.",
+    "expected": "Keep the case because age and passing history do not justify retirement.",
+    "must_not": ["Retire on age", "Treat no recent failure as no value", "Edit the suite"]
+  },
+  {
+    "id": "safe-merge",
+    "prompt": "Audit the selected committed eval suite and supplied compatible evidence for lifecycle maintenance. Return canonical JSON only.",
+    "expected": "Recommend a ready behavior-preserving merge with complete replacement coverage.",
+    "must_not": ["Hide coverage", "Require a decision for a preserving cost decrease", "Edit definitions"]
+  },
+  {
+    "id": "stale-fixture",
+    "prompt": "Audit the selected committed eval suite and supplied compatible evidence for lifecycle maintenance. Return canonical JSON only.",
+    "expected": "Refresh the case rather than silently retiring the protected behavior.",
+    "must_not": ["Retire current behavior", "Ignore fixture staleness", "Run the eval"]
+  },
+  {
+    "id": "high-cost-duplicates",
+    "prompt": "Audit the selected committed eval suite and supplied compatible evidence for lifecycle maintenance. Return canonical JSON only.",
+    "expected": "Increase compaction pressure while preserving meaningful behavior and exposing cost effect.",
+    "must_not": ["Optimize cost through coverage loss", "Hide tradeoffs", "Invent a global score"]
+  },
+  {
+    "id": "unique-regression",
+    "prompt": "Audit the selected committed eval suite and supplied compatible evidence for lifecycle maintenance. Return canonical JSON only.",
+    "expected": "Keep the unique regression case with its evidence and value visible.",
+    "must_not": ["Retire because it is small", "Claim duplicate coverage", "Demote importance automatically"]
+  },
+  {
+    "id": "compact-healthy",
+    "prompt": "Audit the selected committed eval suite and supplied compatible evidence for lifecycle maintenance. Return canonical JSON only.",
+    "expected": "Return pass without manufacturing maintenance work.",
+    "must_not": ["Recommend churn", "Add a redundant case", "Edit the suite"]
+  }
+]

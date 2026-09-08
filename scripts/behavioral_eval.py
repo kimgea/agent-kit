@@ -337,6 +337,18 @@ CONTRACTS = {
         "dependencies": [],
         "reviewers": [],
     },
+    "eval-suite-audit/v1": {
+        "skill": "eval-suite-audit",
+        "context": "skills/eval-suite-audit/scripts/suite_audit.py",
+        "validator": "skills/eval-suite-audit/scripts/suite_audit.py",
+        "schema": "skills/eval-suite-audit/references/eval-suite-audit-result.schema.json",
+        "context_kind": "eval-suite-audit",
+        "validator_kind": "simple",
+        "binding_kind": "eval-suite-audit",
+        "target_kinds": {"path"},
+        "dependencies": [],
+        "reviewers": [],
+    },
     "change-impact/v1": {
         "skill": "change-impact",
         "context": "skills/change-impact/scripts/impact_context.py",
@@ -1519,6 +1531,34 @@ def _prepare_verify_project_fixture(case: dict[str, Any], fixture: Path) -> None
         path.write_text(content, encoding="utf-8")
 
 
+def _prepare_eval_suite_audit_fixture(fixture: Path) -> None:
+    environment = dict(os.environ)
+    environment.update({
+        "GIT_AUTHOR_DATE": "2026-01-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-01-01T00:00:00Z",
+    })
+    commands = (
+        ["git", "init", "-q"],
+        ["git", "config", "user.email", "suite-audit@example.invalid"],
+        ["git", "config", "user.name", "Suite Audit Fixture"],
+        ["git", "add", "."],
+        ["git", "commit", "-q", "-m", "baseline"],
+    )
+    for command in commands:
+        completed = subprocess.run(
+            command,
+            cwd=fixture,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+            check=False,
+        )
+        if completed.returncode != 0:
+            detail = completed.stderr.decode("utf-8", "replace")[:1000].strip()
+            raise EvalError(detail or "cannot prepare eval-suite-audit Git fixture")
+
+
 def _resolve_verify_project_context(
     case: dict[str, Any],
     fixture: Path,
@@ -1686,6 +1726,33 @@ def resolve_context(
             "--output",
             str(output),
         ]
+        completed = subprocess.run(
+            command,
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=60,
+            check=False,
+        )
+        if completed.returncode != 0:
+            message = completed.stderr.decode("utf-8", "replace")[:2000]
+            raise EvalError(f"context resolver failed: {message}")
+        return _load_json(output, "resolved context")
+    if contract["context_kind"] == "eval-suite-audit":
+        command = [
+            sys.executable,
+            "-E",
+            "-S",
+            str(contract_paths["context"]),
+            "resolve",
+            "--repo",
+            str(fixture),
+            "--suite",
+            "suite.json",
+        ]
+        for evidence_path in sorted(fixture.glob("evidence*.json")):
+            command.extend(["--evidence", str(evidence_path)])
+        command.extend(["--output", str(output)])
         completed = subprocess.run(
             command,
             cwd=root,
@@ -1982,7 +2049,7 @@ def validate_result_contract(
                     str(verify_root),
                 ]
             )
-    elif contract["binding_kind"] in {"change-impact", "eval-candidate-audit"}:
+    elif contract["binding_kind"] in {"change-impact", "eval-candidate-audit", "eval-suite-audit"}:
         command.extend(["--context", str(context_path)])
     try:
         completed = subprocess.run(
@@ -2229,6 +2296,12 @@ def _bind_result_unchecked(
                 "repository_sha256": context.get("target", {}).get("repository_sha256"),
                 "suite_sha256": context.get("target", {}).get("suite_sha256"),
             },
+        }
+    elif contract["binding_kind"] == "eval-suite-audit":
+        expected = {
+            "context_sha256": context.get("context_sha256"),
+            "repository_sha256": context.get("repository_sha256"),
+            "suite_digest": context.get("suite", {}).get("suite_digest"),
         }
     elif contract["binding_kind"] == "change-impact":
         encoded = json.dumps(
@@ -3704,6 +3777,8 @@ def command_grade(args: argparse.Namespace) -> int:
         fixture = base / "fixture"
         materialize_fixture(source, fixture)
         _prepare_verify_project_fixture(case, fixture)
+        if suite["skill"] == "eval-suite-audit":
+            _prepare_eval_suite_audit_fixture(fixture)
         before = snapshot_fixture_state(fixture)
         expected_path = base / "expected-context.json"
         expected_context = resolve_context(suite, case, fixture, expected_path, ROOT)
@@ -3849,6 +3924,8 @@ def command_run(args: argparse.Namespace) -> int:
             frozen_before = frozen_fixtures[case["id"]]
             _materialize_snapshot(frozen_before, fixture)
             _prepare_verify_project_fixture(case, fixture)
+            if suite["skill"] == "eval-suite-audit":
+                _prepare_eval_suite_audit_fixture(fixture)
             before = snapshot_fixture_state(fixture)
             context_path = host / "context.json"
             context = resolve_context(

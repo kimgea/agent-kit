@@ -1,5 +1,5 @@
 schema_version = 2
-toolkit_version = "1.13.0"
+toolkit_version = "1.14.0"
 minimum_python = "3.11"
 
 [plugin_marketplace]
@@ -58,17 +58,18 @@ default_prompts = [
 
 [[plugins]]
 id = "project-eval"
-skills = ["eval-candidate-audit", "project-eval"]
+skills = ["eval-candidate-audit", "eval-suite-audit", "project-eval"]
 category = "Developer Tools"
 installation = "AVAILABLE"
 authentication = "ON_USE"
-version = "1.1.0"
-description = "Define and run bounded local repository evaluations, and derive candidate cases from explicitly selected sanitized session evidence."
+version = "1.2.0"
+description = "Define and run bounded local repository evaluations, derive candidate cases, and audit suite lifecycle without automatic edits."
 display_name = "Project Evaluation Workflow"
-short_description = "Run project evals and propose new cases"
+short_description = "Run project evals and curate suite coverage"
 default_prompts = [
   "Use $project-eval to validate, run, compare, or exchange bounded local repository evaluations.",
   "Use $eval-candidate-audit to propose evaluation cases from selected sanitized session evidence.",
+  "Use $eval-suite-audit to assess selected committed eval definitions for compact, evidence-preserving maintenance.",
 ]
 
 [[plugins]]
@@ -168,6 +169,23 @@ evals = "evals/eval-candidate-audit/cases.json"
 behavioral_evals = "evals/eval-candidate-audit/suite.json"
 
 [[resources]]
+id = "eval-suite-audit"
+kind = "skill"
+path = "skills/eval-suite-audit"
+version = "1.0.0"
+summary = "Recommend evidence-preserving lifecycle changes for a selected committed project evaluation suite."
+agents = ["codex", "claude"]
+platforms = ["linux", "windows", "macos"]
+maturity = "experimental"
+installable = true
+setup_requires_approval = false
+data_sensitivity = "committed evaluation definitions, explicitly selected sanitized evidence, and generated lifecycle recommendations"
+docs = "docs/project-eval-system.md"
+tests = ["tests/test_eval_suite_audit.py", "tests/test_agent_kit.py"]
+evals = "evals/eval-suite-audit/cases.json"
+behavioral_evals = "evals/eval-suite-audit/suite.json"
+
+[[resources]]
 id = "project-review"
 kind = "skill"
 path = "skills/project-review"
@@ -188,7 +206,7 @@ behavioral_evals = "evals/project-review/suite.json"
 id = "project-eval"
 kind = "skill"
 path = "skills/project-eval"
-version = "1.0.0"
+version = "1.1.0"
 summary = "Define, run, grade, compare, retain, and exchange bounded local repository evaluations."
 agents = ["codex", "claude"]
 platforms = ["linux", "windows", "macos"]

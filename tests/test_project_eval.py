@@ -82,7 +82,7 @@ def result():
     return {
         "schema_version": "project-eval-run-result/v1",
         "run_id": "run-001",
-        "producer": {"name": "project-eval", "version": "1.0.0"},
+        "producer": {"name": "project-eval", "version": "1.1.0"},
         "suite": {
             "suite_id": "sample-project",
             "suite_sha256": "a" * 64,
@@ -375,8 +375,14 @@ class ProtocolTests(unittest.TestCase):
             "reason": "The case no longer reflects the current contract.",
             "confidence": "high",
             "evidence": [evidence_reference()],
+            "basis": "stale_but_relevant",
             "unique_coverage": "The case covers one public behavior.",
-            "replacement_coverage": "A refreshed case preserves that behavior.",
+            "replacement_coverage": {
+                "status": "complete",
+                "case_ids": ["explain-api"],
+                "explanation": "A refreshed case preserves that behavior.",
+            },
+            "coverage_effect": "preserved",
             "cost_effect": "none",
             "decision_required": False,
             "ready": True,

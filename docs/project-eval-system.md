@@ -3,9 +3,9 @@
 ## Status
 
 This document records the selected design for a coordinated local evaluation
-system. The independently installable `project-eval` and
-`eval-candidate-audit` slices are implemented in this source tree; the suite
-lifecycle and experiment skills remain tracked delivery work. Delivery is tracked in
+system. The independently installable `project-eval`, `eval-candidate-audit`,
+and `eval-suite-audit` slices are implemented in this source tree; the
+experiment skill remains tracked delivery work. Delivery is tracked in
 [`project-eval-system`](../.claude/prds/project-eval-system.md).
 
 ## Purpose
@@ -288,6 +288,24 @@ and returns readable text or canonical JSON without session identities or source
 paths. It never edits eval definitions; `project-eval` or another consumer must
 independently validate and select any proposed maintenance.
 
+Suite lifecycle audits use the same authority split with a different target:
+
+```text
+python skills/eval-suite-audit/scripts/suite_audit.py resolve \
+  --repo . --suite evals/project/suite.json \
+  --evidence <selected-run-or-candidate.json> --output <new-context.json>
+```
+
+The selected suite and its fixture files must match committed `HEAD` content.
+The lead-owned context binds the Git revision, canonical suite and fixture
+digests, cases, profiles, bounded definition evidence, and every explicitly
+selected compatible evidence file. Producer evidence must pass its complete v1
+runtime contract before the audit derives any sanitized summary from it.
+The analysis agent authors only lifecycle semantics; the finalizer owns stable
+IDs, case/evidence applicability, permitted retirement grounds, readiness, and
+decision escalation. Human and JSON reports derive from the same canonical
+result. The skill never edits definitions or discovers private history.
+
 Before adding a case, compare it with existing coverage and prefer extending,
 parameterizing, merging, or replacing a case when that preserves intent more
 compactly. A suite audit can recommend:
@@ -300,9 +318,13 @@ compactly. A suite audit can recommend:
 - `retire`.
 
 Every recommendation carries strength, reason, evidence, confidence, unique
-coverage, replacement coverage, cost effect, and limitations. Age, always
-passing, or no recent failure are not sufficient retirement reasons. Current
-definitions are deleted when retired; Git history is the archive.
+coverage, replacement coverage, coverage effect, cost effect, and limitations.
+Age, always passing, or no recent failure are not sufficient retirement
+reasons. Demotion, coverage loss or change, and material cost increases stop
+for a decision. Ready maintenance must preserve behavior, have at least medium
+confidence, avoid a material cost increase, and retain no material limitation.
+Current definitions are deleted only by a later authorized actor; Git history
+is the archive.
 
 ## Network and future automation
 
