@@ -37,6 +37,15 @@ read_regular = _PATH_SAFETY.read_regular
 safe_repo_path = _PATH_SAFETY.safe_repo_path
 write_created_output = _PATH_SAFETY.write_created_output
 
+_CASE_ENGINE_SPEC = importlib.util.spec_from_file_location(
+    "project_eval_case_engine", Path(__file__).with_name("case_engine.py")
+)
+if _CASE_ENGINE_SPEC is None or _CASE_ENGINE_SPEC.loader is None:
+    raise RuntimeError("cannot load bundled project-eval case engine")
+_CASE_ENGINE = importlib.util.module_from_spec(_CASE_ENGINE_SPEC)
+_CASE_ENGINE_SPEC.loader.exec_module(_CASE_ENGINE)
+CaseError = _CASE_ENGINE.CaseError
+
 
 VERSION = "1.0.0"
 MAX_JSON_BYTES = 4 * 1024 * 1024
@@ -365,6 +374,38 @@ def load_repository_suite(
         if not fixture.is_dir():
             raise EvalError(f"case {case['case_id']} fixture is not a directory")
     return suite, raw, suite_path
+
+
+def _case_components(
+    repository: Path, eval_root_value: str, suite_value: str, case_id: str
+) -> tuple[dict[str, Any], dict[str, Any], bytes, Path]:
+    suite, raw, _ = load_repository_suite(repository, eval_root_value, suite_value)
+    _identifier(case_id, "case id")
+    selected = next((item for item in suite["cases"] if item["case_id"] == case_id), None)
+    if selected is None:
+        raise EvalError(f"suite does not contain case {case_id!r}")
+    try:
+        eval_root = safe_repo_path(repository.absolute(), _relative(eval_root_value, "evaluation root"))
+        fixture = safe_repo_path(eval_root, selected["fixture"])
+    except SafetyError as exc:
+        raise EvalError(f"cannot bind selected case fixture: {exc}") from exc
+    return suite, selected, raw, fixture
+
+
+def _external_workspace_path(repository: Path, value: str, label: str) -> Path:
+    repository = repository.absolute()
+    candidate = Path(value).absolute()
+    if candidate == repository or repository in candidate.parents:
+        raise EvalError(f"{label} must remain outside the repository")
+    return candidate
+
+
+def _prepared_context_output(repository: Path, workspace_root: Path, value: str) -> Path:
+    context_output = _external_workspace_path(repository, value, "prepared context output")
+    workspace_root = workspace_root.absolute()
+    if context_output == workspace_root or workspace_root in context_output.parents:
+        raise EvalError("prepared context output must remain outside the workspace root")
+    return context_output
 
 
 def _validate_producer(value: Any, label: str) -> None:
@@ -1460,6 +1501,47 @@ def _parser() -> argparse.ArgumentParser:
     validate_suite_command.add_argument("--eval-root", default="evals/project")
     validate_suite_command.add_argument("--suite", required=True)
 
+    validate_case_command = commands.add_parser("validate-case", help="validate one evaluator-owned case control")
+    validate_case_command.add_argument("--repo", required=True)
+    validate_case_command.add_argument("--eval-root", default="evals/project")
+    validate_case_command.add_argument("--suite", required=True)
+    validate_case_command.add_argument("--case", required=True)
+
+    prepare_case_command = commands.add_parser("prepare-case", help="materialize one isolated case without invoking an agent")
+    prepare_case_command.add_argument("--repo", required=True)
+    prepare_case_command.add_argument("--eval-root", default="evals/project")
+    prepare_case_command.add_argument("--suite", required=True)
+    prepare_case_command.add_argument("--case", required=True)
+    prepare_case_command.add_argument("--workspace-root", required=True)
+    prepare_case_command.add_argument("--context-output", required=True)
+    prepare_case_command.add_argument("--capability", action="append", default=[])
+
+    grade_case_command = commands.add_parser("grade-case", help="grade one prepared workspace without invoking an agent")
+    grade_case_command.add_argument("--repo", required=True)
+    grade_case_command.add_argument("--eval-root", default="evals/project")
+    grade_case_command.add_argument("--suite", required=True)
+    grade_case_command.add_argument("--case", required=True)
+    grade_case_command.add_argument("--prepared", required=True)
+    grade_case_command.add_argument("--allow-hidden-grader", action="store_true")
+    grade_case_command.add_argument("--allow-project-checks", action="store_true")
+
+    calibrate_command = commands.add_parser("calibrate-reconstruction", help="prove one reconstruction fixture's deterministic boundaries")
+    calibrate_command.add_argument("--repo", required=True)
+    calibrate_command.add_argument("--eval-root", default="evals/project")
+    calibrate_command.add_argument("--suite", required=True)
+    calibrate_command.add_argument("--case", required=True)
+    calibrate_command.add_argument("--workspace-root", required=True)
+    calibrate_command.add_argument("--allow-hidden-grader", action="store_true")
+    calibrate_command.add_argument("--allow-project-checks", action="store_true")
+
+    respond_command = commands.add_parser("respond", help="answer one bounded clarification question")
+    respond_command.add_argument("--repo", required=True)
+    respond_command.add_argument("--eval-root", default="evals/project")
+    respond_command.add_argument("--suite", required=True)
+    respond_command.add_argument("--case", required=True)
+    respond_command.add_argument("--phase", required=True)
+    respond_command.add_argument("--question", required=True)
+
     validate_artifact_command = commands.add_parser("validate-artifact", help="validate one canonical protocol artifact")
     validate_artifact_command.add_argument("--kind", choices=("suite", "run", "candidate", "experiment", "suite-audit"), required=True)
     validate_artifact_command.add_argument("--input", required=True)
@@ -1511,6 +1593,79 @@ def main(argv: list[str] | None = None) -> int:
                 },
                 canonical=True,
             )
+        elif args.command == "validate-case":
+            _, case, _, fixture = _case_components(Path(args.repo), args.eval_root, args.suite, args.case)
+            control, _, fixture_digest = _CASE_ENGINE.validate_case_fixture(fixture, case)
+            _write_stdout(
+                {
+                    "valid": True,
+                    "schema_version": control["schema_version"],
+                    "case_id": case["case_id"],
+                    "control_sha256": _sha(_CASE_ENGINE._canonical(control)),
+                    "fixture_sha256": fixture_digest,
+                },
+                canonical=True,
+            )
+        elif args.command == "prepare-case":
+            repository = Path(args.repo)
+            _, case, _, fixture = _case_components(repository, args.eval_root, args.suite, args.case)
+            eligibility = _CASE_ENGINE.platform_eligibility(case, set(args.capability))
+            if eligibility["status"] != "eligible":
+                _write_stdout(
+                    {
+                        "schema_version": "project-eval-preparation-result/v1",
+                        "case_id": case["case_id"],
+                        "status": eligibility["status"],
+                        "missing_capabilities": eligibility["missing_capabilities"],
+                        "workspace": None,
+                    },
+                    canonical=True,
+                )
+            else:
+                workspace_root = _external_workspace_path(repository, args.workspace_root, "workspace root")
+                context_output = _prepared_context_output(repository, workspace_root, args.context_output)
+                prepared = _CASE_ENGINE.materialize_case(fixture, case, workspace_root)
+                write_created_output(context_output, _canonical_bytes(prepared) + b"\n")
+                _write_stdout(prepared, canonical=True)
+        elif args.command == "grade-case":
+            repository = Path(args.repo)
+            _, case, _, fixture = _case_components(repository, args.eval_root, args.suite, args.case)
+            prepared_path = _external_workspace_path(repository, args.prepared, "prepared context")
+            prepared, _ = _load_json(str(prepared_path), "prepared context")
+            workspace_value = prepared.get("workspace") if isinstance(prepared, dict) else None
+            if isinstance(workspace_value, str) and workspace_value:
+                workspace_path = Path(workspace_value).absolute()
+                if prepared_path == workspace_path or workspace_path in prepared_path.parents:
+                    raise EvalError("prepared context must remain outside the graded workspace")
+            grade = _CASE_ENGINE.grade_case(
+                fixture,
+                case,
+                prepared,
+                allow_hidden_grader=args.allow_hidden_grader,
+                allow_project_checks=args.allow_project_checks,
+            )
+            _write_stdout(grade, canonical=True)
+        elif args.command == "calibrate-reconstruction":
+            repository = Path(args.repo)
+            _, case, _, fixture = _case_components(repository, args.eval_root, args.suite, args.case)
+            workspace_root = _external_workspace_path(repository, args.workspace_root, "workspace root")
+            calibration = _CASE_ENGINE.calibrate_reconstruction(
+                fixture,
+                case,
+                workspace_root,
+                allow_hidden_grader=args.allow_hidden_grader,
+                allow_project_checks=args.allow_project_checks,
+            )
+            _write_stdout(calibration, canonical=True)
+        elif args.command == "respond":
+            _, case, _, fixture = _case_components(Path(args.repo), args.eval_root, args.suite, args.case)
+            control, _ = _CASE_ENGINE.load_control(fixture)
+            if case["kind"] != "trajectory":
+                raise EvalError("respond requires a trajectory case")
+            _write_stdout(
+                _CASE_ENGINE.respond_to_question(control, args.phase, args.question),
+                canonical=True,
+            )
         elif args.command == "validate-artifact":
             value, _ = _load_json(args.input, args.kind)
             artifact = validate_artifact(value, args.kind)
@@ -1532,7 +1687,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             raise EvalError("unknown command")
         return 0
-    except (EvalError, SafetyError, OSError, zipfile.BadZipFile) as exc:
+    except (EvalError, CaseError, SafetyError, OSError, zipfile.BadZipFile) as exc:
         print(f"project-eval: {exc}", file=sys.stderr)
         return 2
 

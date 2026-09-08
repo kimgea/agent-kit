@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-kit.invalid/schemas/project-eval-case-control-v1.json",
+  "title": "Project eval case control v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "case_id", "materialization", "assertions", "checks", "hidden_grader", "trajectory", "reconstruction"],
+  "properties": {
+    "schema_version": {"const": "project-eval-case-control/v1"},
+    "case_id": {"$ref": "#/$defs/id"},
+    "materialization": {"$ref": "#/$defs/materialization"},
+    "assertions": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"$ref": "#/$defs/assertion"}},
+    "checks": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/check"}},
+    "hidden_grader": {"anyOf": [{"$ref": "#/$defs/hidden_grader"}, {"type": "null"}]},
+    "trajectory": {"anyOf": [{"$ref": "#/$defs/trajectory"}, {"type": "null"}]},
+    "reconstruction": {"anyOf": [{"$ref": "#/$defs/reconstruction"}, {"type": "null"}]}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"materialization": {"properties": {"mode": {"const": "copy"}}, "required": ["mode"]}}},
+      "then": {
+        "properties": {
+          "materialization": {"properties": {"source": {"const": "visible"}, "remove_paths": {"maxItems": 0}, "history": {"maxItems": 0}}},
+          "reconstruction": {"type": "null"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"materialization": {"properties": {"mode": {"const": "reconstruction"}}, "required": ["mode"]}}},
+      "then": {
+        "properties": {
+          "materialization": {"properties": {"source": {"const": "golden"}, "remove_paths": {"minItems": 1}, "history": {"maxItems": 0}}},
+          "reconstruction": {"$ref": "#/$defs/reconstruction"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"materialization": {"properties": {"mode": {"const": "history"}}, "required": ["mode"]}}},
+      "then": {
+        "properties": {
+          "materialization": {"properties": {"source": {"type": "null"}, "remove_paths": {"maxItems": 0}, "history": {"minItems": 1}}},
+          "reconstruction": {"type": "null"}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "path": {"type": "string", "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)[.]{1,2}(?:/|$))(?!.*\\\\)[^\\u0000-\\u001f\\u007f]+$", "maxLength": 4096},
+    "history_snapshot": {"type": "object", "additionalProperties": false, "required": ["source", "message"], "properties": {"source": {"allOf": [{"$ref": "#/$defs/path"}, {"pattern": "^history/"}]}, "message": {"type": "string", "minLength": 1, "maxLength": 200}}},
+    "materialization": {"type": "object", "additionalProperties": false, "required": ["mode", "source", "remove_paths", "history"], "properties": {"mode": {"enum": ["copy", "reconstruction", "history"]}, "source": {"anyOf": [{"$ref": "#/$defs/path"}, {"type": "null"}]}, "remove_paths": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/path"}}, "history": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/history_snapshot"}}}},
+    "assertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assertion_id", "kind", "path", "expected"],
+      "properties": {"assertion_id": {"$ref": "#/$defs/id"}, "kind": {"enum": ["file_exists", "file_absent", "file_contains", "file_not_contains", "text_equals", "json_equals"]}, "path": {"$ref": "#/$defs/path"}, "expected": {}},
+      "allOf": [
+        {"if": {"properties": {"kind": {"enum": ["file_exists", "file_absent"]}}, "required": ["kind"]}, "then": {"properties": {"expected": {"type": "null"}}}},
+        {"if": {"properties": {"kind": {"enum": ["file_contains", "file_not_contains", "text_equals"]}}, "required": ["kind"]}, "then": {"properties": {"expected": {"type": "string", "maxLength": 20000}}}}
+      ]
+    },
+    "check": {"type": "object", "additionalProperties": false, "required": ["check_id", "kind", "timeout_seconds"], "properties": {"check_id": {"$ref": "#/$defs/id"}, "kind": {"enum": ["python-compile"]}, "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 600}}},
+    "hidden_grader": {"type": "object", "additionalProperties": false, "required": ["grader_id", "kind", "timeout_seconds"], "properties": {"grader_id": {"$ref": "#/$defs/id"}, "kind": {"enum": ["python-compile"]}, "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 600}}},
+    "fact": {"type": "object", "additionalProperties": false, "required": ["fact_id", "keywords", "answer", "phases"], "properties": {"fact_id": {"$ref": "#/$defs/id"}, "keywords": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 64}}, "answer": {"type": "string", "minLength": 1, "maxLength": 2000}, "phases": {"type": "array", "minItems": 1, "maxItems": 7, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}}},
+    "trajectory": {"type": "object", "additionalProperties": false, "required": ["phases", "facts"], "properties": {"phases": {"type": "array", "minItems": 1, "maxItems": 7, "uniqueItems": true, "items": {"enum": ["intake", "clarification", "specification", "planning", "implementation", "verification", "reporting"]}}, "facts": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"$ref": "#/$defs/fact"}}}},
+    "reconstruction": {"type": "object", "additionalProperties": false, "required": ["golden_source", "alternative_sources", "protected_paths"], "properties": {"golden_source": {"const": "golden"}, "alternative_sources": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"allOf": [{"$ref": "#/$defs/path"}, {"pattern": "^alternatives/"}]}}, "protected_paths": {"type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/path"}}}}
+  }
+}
