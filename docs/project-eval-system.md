@@ -186,6 +186,18 @@ contracts are agent-neutral. Claude and other agents can produce recorded
 outputs immediately, but first-class runners require live evidence before the
 project claims support.
 
+The Codex adapter uses a fresh ephemeral `codex exec` context over only the
+sanitized case workspace. It freezes and digests the adapter, launcher,
+version/help surface, argv, environment, model, reasoning, platform,
+instructions/skills, network state, and authorized effects. Host-owned capture
+stays outside the worker workspace and is unreadable through a restricted
+filesystem permission profile. Capture is deleted after bounded hashes and
+measurements are derived. Offline execution is the default; a networked profile
+also requires explicit caller authorization. Timeouts reap the complete process
+tree before filesystem mutation is assessed. A separate
+`grade-recorded-case` path supports any agent without claiming a direct adapter
+for it.
+
 ## Private state and portable bundles
 
 Committed definitions contain everything necessary to run from a fresh clone.

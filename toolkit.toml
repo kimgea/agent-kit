@@ -164,7 +164,7 @@ id = "project-eval"
 kind = "skill"
 path = "skills/project-eval"
 version = "1.0.0"
-summary = "Define, validate, retain, and exchange bounded local repository evaluation evidence."
+summary = "Define, run, grade, compare, retain, and exchange bounded local repository evaluations."
 agents = ["codex", "claude"]
 platforms = ["linux", "windows", "macos"]
 maturity = "experimental"
@@ -172,7 +172,7 @@ installable = true
 setup_requires_approval = true
 data_sensitivity = "repository evaluation definitions, sanitized run evidence, and private local evaluation history"
 docs = "docs/project-eval-system.md"
-tests = ["tests/test_project_eval.py", "tests/test_agent_kit.py"]
+tests = ["tests/test_project_eval.py", "tests/test_project_eval_cases.py", "tests/test_project_eval_runner.py", "tests/test_agent_kit.py"]
 
 [[resources]]
 id = "review-and-fix"

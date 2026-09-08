@@ -28,8 +28,34 @@ start from a declared golden tree plus declarative removals; run
 `calibrate-reconstruction` before use. Trajectory facts remain in hidden
 control, and `respond` returns one uniquely matched fact or no answer.
 
-The fixed Codex runner and comparison workflow are delivered by later
-milestones of the same versioned interface.
+`runner-info` freezes the local Codex launcher bytes, version/help contract,
+and bundled adapter without invoking a model. `run-codex-attempt` is an
+explicit one-attempt primitive: it accepts only a validated prepared receipt,
+a case selected by the named suite profile, an explicit model and reasoning
+effort, and a private host root outside both repository and worker workspace.
+The adapter launches `codex exec` in a fresh ephemeral context, ignores user
+configuration and exec-policy rules, disables subagents and web search, denies
+approvals, and selects a restricted permission profile. That profile denies
+ambient filesystem reads, reopens only the sanitized workspace plus minimal
+runtime paths, denies system temporary roots, and keeps command networking off
+unless both the committed profile and caller allow it. Raw prompts, events,
+stderr, and final messages are deleted after their bounded hashes and
+measurements are derived.
+
+Each attempt freezes the adapter and launcher identities, argv, environment,
+agent instructions/skills, model, reasoning, platform, network, and effects.
+The host observes duration, commands, workspace mutations, and process exit;
+Codex may report token use; cost is unavailable until the runner provides it.
+An unavailable metric is explicit and cannot be treated as an enforced cap.
+Retries use the same in-memory `BudgetLedger` as first attempts. Timeout or
+operator failure kills and reaps the complete POSIX process group or Windows
+job before mutation grading continues.
+
+Use `grade-recorded-case` for Claude, another agent, or manually supplied
+workspace output. That path performs the same deterministic grading without
+discovering Codex and returns an empty direct-runner compatibility list.
+Comparison and multi-case profile orchestration are delivered by the next
+milestone of the same versioned interface.
 
 Never interpret validation success as a model-backed behavioral result. A real
 run must name an explicit suite, profile, agent adapter, model, and bounded

@@ -46,6 +46,16 @@ _CASE_ENGINE = importlib.util.module_from_spec(_CASE_ENGINE_SPEC)
 _CASE_ENGINE_SPEC.loader.exec_module(_CASE_ENGINE)
 CaseError = _CASE_ENGINE.CaseError
 
+_CODEX_RUNNER_SPEC = importlib.util.spec_from_file_location(
+    "project_eval_codex_runner", Path(__file__).with_name("codex_runner.py")
+)
+if _CODEX_RUNNER_SPEC is None or _CODEX_RUNNER_SPEC.loader is None:
+    raise RuntimeError("cannot load bundled project-eval Codex runner")
+_CODEX_RUNNER = importlib.util.module_from_spec(_CODEX_RUNNER_SPEC)
+sys.modules[_CODEX_RUNNER_SPEC.name] = _CODEX_RUNNER
+_CODEX_RUNNER_SPEC.loader.exec_module(_CODEX_RUNNER)
+RunnerError = _CODEX_RUNNER.RunnerError
+
 
 VERSION = "1.0.0"
 MAX_JSON_BYTES = 4 * 1024 * 1024
@@ -1525,6 +1535,37 @@ def _parser() -> argparse.ArgumentParser:
     grade_case_command.add_argument("--allow-hidden-grader", action="store_true")
     grade_case_command.add_argument("--allow-project-checks", action="store_true")
 
+    recorded_grade_command = commands.add_parser(
+        "grade-recorded-case",
+        help="grade a prepared workspace produced by any agent without invoking a model",
+    )
+    recorded_grade_command.add_argument("--repo", required=True)
+    recorded_grade_command.add_argument("--eval-root", default="evals/project")
+    recorded_grade_command.add_argument("--suite", required=True)
+    recorded_grade_command.add_argument("--case", required=True)
+    recorded_grade_command.add_argument("--prepared", required=True)
+    recorded_grade_command.add_argument("--allow-hidden-grader", action="store_true")
+    recorded_grade_command.add_argument("--allow-project-checks", action="store_true")
+
+    runner_info_command = commands.add_parser(
+        "runner-info", help="discover and bind the local Codex CLI without invoking a model"
+    )
+
+    run_attempt_command = commands.add_parser(
+        "run-codex-attempt", help="explicitly run one Codex attempt under a selected suite profile"
+    )
+    run_attempt_command.add_argument("--repo", required=True)
+    run_attempt_command.add_argument("--eval-root", default="evals/project")
+    run_attempt_command.add_argument("--suite", required=True)
+    run_attempt_command.add_argument("--case", required=True)
+    run_attempt_command.add_argument("--profile", required=True)
+    run_attempt_command.add_argument("--prepared", required=True)
+    run_attempt_command.add_argument("--host-root", required=True)
+    run_attempt_command.add_argument("--model", required=True)
+    run_attempt_command.add_argument("--reasoning", required=True)
+    run_attempt_command.add_argument("--allow-network", action="store_true")
+    run_attempt_command.add_argument("--output")
+
     calibrate_command = commands.add_parser("calibrate-reconstruction", help="prove one reconstruction fixture's deterministic boundaries")
     calibrate_command.add_argument("--repo", required=True)
     calibrate_command.add_argument("--eval-root", default="evals/project")
@@ -1645,6 +1686,74 @@ def main(argv: list[str] | None = None) -> int:
                 allow_project_checks=args.allow_project_checks,
             )
             _write_stdout(grade, canonical=True)
+        elif args.command == "grade-recorded-case":
+            repository = Path(args.repo)
+            _, case, _, fixture = _case_components(repository, args.eval_root, args.suite, args.case)
+            prepared_path = _external_workspace_path(repository, args.prepared, "prepared context")
+            prepared, _ = _load_json(str(prepared_path), "prepared context")
+            workspace_value = prepared.get("workspace") if isinstance(prepared, dict) else None
+            if isinstance(workspace_value, str) and workspace_value:
+                workspace_path = Path(workspace_value).absolute()
+                if prepared_path == workspace_path or workspace_path in prepared_path.parents:
+                    raise EvalError("prepared context must remain outside the graded workspace")
+            grade = _CODEX_RUNNER.grade_recorded_case(
+                fixture,
+                case,
+                prepared,
+                allow_hidden_grader=args.allow_hidden_grader,
+                allow_project_checks=args.allow_project_checks,
+            )
+            _write_stdout(grade, canonical=True)
+        elif args.command == "runner-info":
+            runner = _CODEX_RUNNER.discover_codex()
+            _write_stdout(
+                {
+                    "runner": "codex-exec",
+                    "version": runner["version"],
+                    "launcher_sha256": runner["launcher_sha256"],
+                    "help_sha256": runner["help_sha256"],
+                    "identity_sha256": runner["identity_sha256"],
+                    "adapter_sha256": _CODEX_RUNNER.adapter_sha256(),
+                },
+                canonical=True,
+            )
+        elif args.command == "run-codex-attempt":
+            repository = Path(args.repo)
+            suite, case, _, fixture = _case_components(
+                repository, args.eval_root, args.suite, args.case
+            )
+            if args.profile not in suite["profiles"]:
+                raise EvalError(f"suite does not contain profile {args.profile!r}")
+            profile = suite["profiles"][args.profile]
+            if args.case not in profile["case_ids"]:
+                raise EvalError("selected profile does not include the selected case")
+            prepared_path = _external_workspace_path(repository, args.prepared, "prepared context")
+            prepared, _ = _load_json(str(prepared_path), "prepared context")
+            workspace_value = prepared.get("workspace") if isinstance(prepared, dict) else None
+            if isinstance(workspace_value, str) and workspace_value:
+                workspace_path = Path(workspace_value).absolute()
+                if prepared_path == workspace_path or workspace_path in prepared_path.parents:
+                    raise EvalError("prepared context must remain outside the evaluated workspace")
+            host_root = _external_workspace_path(repository, args.host_root, "runner host root")
+            attempt = _CODEX_RUNNER.run_codex_attempt(
+                fixture,
+                case,
+                prepared,
+                profile,
+                case["task"],
+                host_root,
+                args.model,
+                args.reasoning,
+                _CODEX_RUNNER.BudgetLedger.from_profile(profile),
+                allow_network=args.allow_network,
+            )
+            if args.output:
+                output = _external_workspace_path(repository, args.output, "attempt output")
+                workspace = Path(prepared["workspace"]).absolute()
+                if output == workspace or workspace in output.parents:
+                    raise EvalError("attempt output must remain outside the evaluated workspace")
+                write_created_output(output, _canonical_bytes(attempt) + b"\n")
+            _write_stdout(attempt, canonical=True)
         elif args.command == "calibrate-reconstruction":
             repository = Path(args.repo)
             _, case, _, fixture = _case_components(repository, args.eval_root, args.suite, args.case)
@@ -1687,7 +1796,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             raise EvalError("unknown command")
         return 0
-    except (EvalError, CaseError, SafetyError, OSError, zipfile.BadZipFile) as exc:
+    except (EvalError, CaseError, RunnerError, SafetyError, OSError, zipfile.BadZipFile) as exc:
         print(f"project-eval: {exc}", file=sys.stderr)
         return 2
 

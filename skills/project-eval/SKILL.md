@@ -36,6 +36,13 @@ Use the bundled helper at `scripts/project_eval.py`:
   built-in assertions and only explicitly authorized evaluator-owned fixed
   checks or fixed hidden graders. Repository files are never executed as
   graders.
+- `grade-recorded-case` wraps the same deterministic grading path for output
+  produced by any agent and claims no direct runner compatibility.
+- `runner-info` binds the installed Codex executable and adapter without
+  invoking a model.
+- `run-codex-attempt` is the explicit single-attempt Codex path. It requires a
+  prepared receipt, selected suite profile, model, reasoning effort, and
+  separate host capture root; network requires the profile and caller to agree.
 - `calibrate-reconstruction` proves start-fails, golden-passes, protected-source
   non-leakage, and alternative-solution tolerance.
 - `respond` answers one trajectory clarification from a uniquely matched hidden
@@ -51,8 +58,9 @@ Use the bundled helper at `scripts/project_eval.py`:
 Read [protocols.md](references/protocols.md) when authoring definitions,
 integrating another skill, or handling portable evidence. Read
 [running-evals.md](references/running-evals.md) when preparing, grading,
-executing, or comparing cases. A later implementation milestone adds the fixed
-Codex runner; these deterministic operations never invoke a model.
+executing, or comparing cases. Only `run-codex-attempt` invokes a model, and
+only when explicitly selected; every validation and recorded-output path is
+deterministic.
 
 ## Output
 
