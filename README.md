@@ -62,6 +62,10 @@ and canonical verification results.
 The [local behavioral evaluation guide](docs/behavioral-evals.md) explains how
 maintainers can run fresh-agent skill evaluations locally while keeping paid
 model calls out of the canonical gate and GitHub Actions.
+The selected [project evaluation system design](docs/project-eval-system.md)
+plans independently installable local skills for repository task evaluations,
+session-derived candidates, suite lifecycle audits, and bounded paired harness
+experiments; it does not describe shipped behavior yet.
 The [skill ecosystem guide](docs/skill-ecosystem.md) maps current capability
 roles, safe handoffs, workflow bundles, and supporting infrastructure. Its
 [roadmap](docs/skill-roadmap.md) separates the next local capability from likely

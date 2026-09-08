@@ -15,7 +15,10 @@ their delivery remains separate, reviewable work.
 Detailed behavior stays in each skill's `SKILL.md` and maintainer guide. See the
 [roadmap](skill-roadmap.md) for non-binding future work and
 [repository architecture](architecture.md) for packaging, installation, and
-infrastructure details.
+infrastructure details. The separately selected
+[project evaluation system](project-eval-system.md) applies these composition
+rules to four planned local evaluation skills without treating them as shipped
+capabilities.
 
 ## Shape of the toolkit
 
