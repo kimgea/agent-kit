@@ -3,9 +3,9 @@
 ## Status
 
 This document records the selected design for a coordinated local evaluation
-system. The independently installable `project-eval` vertical slice is
-implemented in this source tree; the three audit and experiment skills remain
-tracked delivery work. Delivery is tracked in
+system. The independently installable `project-eval` and
+`eval-candidate-audit` slices are implemented in this source tree; the suite
+lifecycle and experiment skills remain tracked delivery work. Delivery is tracked in
 [`project-eval-system`](../.claude/prds/project-eval-system.md).
 
 ## Purpose
@@ -271,6 +271,22 @@ Candidate audits operate only on selected sessions or project-opted-in eligible
 sessions. They preserve evidence count and independent-session count separately
 from confidence and owner-selected importance. A candidate may strengthen as
 independent evidence recurs, but recurrence cannot create product policy.
+
+The selected-session producer first emits a bounded, sanitized source artifact
+containing opaque session digests and relevant evidence summaries. Freeze that
+source and the current suite before analysis:
+
+```bash
+python skills/eval-candidate-audit/scripts/candidate_audit.py resolve \
+  --repo . --source /path/to/selected-evidence.json \
+  --suite evals/project/suite.json --output /tmp/candidate-context.json
+```
+
+The audit agent works only from that context and authors a semantic draft. The
+bundled finalizer binds evidence and overlap, derives confidence and readiness,
+and returns readable text or canonical JSON without session identities or source
+paths. It never edits eval definitions; `project-eval` or another consumer must
+independently validate and select any proposed maintenance.
 
 Before adding a case, compare it with existing coverage and prefer extending,
 parameterizing, merging, or replacing a case when that preserves intent more

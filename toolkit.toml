@@ -58,10 +58,18 @@ default_prompts = [
 
 [[plugins]]
 id = "project-eval"
-skills = ["project-eval"]
+skills = ["eval-candidate-audit", "project-eval"]
 category = "Developer Tools"
 installation = "AVAILABLE"
 authentication = "ON_USE"
+version = "1.1.0"
+description = "Define and run bounded local repository evaluations, and derive candidate cases from explicitly selected sanitized session evidence."
+display_name = "Project Evaluation Workflow"
+short_description = "Run project evals and propose new cases"
+default_prompts = [
+  "Use $project-eval to validate, run, compare, or exchange bounded local repository evaluations.",
+  "Use $eval-candidate-audit to propose evaluation cases from selected sanitized session evidence.",
+]
 
 [[plugins]]
 id = "todo-capture"
@@ -141,6 +149,23 @@ docs = "docs/change-impact.md"
 tests = ["tests/test_change_impact.py", "tests/test_behavioral_eval.py", "tests/test_agent_kit.py"]
 evals = "evals/change-impact/cases.json"
 behavioral_evals = "evals/change-impact/suite.json"
+
+[[resources]]
+id = "eval-candidate-audit"
+kind = "skill"
+path = "skills/eval-candidate-audit"
+version = "1.0.0"
+summary = "Propose bounded repository evaluation cases from selected sanitized session evidence."
+agents = ["codex", "claude"]
+platforms = ["linux", "windows", "macos"]
+maturity = "experimental"
+installable = true
+setup_requires_approval = false
+data_sensitivity = "caller-selected sanitized session summaries and generated candidate recommendations"
+docs = "docs/project-eval-system.md"
+tests = ["tests/test_eval_candidate_audit.py", "tests/test_agent_kit.py"]
+evals = "evals/eval-candidate-audit/cases.json"
+behavioral_evals = "evals/eval-candidate-audit/suite.json"
 
 [[resources]]
 id = "project-review"

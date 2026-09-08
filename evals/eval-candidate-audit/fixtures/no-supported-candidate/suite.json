@@ -1,0 +1,1 @@
+{"schema_version":"project-eval-suite/v1","suite_id":"fixture","title":"Fixture suite","cases":[{"case_id":"local-build","title":"Local build","kind":"implementation","importance":"required","fixture":"fixtures/build","task":"Complete a local offline build.","coverage":"development","platforms":["linux"],"required_capabilities":[],"assertion_ids":["build"]}],"profiles":{}}

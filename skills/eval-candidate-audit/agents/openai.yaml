@@ -1,0 +1,4 @@
+interface:
+  display_name: "Eval Candidate Audit"
+  short_description: "Propose evals from selected session evidence"
+  default_prompt: "Use $eval-candidate-audit to find evidence-backed evaluation candidates in these selected sanitized sessions."

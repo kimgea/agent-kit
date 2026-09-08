@@ -26,6 +26,7 @@ Current skills:
 | `agent-context` | Resolve explicitly registered private context for the current project | Reads registered context repositories; writes nothing |
 | `build-interactive-diagram` | Create polished temporary HTML visuals for explanations | Writes only the selected artifact output directory |
 | `change-impact` | Map the evidence-backed reach of exact changes before review, verification, or remediation | Reads selected targets, bounded related context, and applicable guidance; writes output only when explicitly requested |
+| `eval-candidate-audit` | Propose repository eval cases from caller-selected sanitized session evidence | Reads only selected evidence and current suite definitions; writes output only when explicitly requested |
 | `grill-me` | Pressure-test decisions, plans, artifacts, and diagnoses | None |
 | `project-review` | Review bounded changes under root and nested `REVIEW.md` guidance | Reads project source and optional user guidance; writes output only when explicitly requested |
 | `review-and-fix` | Safely address local review findings through decision, verification, and fresh-review gates | Reads bounded project/review/verification data; changes only eligible or approved local files |
@@ -62,11 +63,10 @@ and canonical verification results.
 The [local behavioral evaluation guide](docs/behavioral-evals.md) explains how
 maintainers can run fresh-agent skill evaluations locally while keeping paid
 model calls out of the canonical gate and GitHub Actions.
-The [project evaluation system](docs/project-eval-system.md) includes an
-independently installable `project-eval` vertical slice for bounded local
-repository task evaluations. Session-derived candidates, suite lifecycle
-audits, and paired harness experiments are the next coordinated skills under
-development.
+The [project evaluation system](docs/project-eval-system.md) includes
+independently installable `project-eval` execution and `eval-candidate-audit`
+discovery skills. Suite lifecycle audits and paired harness experiments remain
+the next coordinated delivery slices.
 The [skill ecosystem guide](docs/skill-ecosystem.md) maps current capability
 roles, safe handoffs, workflow bundles, and supporting infrastructure. Its
 [roadmap](docs/skill-roadmap.md) separates the next local capability from likely

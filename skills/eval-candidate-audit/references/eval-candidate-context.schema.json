@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-kit.invalid/schemas/eval-candidate-context-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "repository_root", "source", "source_digest", "target", "sessions", "existing_cases", "limits", "limitations", "context_sha256"],
+  "properties": {
+    "schema_version": {"const": "eval-candidate-context/v1"},
+    "repository_root": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "selection_kind", "selection_source", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "selection_kind": {"enum": ["caller", "project_opt_in"]},
+        "selection_source": {"type": "string", "minLength": 1, "maxLength": 500},
+        "sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "source_digest": {"$ref": "#/$defs/sha"},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository_sha256", "suite_sha256", "suite_path"],
+      "properties": {
+        "repository_sha256": {"$ref": "#/$defs/sha"},
+        "suite_sha256": {"anyOf": [{"$ref": "#/$defs/sha"}, {"type": "null"}]},
+        "suite_path": {"type": ["string", "null"], "maxLength": 4096}
+      }
+    },
+    "sessions": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"$ref": "#/$defs/session"}},
+    "existing_cases": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/$defs/existing_case"}},
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_source_bytes", "max_sessions", "max_evidence", "max_summary_bytes", "max_repository_entries", "max_repository_files", "max_repository_bytes"],
+      "properties": {
+        "max_source_bytes": {"const": 2097152},
+        "max_sessions": {"const": 256},
+        "max_evidence": {"const": 4096},
+        "max_summary_bytes": {"const": 1048576},
+        "max_repository_entries": {"const": 40000},
+        "max_repository_files": {"const": 20000},
+        "max_repository_bytes": {"const": 67108864}
+      }
+    },
+    "limitations": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/$defs/limitation"}},
+    "context_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "evidence": {"type": "object", "additionalProperties": false, "required": ["evidence_id", "kind", "sha256", "summary", "redacted"], "properties": {"evidence_id": {"$ref": "#/$defs/id"}, "kind": {"enum": ["session_summary", "run_receipt", "assertion", "measurement", "repository"]}, "sha256": {"$ref": "#/$defs/sha"}, "summary": {"type": "string", "minLength": 1, "maxLength": 500}, "redacted": {"const": true}}},
+    "session": {"type": "object", "additionalProperties": false, "required": ["session_sha256", "independence_sha256", "evidence"], "properties": {"session_sha256": {"$ref": "#/$defs/sha"}, "independence_sha256": {"$ref": "#/$defs/sha"}, "evidence": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"$ref": "#/$defs/evidence"}}}},
+    "existing_case": {"type": "object", "additionalProperties": false, "required": ["case_id", "kind", "phase", "task_summary", "importance"], "properties": {"case_id": {"$ref": "#/$defs/id"}, "kind": {"enum": ["explanation", "implementation", "trajectory"]}, "phase": {"type": ["string", "null"], "enum": ["intake", "clarification", "specification", "planning", "implementation", "verification", "reporting", null]}, "task_summary": {"type": "string", "minLength": 1, "maxLength": 2000}, "importance": {"enum": ["required", "important", "standard", "exploratory"]}}},
+    "limitation": {"type": "object", "additionalProperties": false, "required": ["code", "message", "material"], "properties": {"code": {"$ref": "#/$defs/id"}, "message": {"type": "string", "minLength": 1, "maxLength": 2000}, "material": {"type": "boolean"}}}
+  }
+}

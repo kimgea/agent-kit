@@ -1128,6 +1128,85 @@ class RecordedGradingTests(unittest.TestCase):
             self.assertIn("missing", message)
 
 
+class EvalCandidateAuditContractTests(unittest.TestCase):
+    def test_context_bound_validator_rejects_forged_candidate_derivation(self):
+        suite = behavioral_eval.load_suite(ROOT, "eval-candidate-audit")
+        case = behavioral_eval._case_by_id(suite, "independent-recurrence")
+        source = ROOT / "evals" / "eval-candidate-audit" / case["fixture"]
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "fixture"
+            behavioral_eval.materialize_fixture(source, fixture)
+            context_path = base / "context.json"
+            context = behavioral_eval.resolve_context(
+                suite, case, fixture, context_path, ROOT
+            )
+            draft = {
+                "completion": "complete",
+                "candidates": [
+                    {
+                        "pain_point": "Agents miss the route manifest rule while planning.",
+                        "proposed_case": {
+                            "kind": "trajectory",
+                            "phase": "planning",
+                            "task_summary": "Apply the route manifest rule before implementation.",
+                        },
+                        "reason": "Three independent sessions show the same avoidable rework.",
+                        "evidence_ids": ["route-pain-1", "route-pain-2", "route-pain-3"],
+                        "overlap": {
+                            "relation": "extends",
+                            "case_ids": ["route-manifest"],
+                            "reason": "The current case explains the rule but does not exercise planning.",
+                        },
+                        "proposed_importance": "standard",
+                        "behavior_basis": "existing",
+                        "cost_effect": "none",
+                        "promotion_requirements": [],
+                    }
+                ],
+                "limitations": [],
+            }
+            draft_path = base / "draft.json"
+            result_path = base / "result.json"
+            draft_path.write_text(json.dumps(draft), encoding="utf-8")
+            helper = ROOT / "skills" / "eval-candidate-audit" / "scripts" / "candidate_audit.py"
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-E",
+                    "-S",
+                    str(helper),
+                    "finalize",
+                    "--context",
+                    str(context_path),
+                    "--input",
+                    str(draft_path),
+                    "--format",
+                    "json",
+                    "--output",
+                    str(result_path),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            valid, message = behavioral_eval.validate_result_contract(
+                suite, result_path, context_path, ROOT
+            )
+            self.assertTrue(valid, message)
+            forged = json.loads(result_path.read_text(encoding="utf-8"))
+            forged["candidates"][0]["candidate_id"] = "candidate-forged"
+            forged_path = base / "forged.json"
+            forged_path.write_text(json.dumps(forged), encoding="utf-8")
+            valid, message = behavioral_eval.validate_result_contract(
+                suite, forged_path, context_path, ROOT
+            )
+            self.assertFalse(valid)
+            self.assertIn("not derived", message)
+
+
 class GuidanceAuditReviewAndFixContractTests(unittest.TestCase):
     def setUp(self):
         self.suite = behavioral_eval.load_suite(ROOT, "review-guidance-audit")

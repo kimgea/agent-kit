@@ -860,7 +860,7 @@ def _validate_family_result(value: Any, family: str) -> dict[str, Any]:
     contracts = {
         "candidate": (
             "eval-candidate-result/v1",
-            ("schema_version", "producer", "completion", "outcome", "next_action", "source_digest", "target", "candidates", "limitations"),
+            ("schema_version", "producer", "context_sha256", "completion", "outcome", "next_action", "source_digest", "target", "candidates", "limitations"),
             {"candidates", "none", "unknown"},
             {"none", "draft", "decision", "retry", "manual"},
             "candidates",
@@ -889,6 +889,7 @@ def _validate_family_result(value: Any, family: str) -> dict[str, Any]:
     _enum(result["outcome"], f"{family}.outcome", outcomes)
     _enum(result["next_action"], f"{family}.next_action", actions)
     if family == "candidate":
+        _digest(result["context_sha256"], "candidate.context_sha256")
         _digest(result["source_digest"], "candidate.source_digest")
         target = _mapping(result["target"], "candidate.target")
         _exact(target, "candidate.target", ("repository_sha256", "suite_sha256"))

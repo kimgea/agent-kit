@@ -325,6 +325,18 @@ CONSUMER_CHANGE_IMPACT_ADVISORIES = {
     },
 }
 CONTRACTS = {
+    "eval-candidate-audit/v1": {
+        "skill": "eval-candidate-audit",
+        "context": "skills/eval-candidate-audit/scripts/candidate_audit.py",
+        "validator": "skills/eval-candidate-audit/scripts/candidate_audit.py",
+        "schema": "skills/eval-candidate-audit/references/eval-candidate-result.schema.json",
+        "context_kind": "eval-candidate-audit",
+        "validator_kind": "simple",
+        "binding_kind": "eval-candidate-audit",
+        "target_kinds": {"path"},
+        "dependencies": [],
+        "reviewers": [],
+    },
     "change-impact/v1": {
         "skill": "change-impact",
         "context": "skills/change-impact/scripts/impact_context.py",
@@ -1658,6 +1670,34 @@ def resolve_context(
         return context
 
     contract_paths = _contract(suite, root, runtime_skills)
+    if contract["context_kind"] == "eval-candidate-audit":
+        command = [
+            sys.executable,
+            "-E",
+            "-S",
+            str(contract_paths["context"]),
+            "resolve",
+            "--repo",
+            str(fixture),
+            "--source",
+            str(fixture / "selected.json"),
+            "--suite",
+            str(fixture / "suite.json"),
+            "--output",
+            str(output),
+        ]
+        completed = subprocess.run(
+            command,
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=60,
+            check=False,
+        )
+        if completed.returncode != 0:
+            message = completed.stderr.decode("utf-8", "replace")[:2000]
+            raise EvalError(f"context resolver failed: {message}")
+        return _load_json(output, "resolved context")
     if contract["context_kind"] == "verification-harness-audit":
         return _resolve_verification_harness_context(
             case, fixture, output, root, contract_paths["context"]
@@ -1942,7 +1982,7 @@ def validate_result_contract(
                     str(verify_root),
                 ]
             )
-    elif contract["binding_kind"] == "change-impact":
+    elif contract["binding_kind"] in {"change-impact", "eval-candidate-audit"}:
         command.extend(["--context", str(context_path)])
     try:
         completed = subprocess.run(
@@ -2180,6 +2220,15 @@ def _bind_result_unchecked(
             if isinstance(context.get("guidance"), list)
             else None,
             "context_metrics": context.get("context_metrics"),
+        }
+    elif contract["binding_kind"] == "eval-candidate-audit":
+        expected = {
+            "context_sha256": context.get("context_sha256"),
+            "source_digest": context.get("source_digest"),
+            "target": {
+                "repository_sha256": context.get("target", {}).get("repository_sha256"),
+                "suite_sha256": context.get("target", {}).get("suite_sha256"),
+            },
         }
     elif contract["binding_kind"] == "change-impact":
         encoded = json.dumps(

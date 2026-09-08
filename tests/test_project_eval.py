@@ -162,6 +162,7 @@ def candidate_result():
     return {
         "schema_version": "eval-candidate-result/v1",
         "producer": {"name": "eval-candidate-audit", "version": "1.0.0"},
+        "context_sha256": "9" * 64,
         "completion": "complete",
         "outcome": "candidates",
         "next_action": "draft",

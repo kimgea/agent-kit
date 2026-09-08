@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-kit.invalid/schemas/eval-candidate-source-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "selection", "sessions"],
+  "properties": {
+    "schema_version": {"const": "eval-candidate-source/v1"},
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "source"],
+      "properties": {
+        "kind": {"enum": ["caller", "project_opt_in"]},
+        "source": {"type": "string", "minLength": 1, "maxLength": 500}
+      }
+    },
+    "sessions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {"$ref": "#/$defs/session"}
+    }
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_sha256", "independence_sha256", "eligible", "sanitized", "evidence"],
+      "properties": {
+        "session_sha256": {"$ref": "#/$defs/sha"},
+        "independence_sha256": {"$ref": "#/$defs/sha"},
+        "eligible": {"const": true},
+        "sanitized": {"const": true},
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {"$ref": "#/$defs/evidence"}
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_id", "kind", "sha256", "summary", "redacted", "relevant"],
+      "properties": {
+        "evidence_id": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["user_request", "agent_action", "review_finding", "verification", "friction"]},
+        "sha256": {"$ref": "#/$defs/sha"},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "redacted": {"const": true},
+        "relevant": {"const": true}
+      }
+    }
+  }
+}
