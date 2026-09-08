@@ -57,6 +57,13 @@ default_prompts = [
 ]
 
 [[plugins]]
+id = "project-eval"
+skills = ["project-eval"]
+category = "Developer Tools"
+installation = "AVAILABLE"
+authentication = "ON_USE"
+
+[[plugins]]
 id = "todo-capture"
 skills = ["todo-capture"]
 category = "Productivity"
@@ -151,6 +158,21 @@ docs = "docs/project-review.md"
 tests = ["tests/test_project_review.py", "tests/test_review_hierarchy_conformance.py", "tests/test_behavioral_eval.py", "tests/test_agent_kit.py"]
 evals = "evals/project-review/cases.json"
 behavioral_evals = "evals/project-review/suite.json"
+
+[[resources]]
+id = "project-eval"
+kind = "skill"
+path = "skills/project-eval"
+version = "1.0.0"
+summary = "Define, validate, retain, and exchange bounded local repository evaluation evidence."
+agents = ["codex", "claude"]
+platforms = ["linux", "windows", "macos"]
+maturity = "experimental"
+installable = true
+setup_requires_approval = true
+data_sensitivity = "repository evaluation definitions, sanitized run evidence, and private local evaluation history"
+docs = "docs/project-eval-system.md"
+tests = ["tests/test_project_eval.py", "tests/test_agent_kit.py"]
 
 [[resources]]
 id = "review-and-fix"

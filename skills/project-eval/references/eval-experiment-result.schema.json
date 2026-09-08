@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-kit.invalid/schemas/eval-experiment-result-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "producer", "completion", "outcome", "next_action", "objective", "baseline", "candidates", "limitations"],
+  "properties": {
+    "schema_version": {"const": "eval-experiment-result/v1"},
+    "producer": {"$ref": "#/$defs/producer"},
+    "completion": {"enum": ["complete", "incomplete"]},
+    "outcome": {"enum": ["clear_improvement", "tradeoff", "inconclusive", "no_improvement", "incomplete"]},
+    "next_action": {"enum": ["none", "review_candidate", "decision", "retry", "manual"]},
+    "objective": {"type": "object", "additionalProperties": false, "required": ["metric", "direction", "tolerance"], "properties": {"metric": {"enum": ["correctness", "completion", "time", "tokens", "cost"]}, "direction": {"enum": ["increase", "decrease"]}, "tolerance": {"type": "number", "minimum": 0, "maximum": 1000000000}}},
+    "baseline": {"$ref": "#/$defs/run_binding"},
+    "candidates": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/$defs/candidate"}},
+    "limitations": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/$defs/limitation"}}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "producer": {"type": "object", "additionalProperties": false, "required": ["name", "version"], "properties": {"name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}, "version": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:+/@-]{0,127}$"}}},
+    "run_binding": {"type": "object", "additionalProperties": false, "required": ["run_sha256", "target_sha256", "configuration_sha256"], "properties": {"run_sha256": {"$ref": "#/$defs/sha"}, "target_sha256": {"$ref": "#/$defs/sha"}, "configuration_sha256": {"$ref": "#/$defs/sha"}}},
+    "evidence": {"type": "object", "additionalProperties": false, "required": ["evidence_id", "kind", "sha256", "summary", "redacted"], "properties": {"evidence_id": {"$ref": "#/$defs/id"}, "kind": {"enum": ["session_summary", "run_receipt", "assertion", "measurement", "repository"]}, "sha256": {"$ref": "#/$defs/sha"}, "summary": {"type": "string", "minLength": 1, "maxLength": 500}, "redacted": {"const": true}}},
+    "candidate": {"type": "object", "additionalProperties": false, "required": ["candidate_id", "patch_sha256", "run_sha256", "target_sha256", "configuration_sha256", "classification", "objective_delta", "required_cases_passed", "guardrail_regression", "budget_breach", "evidence"], "properties": {"candidate_id": {"$ref": "#/$defs/id"}, "patch_sha256": {"$ref": "#/$defs/sha"}, "run_sha256": {"$ref": "#/$defs/sha"}, "target_sha256": {"$ref": "#/$defs/sha"}, "configuration_sha256": {"$ref": "#/$defs/sha"}, "classification": {"enum": ["clear_improvement", "tradeoff", "inconclusive", "no_improvement", "incomplete"]}, "objective_delta": {"type": "number", "minimum": -1000000000, "maximum": 1000000000}, "required_cases_passed": {"type": "boolean"}, "guardrail_regression": {"type": "boolean"}, "budget_breach": {"type": "boolean"}, "evidence": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"$ref": "#/$defs/evidence"}}}},
+    "limitation": {"type": "object", "additionalProperties": false, "required": ["code", "message", "material"], "properties": {"code": {"$ref": "#/$defs/id"}, "message": {"type": "string", "minLength": 1, "maxLength": 2000}, "material": {"type": "boolean"}}}
+  }
+}

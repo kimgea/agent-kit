@@ -548,6 +548,7 @@ class CatalogAndValidationTests(unittest.TestCase):
                 "build-interactive-diagram",
                 "change-impact",
                 "grill-me",
+                "project-eval",
                 "project-review",
                 "review-and-fix",
                 "review-guidance-audit",
@@ -983,8 +984,8 @@ class LifecycleTests(unittest.TestCase):
                 Path("release"), None, "all", fixture
             )
             archives = [path for path in artifacts if path.suffix == ".zip"]
-            self.assertEqual(19, len(archives))
-            self.assertEqual(6, len([path for path in archives if "-plugin-" in path.name]))
+            self.assertEqual(21, len(archives))
+            self.assertEqual(7, len([path for path in archives if "-plugin-" in path.name]))
             self.assertEqual(
                 1,
                 len(

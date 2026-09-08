@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-kit.invalid/schemas/project-eval-bundle-v1.json",
+  "title": "Project eval portable bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "authority", "result_schema_version", "result_sha256", "sanitization", "members"],
+  "properties": {
+    "schema_version": {"const": "project-eval-bundle/v1"},
+    "authority": {"const": "evidence_only"},
+    "result_schema_version": {"const": "project-eval-run-result/v1"},
+    "result_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sanitization": {"type": "object", "additionalProperties": false, "required": ["raw_transcripts", "prompts", "reasoning", "event_streams", "stderr", "credentials", "workspace"], "properties": {"raw_transcripts": {"const": "excluded"}, "prompts": {"const": "excluded"}, "reasoning": {"const": "excluded"}, "event_streams": {"const": "excluded"}, "stderr": {"const": "excluded"}, "credentials": {"const": "excluded"}, "workspace": {"const": "excluded"}}},
+    "members": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"type": "object", "additionalProperties": false, "required": ["path", "size", "sha256", "media_type"], "properties": {"path": {"type": "string", "pattern": "^(?:result[.]json|evidence/[0-9a-f]{64}[.]json)$"}, "size": {"type": "integer", "minimum": 0, "maximum": 4194304}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "media_type": {"const": "application/json"}}}}
+  }
+}

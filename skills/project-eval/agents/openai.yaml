@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Eval"
+  short_description: "Run and compare local repository evals"
+  default_prompt: "Use $project-eval to validate and run the selected repository evaluation."
