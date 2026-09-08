@@ -1,0 +1,12 @@
+{
+  "schema_version": "project-eval-case-control/v1",
+  "case_id": "implement-route-lookup",
+  "materialization": {"mode": "copy", "source": "visible", "remove_paths": [], "history": []},
+  "assertions": [
+    {"assertion_id": "mapping-lookup", "kind": "python_mapping_lookup", "path": "routes.py", "expected": {"function": "get_route", "mapping_argument": "routes", "key_argument": "name"}}
+  ],
+  "checks": [{"check_id": "compile-python", "kind": "python-compile", "timeout_seconds": 10}],
+  "hidden_grader": null,
+  "trajectory": null,
+  "reconstruction": null
+}

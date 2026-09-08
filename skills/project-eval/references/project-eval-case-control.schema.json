@@ -54,10 +54,11 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["assertion_id", "kind", "path", "expected"],
-      "properties": {"assertion_id": {"$ref": "#/$defs/id"}, "kind": {"enum": ["file_exists", "file_absent", "file_contains", "file_not_contains", "text_equals", "json_equals"]}, "path": {"$ref": "#/$defs/path"}, "expected": {}},
+      "properties": {"assertion_id": {"$ref": "#/$defs/id"}, "kind": {"enum": ["file_exists", "file_absent", "file_contains", "file_not_contains", "text_equals", "json_equals", "python_mapping_lookup"]}, "path": {"$ref": "#/$defs/path"}, "expected": {}},
       "allOf": [
         {"if": {"properties": {"kind": {"enum": ["file_exists", "file_absent"]}}, "required": ["kind"]}, "then": {"properties": {"expected": {"type": "null"}}}},
-        {"if": {"properties": {"kind": {"enum": ["file_contains", "file_not_contains", "text_equals"]}}, "required": ["kind"]}, "then": {"properties": {"expected": {"type": "string", "maxLength": 20000}}}}
+        {"if": {"properties": {"kind": {"enum": ["file_contains", "file_not_contains", "text_equals"]}}, "required": ["kind"]}, "then": {"properties": {"expected": {"type": "string", "maxLength": 20000}}}},
+        {"if": {"properties": {"kind": {"const": "python_mapping_lookup"}}, "required": ["kind"]}, "then": {"properties": {"expected": {"type": "object", "additionalProperties": false, "required": ["function", "mapping_argument", "key_argument"], "properties": {"function": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "maxLength": 128}, "mapping_argument": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "maxLength": 128}, "key_argument": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "maxLength": 128}}}}}}
       ]
     },
     "check": {"type": "object", "additionalProperties": false, "required": ["check_id", "kind", "timeout_seconds"], "properties": {"check_id": {"$ref": "#/$defs/id"}, "kind": {"enum": ["python-compile"]}, "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 600}}},

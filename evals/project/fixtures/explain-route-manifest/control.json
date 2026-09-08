@@ -1,0 +1,12 @@
+{
+  "schema_version": "project-eval-case-control/v1",
+  "case_id": "explain-route-manifest",
+  "materialization": {"mode": "copy", "source": "visible", "remove_paths": [], "history": []},
+  "assertions": [
+    {"assertion_id": "structured-explanation", "kind": "json_equals", "path": "answer.json", "expected": {"loader": "load_manifest", "duplicate_behavior": "raises_value_error", "result_shape": "route_name_to_handler"}}
+  ],
+  "checks": [],
+  "hidden_grader": null,
+  "trajectory": null,
+  "reconstruction": null
+}

@@ -73,6 +73,10 @@ def result():
         "reasoning": None,
         "platform": "linux",
         "environment_sha256": "e" * 64,
+        "adapter_sha256": "3" * 64,
+        "launcher_sha256": "4" * 64,
+        "instructions_sha256": "5" * 64,
+        "profile_sha256": "6" * 64,
     }
     configuration["configuration_sha256"] = project_eval._object_digest(configuration)
     return {
@@ -100,13 +104,17 @@ def result():
                 "case_id": "explain-api",
                 "importance": "required",
                 "status": "passed",
+                "last_observation": "passed",
+                "stability": "single_observation",
                 "repetitions": 1,
                 "passed": 1,
                 "failed": 0,
+                "forbidden_effect_failures": 0,
                 "duration_ms": 12,
                 "tokens": {"value": None, "provenance": "unavailable"},
                 "target_sha256": "f" * 64,
                 "grader_sha256": "1" * 64,
+                "observation_sha256s": ["7" * 64],
                 "evidence": [
                     {
                         "evidence_id": "mentions-validation",
@@ -128,6 +136,11 @@ def result():
             "total_repetitions": 1,
             "passed_repetitions": 1,
             "failed_repetitions": 0,
+            "required_failures": 0,
+            "important_failures": 0,
+            "forbidden_effect_failures": 0,
+            "last_observation": "passed",
+            "stability": "single_observation",
             "duration_ms": 12,
             "tokens": {"value": None, "provenance": "unavailable"},
         },
@@ -227,6 +240,9 @@ class ProtocolTests(unittest.TestCase):
         failed["summary"]["failed_cases"] = 1
         failed["summary"]["passed_repetitions"] = 0
         failed["summary"]["failed_repetitions"] = 1
+        failed["summary"]["required_failures"] = 1
+        failed["summary"]["last_observation"] = "failed"
+        failed["cases"][0]["last_observation"] = "failed"
         with self.assertRaisesRegex(project_eval.EvalError, "passing run"):
             project_eval.validate_run_result(failed)
         boolean_count = result()
@@ -243,6 +259,11 @@ class ProtocolTests(unittest.TestCase):
             "total_repetitions": 0,
             "passed_repetitions": 0,
             "failed_repetitions": 0,
+            "required_failures": 0,
+            "important_failures": 0,
+            "forbidden_effect_failures": 0,
+            "last_observation": "none",
+            "stability": "insufficient",
             "duration_ms": 0,
             "tokens": {"value": 0, "provenance": "host_observed"},
         }

@@ -36,6 +36,7 @@ profile envelope.
 Schemas version independently:
 
 - `project-eval-run-result/v1`;
+- `project-eval-comparison/v1`;
 - `project-eval-bundle/v1`;
 - `eval-candidate-result/v1`;
 - `eval-experiment-result/v1`; and
@@ -45,7 +46,10 @@ They share producer identity, exact target and configuration digests,
 completion, outcome, next action, bounded typed evidence references, and
 material limitations. They do not share one universal payload. Run receipts
 bind the repository, definition, fixture set, prepared case, grader, runner,
-environment, and canonical configuration before comparison.
+agent, model, instructions, profile, environment, and canonical configuration
+before comparison. `project-eval-comparison/v1` records an exact-condition
+comparison without granting authority or collapsing correctness, completion,
+important-case performance, duration, and tokens into one score.
 
 Canonical JSON is the semantic result. Render human output only after validation.
 Consumers reject incompatible major versions and preserve producer-native states.

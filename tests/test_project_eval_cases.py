@@ -130,6 +130,24 @@ class ControlContractTests(unittest.TestCase):
         invalid["materialization"]["remove_paths"] = ["answer.txt"]
         self.assertFalse(jsonschema.Draft202012Validator(control_schema).is_valid(invalid))
 
+        mapping_lookup = control(case_id="lookup")
+        mapping_lookup["assertions"] = [
+            {
+                "assertion_id": "mapping-lookup",
+                "kind": "python_mapping_lookup",
+                "path": "routes.py",
+                "expected": {
+                    "function": "get_route",
+                    "mapping_argument": "routes",
+                    "key_argument": "name",
+                },
+            }
+        ]
+        self.assertTrue(jsonschema.Draft202012Validator(control_schema).is_valid(mapping_lookup))
+        invalid_lookup = copy.deepcopy(mapping_lookup)
+        invalid_lookup["assertions"][0]["expected"]["function"] = "not a name"
+        self.assertFalse(jsonschema.Draft202012Validator(control_schema).is_valid(invalid_lookup))
+
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             fixture = write_fixture(root, control(), {"visible/answer.txt": "correct\n"})
@@ -259,6 +277,45 @@ class MaterializationTests(unittest.TestCase):
 
 
 class GradingTests(unittest.TestCase):
+    def test_python_mapping_lookup_accepts_behavior_not_incidental_text(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            value = control(case_id="lookup")
+            value["assertions"] = [
+                {
+                    "assertion_id": "mapping-lookup",
+                    "kind": "python_mapping_lookup",
+                    "path": "routes.py",
+                    "expected": {
+                        "function": "get_route",
+                        "mapping_argument": "routes",
+                        "key_argument": "name",
+                    },
+                }
+            ]
+            fixture = write_fixture(
+                root,
+                value,
+                {
+                    "visible/routes.py": (
+                        "def get_route(routes, name):\n"
+                        "    # return routes[name] is not enough in a comment\n"
+                        "    return routes.get(name)\n"
+                    )
+                },
+            )
+            selected = selected_case(case_id="lookup", kind="implementation")
+            selected["assertion_ids"] = ["mapping-lookup"]
+            prepared = case_engine.materialize_case(fixture, selected, root / "workspaces")
+            self.assertEqual(case_engine.grade_case(fixture, selected, prepared)["status"], "failed")
+            (Path(prepared["workspace"]) / "routes.py").write_text(
+                "def get_route(routes, name):\n"
+                "    \"\"\"Return the registered handler.\"\"\"\n"
+                "    return routes[name]\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(case_engine.grade_case(fixture, selected, prepared)["status"], "passed")
+
     def test_built_in_assertions_observe_workspace_and_do_not_trust_claims(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

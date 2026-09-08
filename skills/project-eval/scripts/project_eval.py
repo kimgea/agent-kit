@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import datetime as dt
 import hashlib
 import importlib.util
 import io
@@ -458,6 +459,10 @@ def _validate_configuration(value: Any, label: str) -> None:
         "reasoning",
         "platform",
         "environment_sha256",
+        "adapter_sha256",
+        "launcher_sha256",
+        "instructions_sha256",
+        "profile_sha256",
         "configuration_sha256",
     )
     _exact(configuration, label, fields)
@@ -468,7 +473,14 @@ def _validate_configuration(value: Any, label: str) -> None:
         if configuration[field] is not None:
             _identifier(configuration[field], f"{label}.{field}", PROFILE_ID)
     _enum(configuration["platform"], f"{label}.platform", {"linux", "windows", "macos"})
-    _digest(configuration["environment_sha256"], f"{label}.environment_sha256")
+    for field in (
+        "environment_sha256",
+        "adapter_sha256",
+        "launcher_sha256",
+        "instructions_sha256",
+        "profile_sha256",
+    ):
+        _digest(configuration[field], f"{label}.{field}")
     expected = _object_digest({key: configuration[key] for key in fields[:-1]})
     actual = _digest(configuration["configuration_sha256"], f"{label}.configuration_sha256")
     if actual != expected:
@@ -654,7 +666,28 @@ def validate_run_result(value: Any) -> dict[str, Any]:
     for index, raw_case in enumerate(cases):
         label = f"run result.cases[{index}]"
         case = _mapping(raw_case, label)
-        _exact(case, label, ("case_id", "importance", "status", "repetitions", "passed", "failed", "duration_ms", "tokens", "target_sha256", "grader_sha256", "evidence", "limitations"))
+        _exact(
+            case,
+            label,
+            (
+                "case_id",
+                "importance",
+                "status",
+                "last_observation",
+                "stability",
+                "repetitions",
+                "passed",
+                "failed",
+                "forbidden_effect_failures",
+                "duration_ms",
+                "tokens",
+                "target_sha256",
+                "grader_sha256",
+                "observation_sha256s",
+                "evidence",
+                "limitations",
+            ),
+        )
         case_id = _identifier(case["case_id"], f"{label}.case_id")
         repetition_count = _integer(case["repetitions"], f"{label}.repetitions", 0, 100)
         if case_id in case_keys:
@@ -662,16 +695,43 @@ def validate_run_result(value: Any) -> dict[str, Any]:
         case_keys.add(case_id)
         importance = _enum(case["importance"], f"{label}.importance", {"required", "important", "standard", "exploratory"})
         status_value = _enum(case["status"], f"{label}.status", {"passed", "failed", "unavailable", "not_applicable", "incomplete"})
+        last_observation = _enum(
+            case["last_observation"],
+            f"{label}.last_observation",
+            {"passed", "failed", "incomplete", "unavailable", "not_applicable", "none"},
+        )
+        stability = _enum(
+            case["stability"],
+            f"{label}.stability",
+            {"single_observation", "repeated_observations", "insufficient"},
+        )
         passed = _integer(case["passed"], f"{label}.passed", 0, 100)
         failed = _integer(case["failed"], f"{label}.failed", 0, 100)
+        forbidden_effect_failures = _integer(
+            case["forbidden_effect_failures"],
+            f"{label}.forbidden_effect_failures",
+            0,
+            100,
+        )
         if passed + failed > repetition_count:
             raise EvalError(f"{label} pass/fail counts exceed repetitions")
+        if forbidden_effect_failures > failed:
+            raise EvalError(f"{label} forbidden effect failures exceed failed repetitions")
         if status_value == "passed" and (passed != repetition_count or failed != 0):
             raise EvalError(f"{label} passed status must account for every repetition")
         if status_value == "failed" and failed == 0:
             raise EvalError(f"{label} failed status requires a failed repetition")
         if status_value in {"unavailable", "not_applicable"} and (passed or failed):
             raise EvalError(f"{label} unavailable status cannot claim pass/fail observations")
+        if repetition_count == 0:
+            if last_observation not in {"unavailable", "not_applicable", "none"} or stability != "insufficient":
+                raise EvalError(f"{label} without repetitions cannot claim an observed run or stability")
+        elif last_observation == "none":
+            raise EvalError(f"{label} with repetitions must report its last observation")
+        if stability == "single_observation" and repetition_count != 1:
+            raise EvalError(f"{label} single_observation stability requires exactly one repetition")
+        if stability == "repeated_observations" and repetition_count < 2:
+            raise EvalError(f"{label} repeated_observations stability requires multiple repetitions")
         if case["duration_ms"] is not None:
             _integer(case["duration_ms"], f"{label}.duration_ms", 0, 604_800_000)
         tokens = _mapping(case["tokens"], f"{label}.tokens")
@@ -683,7 +743,17 @@ def validate_run_result(value: Any) -> dict[str, Any]:
             raise EvalError(f"{label}.tokens unavailable provenance requires null value")
         _digest(case["target_sha256"], f"{label}.target_sha256")
         _digest(case["grader_sha256"], f"{label}.grader_sha256")
-        evidence = _array(case["evidence"], f"{label}.evidence", maximum=256)
+        observation_sha256s = _array(
+            case["observation_sha256s"], f"{label}.observation_sha256s", maximum=100
+        )
+        for observation_index, observation_sha256 in enumerate(observation_sha256s):
+            _digest(
+                observation_sha256,
+                f"{label}.observation_sha256s[{observation_index}]",
+            )
+        if len(observation_sha256s) != repetition_count:
+            raise EvalError(f"{label}.observation_sha256s must bind every attempted repetition")
+        evidence = _array(case["evidence"], f"{label}.evidence", maximum=512)
         evidence_ids: set[str] = set()
         for evidence_index, item in enumerate(evidence):
             evidence_label = f"{label}.evidence[{evidence_index}]"
@@ -708,6 +778,11 @@ def validate_run_result(value: Any) -> dict[str, Any]:
             "total_repetitions",
             "passed_repetitions",
             "failed_repetitions",
+            "required_failures",
+            "important_failures",
+            "forbidden_effect_failures",
+            "last_observation",
+            "stability",
             "duration_ms",
             "tokens",
         ),
@@ -720,12 +795,36 @@ def validate_run_result(value: Any) -> dict[str, Any]:
         "total_repetitions": sum(item["repetitions"] for item in cases),
         "passed_repetitions": sum(item["passed"] for item in cases),
         "failed_repetitions": sum(item["failed"] for item in cases),
+        "required_failures": sum(
+            item["importance"] == "required" and item["status"] != "passed"
+            for item in cases
+        ),
+        "important_failures": sum(
+            item["importance"] == "important" and item["status"] != "passed"
+            for item in cases
+        ),
+        "forbidden_effect_failures": sum(
+            item["forbidden_effect_failures"] for item in cases
+        ),
         "duration_ms": sum(item["duration_ms"] or 0 for item in cases),
     }
     for field, expected_value in expected_summary.items():
         actual_value = _integer(summary[field], f"run result.summary.{field}", 0, 604_800_000)
         if actual_value != expected_value:
             raise EvalError(f"run result.summary.{field} does not match case results")
+    expected_last = cases[-1]["last_observation"] if cases else "none"
+    if summary["last_observation"] != expected_last:
+        raise EvalError("run result.summary.last_observation does not match the last case")
+    observed_cases = [item for item in cases if item["repetitions"]]
+    expected_stability = (
+        "repeated_observations"
+        if observed_cases and all(item["stability"] == "repeated_observations" for item in observed_cases)
+        else "single_observation"
+        if observed_cases
+        else "insufficient"
+    )
+    if summary["stability"] != expected_stability:
+        raise EvalError("run result.summary.stability does not match its observations")
     summary_tokens = _mapping(summary["tokens"], "run result.summary.tokens")
     _exact(summary_tokens, "run result.summary.tokens", ("value", "provenance"))
     if summary_tokens["value"] is not None:
@@ -751,6 +850,8 @@ def validate_run_result(value: Any) -> dict[str, Any]:
         raise EvalError("a passing run must be complete with every required case passed")
     if outcome == "pass" and next_action != "none":
         raise EvalError("a passing run must have next_action none")
+    if len(_canonical_bytes(result)) > MAX_JSON_BYTES:
+        raise EvalError("canonical run result exceeds the supported JSON size")
     return result
 
 
@@ -852,9 +953,711 @@ def validate_artifact(value: Any, kind: str) -> dict[str, Any]:
         return validate_suite(value)
     if kind == "run":
         return validate_run_result(value)
+    if kind == "comparison":
+        return validate_comparison(value)
     if kind in {"candidate", "experiment", "suite-audit"}:
         return _validate_family_result(value, kind)
     raise EvalError(f"unsupported artifact kind: {kind}")
+
+
+def _measurement(value: int | None, provenance: str) -> dict[str, Any]:
+    return {"value": value, "provenance": provenance}
+
+
+def _workflow_adapter_sha256() -> str:
+    try:
+        _, raw = read_regular(Path(__file__).absolute(), MAX_JSON_BYTES, require_single_link=True)
+    except SafetyError as exc:
+        raise EvalError(f"cannot bind project-eval workflow adapter: {exc}") from exc
+    return _sha(
+        _canonical_bytes(
+            {
+                "project_eval.py": _sha(raw),
+                "codex_runner": _CODEX_RUNNER.adapter_sha256(),
+            }
+        )
+    )
+
+
+def _case_grader_sha(control: dict[str, Any], *, hidden: bool, checks: bool) -> str:
+    return _sha(
+        _CASE_ENGINE._canonical(
+            {
+                "control_sha256": _sha(_CASE_ENGINE._canonical(control)),
+                "runtime_sha256": _CASE_ENGINE.engine_sha256(),
+                "hidden_grader": control["hidden_grader"],
+                "hidden_grader_authorized": hidden,
+                "project_checks_authorized": checks,
+            }
+        )
+    )
+
+
+def _aggregate_grade_evidence(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for observation in observations:
+        grade = observation.get("grade")
+        if not isinstance(grade, dict):
+            continue
+        for item in grade["evidence"]:
+            grouped.setdefault(item["evidence_id"], []).append(item)
+    evidence: list[dict[str, Any]] = []
+    for evidence_id in sorted(grouped):
+        items = grouped[evidence_id]
+        passed = sum(item["status"] == "pass" for item in items)
+        failed = sum(item["status"] == "fail" for item in items)
+        unknown = len(items) - passed - failed
+        status_value = "fail" if failed else "unknown" if unknown else "pass"
+        evidence.append(
+            {
+                "evidence_id": evidence_id,
+                "kind": items[0]["kind"],
+                "status": status_value,
+                "sha256": _sha(_canonical_bytes([item["sha256"] for item in items])),
+                "summary": f"{passed} pass, {failed} fail, {unknown} unknown across {len(items)} observations",
+                "redacted": True,
+            }
+        )
+    if observations:
+        attempt_digests = [item["observation_sha256"] for item in observations]
+        statuses = [item["condition"] for item in observations]
+        evidence.append(
+            {
+                "evidence_id": "attempts",
+                "kind": "measurement",
+                "status": "fail" if any(value == "failed" for value in statuses) else "unknown" if any(value == "incomplete" for value in statuses) else "informational",
+                "sha256": _sha(_canonical_bytes(attempt_digests)),
+                "summary": f"{len(observations)} bounded attempt observations; last {statuses[-1]}",
+                "redacted": True,
+            }
+        )
+    return evidence
+
+
+def _aggregate_case_result(
+    case: dict[str, Any],
+    metadata: dict[str, Any],
+    observations: list[dict[str, Any]],
+    excluded: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if excluded is not None:
+        status_value = excluded["status"]
+        limitations = [
+            {
+                "code": "missing-capability" if status_value == "unavailable" else "unsupported-platform",
+                "message": (
+                    "missing capabilities: " + ", ".join(excluded["missing_capabilities"])
+                    if excluded["missing_capabilities"]
+                    else "case does not support this platform"
+                ),
+                "material": case["importance"] in {"required", "important"},
+            }
+        ]
+        return {
+            "case_id": case["case_id"],
+            "importance": case["importance"],
+            "status": status_value,
+            "last_observation": status_value,
+            "stability": "insufficient",
+            "repetitions": 0,
+            "passed": 0,
+            "failed": 0,
+            "forbidden_effect_failures": 0,
+            "duration_ms": 0,
+            "tokens": _measurement(None, "unavailable"),
+            "target_sha256": metadata["fixture_sha256"],
+            "grader_sha256": metadata["grader_sha256"],
+            "observation_sha256s": [],
+            "evidence": [],
+            "limitations": limitations,
+        }
+    conditions = [item["condition"] for item in observations]
+    passed = sum(value == "passed" for value in conditions)
+    failed = sum(value == "failed" for value in conditions)
+    status_value = (
+        "incomplete"
+        if any(value == "incomplete" for value in conditions)
+        else "failed"
+        if failed
+        else "passed"
+    )
+    token_values = [item["attempt"]["tokens"]["value"] for item in observations if item.get("attempt")]
+    tokens_available = len(token_values) == len(observations) and all(value is not None for value in token_values)
+    limitations: list[dict[str, Any]] = []
+    for observation in observations:
+        limitations.extend(observation.get("limitations", []))
+    repetitions = len(observations)
+    return {
+        "case_id": case["case_id"],
+        "importance": case["importance"],
+        "status": status_value,
+        "last_observation": conditions[-1] if conditions else "none",
+        "stability": "repeated_observations" if repetitions >= 2 else "single_observation" if repetitions == 1 else "insufficient",
+        "repetitions": repetitions,
+        "passed": passed,
+        "failed": failed,
+        "forbidden_effect_failures": sum(
+            observation.get("attempt", {}).get("error_category") == "effect_violation"
+            for observation in observations
+            if observation.get("attempt")
+        ),
+        "duration_ms": sum(
+            item["attempt"]["duration_ms"]["value"]
+            for item in observations
+            if item.get("attempt")
+        ),
+        "tokens": _measurement(
+            sum(token_values) if tokens_available else None,
+            "runner_reported" if tokens_available else "unavailable",
+        ),
+        "target_sha256": metadata["fixture_sha256"],
+        "grader_sha256": metadata["grader_sha256"],
+        "observation_sha256s": [item["observation_sha256"] for item in observations],
+        "evidence": _aggregate_grade_evidence(observations),
+        "limitations": limitations,
+    }
+
+
+def _run_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
+    token_values = [case["tokens"]["value"] for case in cases]
+    tokens_available = bool(cases) and all(value is not None for value in token_values)
+    observations = sum(case["repetitions"] for case in cases)
+    observed_cases = [case for case in cases if case["repetitions"]]
+    return {
+        "total_cases": len(cases),
+        "passed_cases": sum(case["status"] == "passed" for case in cases),
+        "failed_cases": sum(case["status"] == "failed" for case in cases),
+        "unavailable_cases": sum(case["status"] in {"unavailable", "not_applicable", "incomplete"} for case in cases),
+        "total_repetitions": observations,
+        "passed_repetitions": sum(case["passed"] for case in cases),
+        "failed_repetitions": sum(case["failed"] for case in cases),
+        "required_failures": sum(case["importance"] == "required" and case["status"] != "passed" for case in cases),
+        "important_failures": sum(case["importance"] == "important" and case["status"] != "passed" for case in cases),
+        "forbidden_effect_failures": sum(
+            case["forbidden_effect_failures"] for case in cases
+        ),
+        "last_observation": cases[-1]["last_observation"] if cases else "none",
+        "stability": "repeated_observations" if observed_cases and all(case["stability"] == "repeated_observations" for case in observed_cases) else "single_observation" if observed_cases else "insufficient",
+        "duration_ms": sum(case["duration_ms"] or 0 for case in cases),
+        "tokens": _measurement(
+            sum(token_values) if tokens_available else None,
+            "runner_reported" if tokens_available else "unavailable",
+        ),
+    }
+
+
+def _store_local_result(repository: Path, root: Path, result: dict[str, Any]) -> str:
+    info = state_info(repository, root)
+    namespace = info["namespace"]
+    if not isinstance(namespace, str) or not info["initialized"]:
+        raise EvalError("private project-eval state must be initialized before --store")
+    raw = _canonical_bytes(validate_run_result(result))
+    digest = _sha(raw)
+    _write_content_addressed(root / "projects" / namespace / "receipts" / f"{digest}.json", raw)
+    return digest
+
+
+def run_codex_profile(
+    repository: Path,
+    eval_root_value: str,
+    suite_value: str,
+    profile_name: str,
+    model: str,
+    reasoning: str,
+    workspace_root: Path,
+    host_root: Path,
+    capabilities: set[str],
+    *,
+    allow_network: bool = False,
+    allow_hidden_grader: bool = False,
+    allow_project_checks: bool = False,
+    runner: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    repository = repository.absolute()
+    _identifier(model, "model", PROFILE_ID)
+    _identifier(reasoning, "reasoning", PROFILE_ID)
+    workspace_root = _external_workspace_path(repository, str(workspace_root), "workspace root")
+    host_root = _external_workspace_path(repository, str(host_root), "runner host root")
+    if workspace_root == host_root or workspace_root in host_root.parents or host_root in workspace_root.parents:
+        raise EvalError("workspace root and runner host root must be separate")
+    suite, suite_raw, _ = load_repository_suite(repository, eval_root_value, suite_value)
+    if profile_name not in suite["profiles"]:
+        raise EvalError(f"suite does not contain profile {profile_name!r}")
+    profile = suite["profiles"][profile_name]
+    if bool(profile["network"]) != bool(allow_network):
+        raise EvalError("network authority must exactly match the selected profile")
+    if (allow_project_checks or allow_hidden_grader) and "command_execution" not in profile["effects"]:
+        raise EvalError(
+            "project checks and hidden graders require command_execution in the selected profile"
+        )
+    schedule = _CODEX_RUNNER.build_profile_schedule(suite, profile_name, capabilities)
+    eval_root = safe_repo_path(repository, _relative(eval_root_value, "evaluation root"))
+    cases_by_id = {case["case_id"]: case for case in suite["cases"]}
+    metadata: dict[str, dict[str, Any]] = {}
+    for case_id in profile["case_ids"]:
+        case = cases_by_id[case_id]
+        fixture = safe_repo_path(eval_root, case["fixture"])
+        control, _, fixture_sha = _CASE_ENGINE.validate_case_fixture(fixture, case)
+        metadata[case_id] = {
+            "fixture": fixture,
+            "fixture_sha256": fixture_sha,
+            "grader_sha256": _case_grader_sha(
+                control, hidden=allow_hidden_grader, checks=allow_project_checks
+            ),
+        }
+    active_runner = runner or _CODEX_RUNNER.discover_codex()
+    workflow_adapter_sha = _workflow_adapter_sha256()
+    ledger = _CODEX_RUNNER.BudgetLedger.from_profile(profile)
+    observations: dict[str, list[dict[str, Any]]] = {
+        case_id: [] for case_id in profile["case_ids"]
+    }
+    instruction_digests: dict[str, str] = {}
+    for planned in schedule["planned"]:
+        case = cases_by_id[planned["case_id"]]
+        fixture = metadata[case["case_id"]]["fixture"]
+        prepared = _CASE_ENGINE.materialize_case(fixture, case, workspace_root)
+        workspace = Path(prepared["workspace"])
+        observation: dict[str, Any]
+        try:
+            attempt = _CODEX_RUNNER.run_codex_attempt(
+                fixture,
+                case,
+                prepared,
+                profile,
+                case["task"],
+                host_root,
+                model,
+                reasoning,
+                ledger,
+                allow_network=allow_network,
+                allow_hidden_grader=allow_hidden_grader,
+                allow_project_checks=allow_project_checks,
+                runner=active_runner,
+            )
+            configuration = attempt["configuration"]
+            previous_instruction = instruction_digests.setdefault(
+                case["case_id"], configuration["instructions_sha256"]
+            )
+            if previous_instruction != configuration["instructions_sha256"]:
+                raise EvalError("case instructions changed between repetitions")
+            grade = _CASE_ENGINE.grade_case(
+                fixture,
+                case,
+                prepared,
+                allow_hidden_grader=allow_hidden_grader,
+                allow_project_checks=allow_project_checks,
+            )
+            condition = (
+                "incomplete"
+                if attempt["status"] in {"timed_out", "budget_exceeded"}
+                or attempt.get("error_category") in {"runner_failure", "timeout", "budget_exceeded"}
+                else "failed"
+                if attempt["status"] != "completed" or grade["status"] != "passed"
+                else "passed"
+            )
+            limitations = [
+                {
+                    "code": f"unobservable-{name}",
+                    "message": f"the configured {name} budget was not observable",
+                    "material": True,
+                }
+                for name in attempt["unobservable_budgets"]
+            ]
+            observation = {
+                "condition": condition,
+                "attempt": attempt,
+                "grade": grade,
+                "observation_sha256": _sha(
+                    _canonical_bytes(
+                        {
+                            "attempt_sha256": attempt["attempt_sha256"],
+                            "grade_sha256": _sha(_canonical_bytes(grade)),
+                        }
+                    )
+                ),
+                "limitations": limitations,
+            }
+        except (RunnerError, CaseError, OSError) as exc:
+            failure = {
+                "case_id": case["case_id"],
+                "repetition": planned["repetition"],
+                "error_type": type(exc).__name__,
+            }
+            observation = {
+                "condition": "incomplete",
+                "attempt": None,
+                "grade": None,
+                "observation_sha256": _sha(_canonical_bytes(failure)),
+                "limitations": [
+                    {
+                        "code": "runner-incomplete",
+                        "message": f"bounded attempt did not produce gradeable evidence ({type(exc).__name__})",
+                        "material": True,
+                    }
+                ],
+            }
+        finally:
+            _CASE_ENGINE._remove_tree(workspace)
+        observations[case["case_id"]].append(observation)
+    excluded = {item["case_id"]: item for item in schedule["excluded"]}
+    case_results = [
+        _aggregate_case_result(
+            cases_by_id[case_id], metadata[case_id], observations[case_id], excluded.get(case_id)
+        )
+        for case_id in profile["case_ids"]
+    ]
+    attempt_configurations = [
+        observation["attempt"]["configuration"]
+        for case_observations in observations.values()
+        for observation in case_observations
+        if observation.get("attempt")
+    ]
+    if attempt_configurations:
+        identity_fields = (
+            "runner",
+            "runner_version",
+            "agent",
+            "model",
+            "reasoning",
+            "platform",
+            "environment_sha256",
+            "adapter_sha256",
+            "launcher_sha256",
+            "network",
+            "effects",
+        )
+        first_identity = {field: attempt_configurations[0].get(field) for field in identity_fields}
+        if any(
+            {field: configuration.get(field) for field in identity_fields} != first_identity
+            for configuration in attempt_configurations[1:]
+        ):
+            raise EvalError("runner configuration changed between profile attempts")
+    environment_sha = (
+        attempt_configurations[0]["environment_sha256"]
+        if attempt_configurations
+        else _CODEX_RUNNER._environment_digest(active_runner)
+    )
+    instructions_sha = _sha(_canonical_bytes(instruction_digests))
+    configuration = {
+        "runner": "codex-exec",
+        "runner_version": active_runner["version"],
+        "agent": "codex",
+        "model": model,
+        "reasoning": reasoning,
+        "platform": {"linux": "linux", "darwin": "macos", "windows": "windows"}.get(platform.system().casefold(), "linux"),
+        "environment_sha256": environment_sha,
+        "adapter_sha256": workflow_adapter_sha,
+        "launcher_sha256": active_runner["identity_sha256"],
+        "instructions_sha256": instructions_sha,
+        "profile_sha256": _sha(_canonical_bytes(profile)),
+    }
+    configuration["configuration_sha256"] = _object_digest(configuration)
+    fixture_map = {case_id: metadata[case_id]["fixture_sha256"] for case_id in profile["case_ids"]}
+    suite_sha = _sha(_canonical_bytes(suite))
+    summary = _run_summary(case_results)
+    limitation_map = {
+        (limitation["code"], limitation["message"]): limitation
+        for case_result in case_results
+        for limitation in case_result["limitations"]
+        if limitation["material"]
+    }
+    limitations = [limitation_map[key] for key in sorted(limitation_map)]
+    if summary["stability"] == "single_observation":
+        limitations.append(
+            {
+                "code": "single-observation",
+                "message": "one observation measures this run but does not establish stability",
+                "material": False,
+            }
+        )
+    final_suite, final_suite_raw, _ = load_repository_suite(
+        repository, eval_root_value, suite_value
+    )
+    if final_suite != suite or final_suite_raw != suite_raw:
+        raise EvalError("suite definition changed during the profile run")
+    for case_id in profile["case_ids"]:
+        case = cases_by_id[case_id]
+        _, _, final_fixture_sha = _CASE_ENGINE.validate_case_fixture(
+            metadata[case_id]["fixture"], case
+        )
+        if final_fixture_sha != metadata[case_id]["fixture_sha256"]:
+            raise EvalError(f"case fixture changed during the profile run: {case_id}")
+    if _workflow_adapter_sha256() != workflow_adapter_sha:
+        raise EvalError("project-eval workflow adapter changed during the profile run")
+    completion = "incomplete" if any(case["status"] == "incomplete" for case in case_results) or any(item["material"] for item in limitations) else "complete"
+    if completion == "incomplete":
+        outcome, next_action = "unknown", "retry"
+    elif any(case["status"] == "failed" for case in case_results):
+        outcome, next_action = "fail", "triage"
+    elif any(case["status"] in {"unavailable", "not_applicable"} for case in case_results):
+        outcome, next_action = "unknown", "rescope"
+    else:
+        outcome, next_action = "pass", "none"
+    result = {
+        "schema_version": "project-eval-run-result/v1",
+        "run_id": dt.datetime.now(dt.timezone.utc).strftime("run-%Y%m%dT%H%M%SZ-") + secrets.token_hex(6),
+        "producer": {"name": "project-eval", "version": VERSION},
+        "suite": {"suite_id": suite["suite_id"], "suite_sha256": suite_sha, "profile": profile_name},
+        "source": {"kind": "local", "authority": "evidence_only", "bundle_sha256": None},
+        "target": {
+            "repository_sha256": _sha(_canonical_bytes({"suite": suite_sha, "fixtures": fixture_map})),
+            "definition_sha256": suite_sha,
+            "fixture_set_sha256": _sha(_canonical_bytes(fixture_map)),
+            "revision": None,
+        },
+        "configuration": configuration,
+        "completion": completion,
+        "outcome": outcome,
+        "next_action": next_action,
+        "cases": case_results,
+        "summary": summary,
+        "limitations": limitations,
+    }
+    return validate_run_result(result)
+
+
+def compare_runs(baseline_value: Any, candidate_value: Any) -> dict[str, Any]:
+    baseline = validate_run_result(baseline_value)
+    candidate = validate_run_result(candidate_value)
+    checks = {
+        "suite": baseline["suite"] == candidate["suite"],
+        "target": baseline["target"] == candidate["target"],
+        "configuration": baseline["configuration"] == candidate["configuration"],
+        "case_shape": [
+            (item["case_id"], item["importance"], item["repetitions"], item["target_sha256"], item["grader_sha256"])
+            for item in baseline["cases"]
+        ]
+        == [
+            (item["case_id"], item["importance"], item["repetitions"], item["target_sha256"], item["grader_sha256"])
+            for item in candidate["cases"]
+        ],
+    }
+    mismatches = sorted(name for name, matched in checks.items() if not matched)
+    compatible = not mismatches
+    baseline_summary = baseline["summary"]
+    candidate_summary = candidate["summary"]
+    baseline_quality = (
+        baseline["completion"] == "complete"
+        and baseline_summary["required_failures"] == 0
+        and baseline_summary["forbidden_effect_failures"] == 0
+    )
+    candidate_quality = (
+        candidate["completion"] == "complete"
+        and candidate_summary["required_failures"] == 0
+        and candidate_summary["forbidden_effect_failures"] == 0
+    )
+    stability = {
+        "baseline": baseline_summary["stability"] == "repeated_observations",
+        "candidate": candidate_summary["stability"] == "repeated_observations",
+    }
+    completion_eligible = (
+        compatible
+        and baseline_quality
+        and candidate_quality
+        and stability["baseline"]
+        and stability["candidate"]
+    )
+    important_eligible = (
+        completion_eligible
+        and baseline_summary["passed_repetitions"]
+        == candidate_summary["passed_repetitions"]
+    )
+    efficiency_eligible = (
+        important_eligible
+        and baseline_summary["important_failures"]
+        == candidate_summary["important_failures"]
+    )
+    dimensions = {
+        "completion": {
+            "baseline": baseline_summary["passed_repetitions"],
+            "candidate": candidate_summary["passed_repetitions"],
+            "eligible": completion_eligible,
+        },
+        "important": {
+            "baseline": baseline_summary["important_failures"],
+            "candidate": candidate_summary["important_failures"],
+            "eligible": important_eligible,
+        },
+        "duration_ms": {
+            "baseline": baseline_summary["duration_ms"],
+            "candidate": candidate_summary["duration_ms"],
+            "eligible": efficiency_eligible,
+        },
+        "tokens": {
+            "baseline": baseline_summary["tokens"]["value"],
+            "candidate": candidate_summary["tokens"]["value"],
+            "eligible": efficiency_eligible
+            and baseline_summary["tokens"]["value"] is not None
+            and candidate_summary["tokens"]["value"] is not None,
+        },
+    }
+    limitations: list[dict[str, Any]] = []
+    if mismatches:
+        limitations.append({"code": "incompatible-runs", "message": "mismatched: " + ", ".join(mismatches), "material": True})
+    if not stability["baseline"] or not stability["candidate"]:
+        limitations.append({"code": "insufficient-stability", "message": "one or both runs lack repeated observations", "material": False})
+    outcome = _comparison_outcome(
+        compatible, baseline_quality, candidate_quality, stability, dimensions
+    )
+    comparison = {
+        "schema_version": "project-eval-comparison/v1",
+        "producer": {"name": "project-eval", "version": VERSION},
+        "baseline_sha256": _sha(_canonical_bytes(baseline)),
+        "candidate_sha256": _sha(_canonical_bytes(candidate)),
+        "compatible": compatible,
+        "mismatches": mismatches,
+        "quality_gate": {"baseline": baseline_quality, "candidate": candidate_quality},
+        "stability_gate": stability,
+        "dimensions": dimensions,
+        "outcome": outcome,
+        "next_action": "none" if outcome in {"equivalent", "candidate_better", "baseline_better"} else "rescope" if outcome == "incompatible" else "decision" if outcome == "tradeoff" else "retry",
+        "limitations": limitations,
+    }
+    return validate_comparison(comparison)
+
+
+def _comparison_outcome(
+    compatible: bool,
+    baseline_quality: bool,
+    candidate_quality: bool,
+    stability: dict[str, bool],
+    dimensions: dict[str, dict[str, int | bool | None]],
+) -> str:
+    if not compatible:
+        return "incompatible"
+    if (
+        not baseline_quality
+        or not candidate_quality
+        or not stability["baseline"]
+        or not stability["candidate"]
+    ):
+        return "inconclusive"
+    completion = dimensions["completion"]
+    if completion["candidate"] != completion["baseline"]:
+        return (
+            "candidate_better"
+            if completion["candidate"] > completion["baseline"]
+            else "baseline_better"
+        )
+    important = dimensions["important"]
+    if important["candidate"] != important["baseline"]:
+        return (
+            "candidate_better"
+            if important["candidate"] < important["baseline"]
+            else "baseline_better"
+        )
+    comparisons = [dimensions["duration_ms"]["baseline"] - dimensions["duration_ms"]["candidate"]]
+    if dimensions["tokens"]["eligible"]:
+        comparisons.append(dimensions["tokens"]["baseline"] - dimensions["tokens"]["candidate"])
+    if all(value >= 0 for value in comparisons) and any(value > 0 for value in comparisons):
+        return "candidate_better"
+    if all(value <= 0 for value in comparisons) and any(value < 0 for value in comparisons):
+        return "baseline_better"
+    if all(value == 0 for value in comparisons):
+        return "equivalent"
+    return "tradeoff"
+
+
+def validate_comparison(value: Any) -> dict[str, Any]:
+    result = _mapping(value, "comparison")
+    _exact(result, "comparison", ("schema_version", "producer", "baseline_sha256", "candidate_sha256", "compatible", "mismatches", "quality_gate", "stability_gate", "dimensions", "outcome", "next_action", "limitations"))
+    if result["schema_version"] != "project-eval-comparison/v1":
+        raise EvalError("comparison.schema_version must be project-eval-comparison/v1")
+    _validate_producer(result["producer"], "comparison.producer")
+    _digest(result["baseline_sha256"], "comparison.baseline_sha256")
+    _digest(result["candidate_sha256"], "comparison.candidate_sha256")
+    compatible = _boolean(result["compatible"], "comparison.compatible")
+    mismatches = _unique_strings(result["mismatches"], "comparison.mismatches", maximum=16)
+    if compatible == bool(mismatches):
+        raise EvalError("comparison compatibility and mismatches disagree")
+    quality = _mapping(result["quality_gate"], "comparison.quality_gate")
+    _exact(quality, "comparison.quality_gate", ("baseline", "candidate"))
+    for name in ("baseline", "candidate"):
+        _boolean(quality[name], f"comparison.quality_gate.{name}")
+    stability = _mapping(result["stability_gate"], "comparison.stability_gate")
+    _exact(stability, "comparison.stability_gate", ("baseline", "candidate"))
+    for name in ("baseline", "candidate"):
+        _boolean(stability[name], f"comparison.stability_gate.{name}")
+    dimensions = _mapping(result["dimensions"], "comparison.dimensions")
+    _exact(dimensions, "comparison.dimensions", ("completion", "important", "duration_ms", "tokens"))
+    for name, dimension in dimensions.items():
+        item = _mapping(dimension, f"comparison.dimensions.{name}")
+        _exact(item, f"comparison.dimensions.{name}", ("baseline", "candidate", "eligible"))
+        _boolean(item["eligible"], f"comparison.dimensions.{name}.eligible")
+        for side in ("baseline", "candidate"):
+            if item[side] is not None:
+                _integer(item[side], f"comparison.dimensions.{name}.{side}", 0, 1_000_000_000)
+    for name in ("completion", "important", "duration_ms"):
+        if dimensions[name]["baseline"] is None or dimensions[name]["candidate"] is None:
+            raise EvalError(f"comparison.dimensions.{name} requires numeric values")
+    completion_eligible = (
+        compatible
+        and quality["baseline"]
+        and quality["candidate"]
+        and stability["baseline"]
+        and stability["candidate"]
+    )
+    important_eligible = (
+        completion_eligible
+        and dimensions["completion"]["baseline"]
+        == dimensions["completion"]["candidate"]
+    )
+    efficiency_eligible = (
+        important_eligible
+        and dimensions["important"]["baseline"]
+        == dimensions["important"]["candidate"]
+    )
+    expected_eligibility = {
+        "completion": completion_eligible,
+        "important": important_eligible,
+        "duration_ms": efficiency_eligible,
+        "tokens": efficiency_eligible
+        and dimensions["tokens"]["baseline"] is not None
+        and dimensions["tokens"]["candidate"] is not None,
+    }
+    if any(dimensions[name]["eligible"] != expected for name, expected in expected_eligibility.items()):
+        raise EvalError("comparison dimension eligibility violates the ordered quality gates")
+    outcome = _enum(result["outcome"], "comparison.outcome", {"candidate_better", "baseline_better", "tradeoff", "equivalent", "incompatible", "inconclusive"})
+    expected_outcome = _comparison_outcome(
+        compatible, quality["baseline"], quality["candidate"], stability, dimensions
+    )
+    if outcome != expected_outcome:
+        raise EvalError("comparison outcome does not match its gates and dimensions")
+    next_action = _enum(result["next_action"], "comparison.next_action", {"none", "retry", "decision", "rescope"})
+    expected_next = "none" if outcome in {"equivalent", "candidate_better", "baseline_better"} else "rescope" if outcome == "incompatible" else "decision" if outcome == "tradeoff" else "retry"
+    if next_action != expected_next:
+        raise EvalError("comparison next_action does not match its outcome")
+    limitations = _array(result["limitations"], "comparison.limitations", maximum=64)
+    for index, limitation in enumerate(limitations):
+        _validate_limitation(limitation, f"comparison.limitations[{index}]")
+    codes = {item["code"] for item in limitations}
+    if ("incompatible-runs" in codes) != bool(mismatches):
+        raise EvalError("comparison incompatible-runs limitation does not match mismatches")
+    if ("insufficient-stability" in codes) != (
+        not stability["baseline"] or not stability["candidate"]
+    ):
+        raise EvalError("comparison insufficient-stability limitation does not match its gate")
+    if compatible and any(item["material"] for item in limitations):
+        raise EvalError("a compatible comparison cannot retain a material limitation")
+    if len(_canonical_bytes(result)) > MAX_JSON_BYTES:
+        raise EvalError("canonical comparison exceeds the supported JSON size")
+    return result
+
+
+def render_comparison(result: dict[str, Any]) -> str:
+    lines = [
+        f"Project eval comparison: {result['outcome']} · next {result['next_action']}",
+        f"Compatible: {'yes' if result['compatible'] else 'no'}",
+        f"Quality gates: baseline {'pass' if result['quality_gate']['baseline'] else 'fail'} · candidate {'pass' if result['quality_gate']['candidate'] else 'fail'}",
+        f"Repeated observations: baseline {'yes' if result['stability_gate']['baseline'] else 'no'} · candidate {'yes' if result['stability_gate']['candidate'] else 'no'}",
+        "Dimensions:",
+    ]
+    for name, item in result["dimensions"].items():
+        lines.append(f"- {name}: {item['baseline']} → {item['candidate']} ({'eligible' if item['eligible'] else 'not comparable'})")
+    if result["limitations"]:
+        lines.append("Limitations:")
+        lines.extend(f"- {_display(item['code'])}: {_display(item['message'])}" for item in result["limitations"])
+    return "\n".join(lines)
 
 
 def validate_bundle_evidence(value: Any, *, require_portable: bool) -> dict[str, Any]:
@@ -889,10 +1692,19 @@ def _display(value: str) -> str:
 
 def render_run(result: dict[str, Any]) -> str:
     suite = result["suite"]
+    summary = result["summary"]
     lines = [
         f"Project eval: {_display(suite['suite_id'])} / {_display(suite['profile'])}",
         f"Status: {result['completion']} · {result['outcome']} · next {result['next_action']}",
         f"Run: {_display(result['run_id'])}",
+        f"Last observation: {summary['last_observation']} · stability {summary['stability']}",
+        f"Remaining failures: required {summary['required_failures']} · important {summary['important_failures']} · forbidden effects {summary['forbidden_effect_failures']}",
+        f"Measurements: {summary['duration_ms']} ms · tokens "
+        + (
+            str(summary["tokens"]["value"])
+            if summary["tokens"]["value"] is not None
+            else "unavailable"
+        ),
     ]
     if not result["cases"]:
         lines.append("Cases: none recorded")
@@ -901,12 +1713,16 @@ def render_run(result: dict[str, Any]) -> str:
         for case in result["cases"]:
             lines.append(
                 f"- {_display(case['case_id'])}: {case['status']} "
-                f"({case['passed']}/{case['repetitions']} passed, importance {case['importance']})"
+                f"({case['passed']}/{case['repetitions']} passed, last {case['last_observation']}, "
+                f"{case['stability']}, importance {case['importance']})"
             )
-    material = [item for item in result["limitations"] if item["material"]]
-    if material:
-        lines.append("Material limitations:")
-        lines.extend(f"- {_display(item['code'])}: {_display(item['message'])}" for item in material)
+    if result["limitations"]:
+        lines.append("Limitations:")
+        lines.extend(
+            f"- {'material' if item['material'] else 'advisory'} · "
+            f"{_display(item['code'])}: {_display(item['message'])}"
+            for item in result["limitations"]
+        )
     return "\n".join(lines)
 
 
@@ -1566,6 +2382,27 @@ def _parser() -> argparse.ArgumentParser:
     run_attempt_command.add_argument("--allow-network", action="store_true")
     run_attempt_command.add_argument("--output")
 
+    run_profile_command = commands.add_parser(
+        "run-codex-profile",
+        help="explicitly run and grade one complete bounded Codex profile",
+    )
+    run_profile_command.add_argument("--repo", required=True)
+    run_profile_command.add_argument("--eval-root", default="evals/project")
+    run_profile_command.add_argument("--suite", required=True)
+    run_profile_command.add_argument("--profile", required=True)
+    run_profile_command.add_argument("--workspace-root", required=True)
+    run_profile_command.add_argument("--host-root", required=True)
+    run_profile_command.add_argument("--model", required=True)
+    run_profile_command.add_argument("--reasoning", required=True)
+    run_profile_command.add_argument("--capability", action="append", default=[])
+    run_profile_command.add_argument("--allow-network", action="store_true")
+    run_profile_command.add_argument("--allow-hidden-grader", action="store_true")
+    run_profile_command.add_argument("--allow-project-checks", action="store_true")
+    run_profile_command.add_argument("--output")
+    run_profile_command.add_argument("--format", choices=("human", "json"), default="human")
+    run_profile_command.add_argument("--store", action="store_true")
+    run_profile_command.add_argument("--state-root")
+
     calibrate_command = commands.add_parser("calibrate-reconstruction", help="prove one reconstruction fixture's deterministic boundaries")
     calibrate_command.add_argument("--repo", required=True)
     calibrate_command.add_argument("--eval-root", default="evals/project")
@@ -1584,12 +2421,18 @@ def _parser() -> argparse.ArgumentParser:
     respond_command.add_argument("--question", required=True)
 
     validate_artifact_command = commands.add_parser("validate-artifact", help="validate one canonical protocol artifact")
-    validate_artifact_command.add_argument("--kind", choices=("suite", "run", "candidate", "experiment", "suite-audit"), required=True)
+    validate_artifact_command.add_argument("--kind", choices=("suite", "run", "comparison", "candidate", "experiment", "suite-audit"), required=True)
     validate_artifact_command.add_argument("--input", required=True)
 
     render = commands.add_parser("render", help="render a validated run result")
     render.add_argument("--input", required=True)
     render.add_argument("--format", choices=("human", "json"), default="human")
+
+    compare = commands.add_parser("compare-runs", help="compare two exact-condition canonical run results")
+    compare.add_argument("--baseline", required=True)
+    compare.add_argument("--candidate", required=True)
+    compare.add_argument("--format", choices=("human", "json"), default="human")
+    compare.add_argument("--output")
 
     state_info_command = commands.add_parser("state-info", help="show private evidence namespace information")
     state_info_command.add_argument("--repo", required=True)
@@ -1754,6 +2597,31 @@ def main(argv: list[str] | None = None) -> int:
                     raise EvalError("attempt output must remain outside the evaluated workspace")
                 write_created_output(output, _canonical_bytes(attempt) + b"\n")
             _write_stdout(attempt, canonical=True)
+        elif args.command == "run-codex-profile":
+            repository = Path(args.repo)
+            result = run_codex_profile(
+                repository,
+                args.eval_root,
+                args.suite,
+                args.profile,
+                args.model,
+                args.reasoning,
+                Path(args.workspace_root),
+                Path(args.host_root),
+                set(args.capability),
+                allow_network=args.allow_network,
+                allow_hidden_grader=args.allow_hidden_grader,
+                allow_project_checks=args.allow_project_checks,
+            )
+            if args.output:
+                output = _external_workspace_path(repository, args.output, "run result output")
+                workspace_root = Path(args.workspace_root).absolute()
+                if output == workspace_root or workspace_root in output.parents:
+                    raise EvalError("run result output must remain outside the evaluated workspace root")
+                write_created_output(output, _canonical_bytes(result) + b"\n")
+            if args.store:
+                _store_local_result(repository, _state_root(args.state_root), result)
+            _write_stdout(result if args.format == "json" else render_run(result), canonical=args.format == "json")
         elif args.command == "calibrate-reconstruction":
             repository = Path(args.repo)
             _, case, _, fixture = _case_components(repository, args.eval_root, args.suite, args.case)
@@ -1783,6 +2651,16 @@ def main(argv: list[str] | None = None) -> int:
             value, _ = _load_json(args.input, "run result")
             result = validate_run_result(value)
             _write_stdout(result if args.format == "json" else render_run(result), canonical=args.format == "json")
+        elif args.command == "compare-runs":
+            baseline, _ = _load_json(args.baseline, "baseline run result")
+            candidate, _ = _load_json(args.candidate, "candidate run result")
+            comparison = compare_runs(baseline, candidate)
+            if args.output:
+                write_created_output(Path(args.output).absolute(), _canonical_bytes(comparison) + b"\n")
+            _write_stdout(
+                comparison if args.format == "json" else render_comparison(comparison),
+                canonical=args.format == "json",
+            )
         elif args.command == "state-info":
             _write_stdout(state_info(Path(args.repo), _state_root(args.state_root)), canonical=True)
         elif args.command == "state-init":

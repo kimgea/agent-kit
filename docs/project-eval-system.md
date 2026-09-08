@@ -3,8 +3,9 @@
 ## Status
 
 This document records the selected design for a coordinated local evaluation
-system. It is an implementation contract, not a claim that the four skills
-already exist. Delivery is tracked in
+system. The independently installable `project-eval` vertical slice is
+implemented in this source tree; the three audit and experiment skills remain
+tracked delivery work. Delivery is tracked in
 [`project-eval-system`](../.claude/prds/project-eval-system.md).
 
 ## Purpose
@@ -153,9 +154,40 @@ available, writable areas, network state, and other effects form one cumulative
 envelope. Retries consume the envelope. Reaching a cap returns a partial
 canonical result.
 
+Validate definitions without an agent:
+
+```bash
+python skills/project-eval/scripts/project_eval.py validate-suite \
+  --repo . --eval-root evals/project --suite suite.json
+```
+
+Run the selected profile only after explicitly accepting its committed cases,
+repetitions, effects, and cumulative limits:
+
+```bash
+python skills/project-eval/scripts/project_eval.py run-codex-profile \
+  --repo . --eval-root evals/project --suite suite.json --profile smoke \
+  --workspace-root /tmp/project-eval-work --host-root /tmp/project-eval-host \
+  --model MODEL --reasoning medium --allow-project-checks
+```
+
+The command preflights all selected fixtures before its first model call,
+creates a fresh sanitized workspace for every repetition, deletes raw captures
+and workspaces, and returns human output by default. Add `--format json` for a
+canonical consumer result. `--store` is optional and requires prior explicit
+private `state-init`.
+
 Correctness and forbidden effects are hard gates. Completion across repetitions
 and important-case performance come next. Time and tokens compare only variants
 that meet the quality threshold. Results may remain Pareto tradeoffs.
+
+`compare-runs` accepts two validated run results only when suite, target,
+profile, complete runner configuration, case order, repetitions, fixtures, and
+graders match exactly. It is intended for repeat observations under identical
+conditions; controlled harness variants are owned by
+`eval-harness-experiment`. A comparison exposes duration and token differences
+only after both runs pass their correctness gate. It never folds the dimensions
+into one score.
 
 An experiment claims `clear_improvement` only for a paired baseline/candidate
 run with matching conditions when the candidate:
@@ -180,6 +212,12 @@ The result records agent, adapter, model, reasoning configuration, loaded
 skills/instructions when observable, and exact content/configuration digests.
 Measurements identify whether they were observed by the host, reported by the
 runner, or unavailable.
+
+Canonical and human run reports share one validated source. Both identify the
+last observation, remaining required and important failures, stability status,
+duration and token provenance, limitations, and the eligible next action. One
+repetition per case is explicitly labeled `single_observation`, not stability
+evidence.
 
 V1 directly supports and tests one fixed Codex runner. The grading and import
 contracts are agent-neutral. Claude and other agents can produce recorded

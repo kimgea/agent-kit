@@ -1,0 +1,5 @@
+{
+  "loader": ["load_manifest", "parse_routes"],
+  "duplicate_behavior": ["ignore", "overwrite", "raises_value_error"],
+  "result_shape": ["list_of_routes", "route_name_to_handler"]
+}

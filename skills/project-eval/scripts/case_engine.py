@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import importlib.util
 import json
@@ -268,7 +269,7 @@ def validate_control(value: Any) -> dict[str, Any]:
             raise CaseError(f"duplicate assertion_id: {assertion_id}")
         assertion_ids.add(assertion_id)
         kind = assertion["kind"]
-        if kind not in {"file_exists", "file_absent", "file_contains", "file_not_contains", "text_equals", "json_equals"}:
+        if kind not in {"file_exists", "file_absent", "file_contains", "file_not_contains", "text_equals", "json_equals", "python_mapping_lookup"}:
             raise CaseError(f"{label}.kind is unsupported")
         _relative(assertion["path"], f"{label}.path")
         expected = assertion["expected"]
@@ -277,6 +278,17 @@ def validate_control(value: Any) -> dict[str, Any]:
                 raise CaseError(f"{label}.expected must be null for {kind}")
         elif kind in {"file_contains", "file_not_contains", "text_equals"}:
             _text(expected, f"{label}.expected")
+        elif kind == "python_mapping_lookup":
+            expected = _mapping(expected, f"{label}.expected")
+            _exact(
+                expected,
+                f"{label}.expected",
+                ("function", "mapping_argument", "key_argument"),
+            )
+            for field in ("function", "mapping_argument", "key_argument"):
+                value = _text(expected[field], f"{label}.expected.{field}", maximum=128)
+                if not value.isidentifier():
+                    raise CaseError(f"{label}.expected.{field} must be a Python identifier")
         else:
             if len(_canonical(expected)) > MAX_JSON_BYTES:
                 raise CaseError(f"{label}.expected is too large")
@@ -702,6 +714,37 @@ def _grade_assertion(workspace: Path, assertion: dict[str, Any]) -> tuple[bool, 
         if kind == "file_not_contains":
             return expected not in text, "forbidden text absence"
         return text == expected, "exact text equality"
+    if kind == "python_mapping_lookup":
+        try:
+            tree = ast.parse(raw)
+        except (SyntaxError, ValueError):
+            return False, "fixed Python mapping lookup"
+        expected = assertion["expected"]
+        functions = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == expected["function"]
+        ]
+        if len(functions) != 1:
+            return False, "fixed Python mapping lookup"
+        function = functions[0]
+        arguments = [argument.arg for argument in function.args.args]
+        body = list(function.body)
+        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str):
+            body = body[1:]
+        passed = (
+            len(arguments) >= 2
+            and arguments[0] == expected["mapping_argument"]
+            and arguments[1] == expected["key_argument"]
+            and len(body) == 1
+            and isinstance(body[0], ast.Return)
+            and isinstance(body[0].value, ast.Subscript)
+            and isinstance(body[0].value.value, ast.Name)
+            and body[0].value.value.id == expected["mapping_argument"]
+            and isinstance(body[0].value.slice, ast.Name)
+            and body[0].value.slice.id == expected["key_argument"]
+        )
+        return passed, "fixed Python mapping lookup"
     try:
         value = json.loads(raw.decode("utf-8", "strict"))
     except (UnicodeDecodeError, json.JSONDecodeError):

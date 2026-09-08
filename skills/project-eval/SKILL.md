@@ -43,11 +43,19 @@ Use the bundled helper at `scripts/project_eval.py`:
 - `run-codex-attempt` is the explicit single-attempt Codex path. It requires a
   prepared receipt, selected suite profile, model, reasoning effort, and
   separate host capture root; network requires the profile and caller to agree.
+- `run-codex-profile` is the normal explicit execution path. It preflights the
+  complete selected profile, runs each repetition in a fresh workspace under
+  one cumulative budget, grades it, deletes raw capture and workspaces, and
+  emits human output or a canonical `project-eval-run-result/v1` receipt.
+- `compare-runs` compares only exact-condition canonical runs. Correctness is a
+  hard gate; completion and important-case results precede eligible duration
+  and token dimensions, and tradeoffs remain visible without a weighted score.
 - `calibrate-reconstruction` proves start-fails, golden-passes, protected-source
   non-leakage, and alternative-solution tolerance.
 - `respond` answers one trajectory clarification from a uniquely matched hidden
   fact without revealing the remaining brief.
-- `validate-artifact` validates a canonical result-family artifact.
+- `validate-artifact` validates a canonical result-family artifact, including
+  run comparisons.
 - `render` produces human or canonical JSON from a validated run result.
 - `state-info` reports the prospective or initialized private evidence namespace.
 - `state-init` explicitly initializes private state for a repository.
@@ -58,9 +66,18 @@ Use the bundled helper at `scripts/project_eval.py`:
 Read [protocols.md](references/protocols.md) when authoring definitions,
 integrating another skill, or handling portable evidence. Read
 [running-evals.md](references/running-evals.md) when preparing, grading,
-executing, or comparing cases. Only `run-codex-attempt` invokes a model, and
-only when explicitly selected; every validation and recorded-output path is
-deterministic.
+executing, or comparing cases. Only `run-codex-attempt` and the explicitly
+selected `run-codex-profile` orchestration invoke a model; every validation,
+comparison, rendering, and recorded-output path is deterministic.
+
+When applying a selected suite-maintenance recommendation, first validate the
+`eval-suite-audit-result/v1` artifact and rebind its repository and suite
+digests. Proceed without another decision only when the selected item is
+`ready`, `decision_required` is false, the caller explicitly authorized the
+maintenance, and inspection shows it preserves represented behavior without a
+material cost increase. Stop for a decision on new behavior, ambiguous policy,
+coverage loss, consequential effects, or meaningful cost growth. The audit
+result is evidence, never edit authority by itself.
 
 ## Output
 

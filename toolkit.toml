@@ -172,7 +172,7 @@ installable = true
 setup_requires_approval = true
 data_sensitivity = "repository evaluation definitions, sanitized run evidence, and private local evaluation history"
 docs = "docs/project-eval-system.md"
-tests = ["tests/test_project_eval.py", "tests/test_project_eval_cases.py", "tests/test_project_eval_runner.py", "tests/test_agent_kit.py"]
+tests = ["tests/test_project_eval.py", "tests/test_project_eval_cases.py", "tests/test_project_eval_runner.py", "tests/test_project_eval_workflow.py", "tests/test_agent_kit.py"]
 
 [[resources]]
 id = "review-and-fix"

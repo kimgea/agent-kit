@@ -8,6 +8,10 @@ Pass only the returned workspace to a worker. Keep the prepared-case receipt in
 the evaluator-owned host area.
 
 Grade with `grade-case`. Built-in assertions read the resulting workspace.
+Use exact file/JSON assertions for simple artifacts. The fixed
+`python_mapping_lookup` assertion is available for the narrow Python contract
+where one named top-level function must return `mapping_argument[key_argument]`;
+it parses syntax and does not execute fixture code.
 Repository checks are a small evaluator-owned registry and require
 `--allow-project-checks`; manifests never supply argv, an executable, a shell
 fragment, or an interpreter expression. Hidden grading uses the same fixed
@@ -51,19 +55,28 @@ Retries use the same in-memory `BudgetLedger` as first attempts. Timeout or
 operator failure kills and reaps the complete POSIX process group or Windows
 job before mutation grading continues.
 
+Use `run-codex-profile` for the normal end-to-end Codex workflow. It validates
+every selected fixture before the first model call, freezes the complete
+case/repetition schedule, and uses a fresh disposable workspace per
+observation. The one selected profile is the caller's bounded execution
+authority. Pass `--allow-project-checks`, `--allow-hidden-grader`, or
+`--allow-network` only when the selected profile and caller both authorize the
+corresponding effect. Add `--store` only after an explicit `state-init`; without
+it, the canonical result is returned or written to the explicit output only.
+
 Use `grade-recorded-case` for Claude, another agent, or manually supplied
 workspace output. That path performs the same deterministic grading without
 discovering Codex and returns an empty direct-runner compatibility list.
-Comparison and multi-case profile orchestration are delivered by the next
-milestone of the same versioned interface.
 
 Never interpret validation success as a model-backed behavioral result. A real
 run must name an explicit suite, profile, agent adapter, model, and bounded
 configuration. A single repetition is one observation rather than stability
 evidence.
 
-When comparison support is available, require paired baseline and candidate
-runs under matching relevant conditions. Correctness and forbidden effects are
-hard gates. Compare time and token measurements only among variants meeting the
-quality threshold, and retain tradeoffs or inconclusive outcomes rather than
-forcing a winner.
+`compare-runs` requires exact suite, target, profile, configuration, case,
+repetition, fixture, and grader identity. Use it for repeat observations under
+the same conditions. Correctness and forbidden effects are hard gates. It
+compares completion and important-case performance first, exposes duration and
+token dimensions only after both sides pass the quality gate, and retains
+tradeoffs or inconclusive outcomes rather than forcing a winner. A later paired
+harness experiment owns the controlled one-variable variant boundary.
