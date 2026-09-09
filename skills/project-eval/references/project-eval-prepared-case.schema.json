@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-kit.invalid/schemas/project-eval-prepared-case-v1.json",
+  "title": "Project eval prepared case v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "case_id", "kind", "coverage", "workspace", "workspace_identity_sha256", "workspace_initial_sha256", "control_sha256", "fixture_sha256", "preparation_sha256"],
+  "properties": {
+    "schema_version": {"const": "project-eval-prepared-case/v1"},
+    "case_id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+    "kind": {"enum": ["explanation", "implementation", "trajectory"]},
+    "coverage": {"enum": ["development", "holdout", "regression"]},
+    "workspace": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?:/|[A-Za-z]:[\\\\/]|\\\\\\\\)[^\\u0000-\\u001f\\u007f]*$"},
+    "workspace_identity_sha256": {"$ref": "#/$defs/sha"},
+    "workspace_initial_sha256": {"$ref": "#/$defs/sha"},
+    "control_sha256": {"$ref": "#/$defs/sha"},
+    "fixture_sha256": {"$ref": "#/$defs/sha"},
+    "preparation_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

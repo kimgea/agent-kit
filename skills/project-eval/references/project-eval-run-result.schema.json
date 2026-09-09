@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-kit.invalid/schemas/project-eval-run-result-v1.json",
+  "title": "Project eval run result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "producer", "suite", "source", "target", "configuration", "completion", "outcome", "next_action", "cases", "summary", "limitations"],
+  "properties": {
+    "schema_version": {"const": "project-eval-run-result/v1"},
+    "run_id": {"$ref": "#/$defs/run_id"},
+    "producer": {"$ref": "#/$defs/producer"},
+    "suite": {"$ref": "#/$defs/suite"},
+    "source": {"$ref": "#/$defs/source"},
+    "target": {"$ref": "#/$defs/target"},
+    "configuration": {"$ref": "#/$defs/configuration"},
+    "completion": {"enum": ["complete", "incomplete"]},
+    "outcome": {"enum": ["pass", "fail", "unknown"]},
+    "next_action": {"enum": ["none", "retry", "triage", "decision", "authorization", "rescope", "manual"]},
+    "cases": {"type": "array", "maxItems": 50000, "items": {"$ref": "#/$defs/case_result"}},
+    "summary": {"$ref": "#/$defs/summary"},
+    "limitations": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/$defs/limitation"}}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"outcome": {"const": "pass"}}, "required": ["outcome"]},
+      "then": {"properties": {"cases": {"minItems": 1}}}
+    }
+  ],
+  "$defs": {
+    "identifier": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+    "safe_value": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:+/@-]{0,127}$"},
+    "profile_id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$"},
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "producer": {"type": "object", "additionalProperties": false, "required": ["name", "version"], "properties": {"name": {"$ref": "#/$defs/identifier"}, "version": {"$ref": "#/$defs/safe_value"}}},
+    "suite": {"type": "object", "additionalProperties": false, "required": ["suite_id", "suite_sha256", "profile"], "properties": {"suite_id": {"$ref": "#/$defs/identifier"}, "suite_sha256": {"$ref": "#/$defs/sha"}, "profile": {"$ref": "#/$defs/profile_id"}}},
+    "source": {"type": "object", "additionalProperties": false, "required": ["kind", "authority", "bundle_sha256"], "properties": {"kind": {"enum": ["local", "imported"]}, "authority": {"const": "evidence_only"}, "bundle_sha256": {"anyOf": [{"$ref": "#/$defs/sha"}, {"type": "null"}]}}, "allOf": [{"if": {"properties": {"kind": {"const": "local"}}}, "then": {"properties": {"bundle_sha256": {"type": "null"}}}}, {"if": {"properties": {"kind": {"const": "imported"}}}, "then": {"properties": {"bundle_sha256": {"$ref": "#/$defs/sha"}}}}]},
+    "target": {"type": "object", "additionalProperties": false, "required": ["repository_sha256", "definition_sha256", "fixture_set_sha256", "revision"], "properties": {"repository_sha256": {"$ref": "#/$defs/sha"}, "definition_sha256": {"$ref": "#/$defs/sha"}, "fixture_set_sha256": {"$ref": "#/$defs/sha"}, "revision": {"anyOf": [{"type": "string", "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$"}, {"type": "null"}]}}},
+    "configuration": {"type": "object", "additionalProperties": false, "required": ["runner", "runner_version", "agent", "model", "reasoning", "platform", "environment_sha256", "adapter_sha256", "launcher_sha256", "instructions_sha256", "profile_sha256", "configuration_sha256"], "properties": {"runner": {"$ref": "#/$defs/profile_id"}, "runner_version": {"$ref": "#/$defs/safe_value"}, "agent": {"$ref": "#/$defs/profile_id"}, "model": {"anyOf": [{"$ref": "#/$defs/profile_id"}, {"type": "null"}]}, "reasoning": {"anyOf": [{"$ref": "#/$defs/profile_id"}, {"type": "null"}]}, "platform": {"enum": ["linux", "windows", "macos"]}, "environment_sha256": {"$ref": "#/$defs/sha"}, "adapter_sha256": {"$ref": "#/$defs/sha"}, "launcher_sha256": {"$ref": "#/$defs/sha"}, "instructions_sha256": {"$ref": "#/$defs/sha"}, "profile_sha256": {"$ref": "#/$defs/sha"}, "configuration_sha256": {"$ref": "#/$defs/sha"}}},
+    "measurement": {"type": "object", "additionalProperties": false, "required": ["value", "provenance"], "properties": {"value": {"type": ["integer", "null"], "minimum": 0, "maximum": 1000000000}, "provenance": {"enum": ["host_observed", "runner_reported", "unavailable"]}}},
+    "evidence": {"type": "object", "additionalProperties": false, "required": ["evidence_id", "kind", "status", "sha256", "summary", "redacted"], "properties": {"evidence_id": {"$ref": "#/$defs/profile_id"}, "kind": {"enum": ["assertion", "check", "measurement", "failure"]}, "status": {"enum": ["pass", "fail", "unknown", "informational"]}, "sha256": {"$ref": "#/$defs/sha"}, "summary": {"type": "string", "minLength": 1, "maxLength": 500}, "redacted": {"const": true}}},
+    "case_result": {"type": "object", "additionalProperties": false, "required": ["case_id", "importance", "status", "last_observation", "stability", "repetitions", "passed", "failed", "forbidden_effect_failures", "duration_ms", "tokens", "target_sha256", "grader_sha256", "observation_sha256s", "evidence", "limitations"], "properties": {"case_id": {"$ref": "#/$defs/identifier"}, "importance": {"enum": ["required", "important", "standard", "exploratory"]}, "status": {"enum": ["passed", "failed", "unavailable", "not_applicable", "incomplete"]}, "last_observation": {"enum": ["passed", "failed", "incomplete", "unavailable", "not_applicable", "none"]}, "stability": {"enum": ["single_observation", "repeated_observations", "insufficient"]}, "repetitions": {"type": "integer", "minimum": 0, "maximum": 100}, "passed": {"type": "integer", "minimum": 0, "maximum": 100}, "failed": {"type": "integer", "minimum": 0, "maximum": 100}, "forbidden_effect_failures": {"type": "integer", "minimum": 0, "maximum": 100}, "duration_ms": {"type": ["integer", "null"], "minimum": 0, "maximum": 604800000}, "tokens": {"$ref": "#/$defs/measurement"}, "target_sha256": {"$ref": "#/$defs/sha"}, "grader_sha256": {"$ref": "#/$defs/sha"}, "observation_sha256s": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/sha"}}, "evidence": {"type": "array", "maxItems": 512, "items": {"$ref": "#/$defs/evidence"}}, "limitations": {"type": "array", "maxItems": 256, "items": {"$ref": "#/$defs/limitation"}}}},
+    "summary": {"type": "object", "additionalProperties": false, "required": ["total_cases", "passed_cases", "failed_cases", "unavailable_cases", "total_repetitions", "passed_repetitions", "failed_repetitions", "required_failures", "important_failures", "forbidden_effect_failures", "last_observation", "stability", "duration_ms", "tokens"], "properties": {"total_cases": {"type": "integer", "minimum": 0, "maximum": 604800000}, "passed_cases": {"type": "integer", "minimum": 0, "maximum": 604800000}, "failed_cases": {"type": "integer", "minimum": 0, "maximum": 604800000}, "unavailable_cases": {"type": "integer", "minimum": 0, "maximum": 604800000}, "total_repetitions": {"type": "integer", "minimum": 0, "maximum": 604800000}, "passed_repetitions": {"type": "integer", "minimum": 0, "maximum": 604800000}, "failed_repetitions": {"type": "integer", "minimum": 0, "maximum": 604800000}, "required_failures": {"type": "integer", "minimum": 0, "maximum": 50000}, "important_failures": {"type": "integer", "minimum": 0, "maximum": 50000}, "forbidden_effect_failures": {"type": "integer", "minimum": 0, "maximum": 50000}, "last_observation": {"enum": ["passed", "failed", "incomplete", "unavailable", "not_applicable", "none"]}, "stability": {"enum": ["single_observation", "repeated_observations", "insufficient"]}, "duration_ms": {"type": "integer", "minimum": 0, "maximum": 604800000}, "tokens": {"$ref": "#/$defs/measurement"}}},
+    "limitation": {"type": "object", "additionalProperties": false, "required": ["code", "message", "material"], "properties": {"code": {"$ref": "#/$defs/profile_id"}, "message": {"type": "string", "minLength": 1, "maxLength": 2000}, "material": {"type": "boolean"}}}
+  }
+}

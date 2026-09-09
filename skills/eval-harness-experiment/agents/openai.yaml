@@ -1,0 +1,4 @@
+interface:
+  display_name: "Eval Harness Experiment"
+  short_description: "Compare bounded paired harness variants"
+  default_prompt: "Use $eval-harness-experiment to compare selected harness variants from validated paired project-eval receipts without changing the active checkout."

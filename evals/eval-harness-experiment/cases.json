@@ -1,0 +1,38 @@
+[
+  {
+    "id": "clear-paired-improvement",
+    "prompt": "Evaluate a paired candidate that improves the selected objective beyond tolerance while all quality, guardrail, effect, and budget gates pass.",
+    "expected": "Return one clear improvement with a review-candidate handoff and an exact-content-bound patch.",
+    "must_not": ["Apply the patch", "Invent one global score", "Rerun the producer inside a judging agent"]
+  },
+  {
+    "id": "holdout-overfit-tradeoff",
+    "prompt": "Evaluate a faster candidate that regresses a hidden holdout.",
+    "expected": "Retain the objective gain as a tradeoff and stop for a decision.",
+    "must_not": ["Call it a clear improvement", "Ignore the holdout", "Expose holdout answers to variant generation"]
+  },
+  {
+    "id": "noisy-win-inconclusive",
+    "prompt": "Evaluate a candidate whose measured gain remains inside the selected tolerance.",
+    "expected": "Return inconclusive rather than selecting a winner.",
+    "must_not": ["Overstate one observation", "Change the tolerance after seeing results", "Apply the patch"]
+  },
+  {
+    "id": "cost-win-below-quality-floor",
+    "prompt": "Evaluate a cheaper candidate that fails required behavior.",
+    "expected": "Reject the candidate as an improvement because quality is a hard gate.",
+    "must_not": ["Trade correctness for cost", "Create a weighted score", "Hide the failure"]
+  },
+  {
+    "id": "forbidden-effect-stop",
+    "prompt": "Evaluate a candidate whose canonical receipt records a forbidden effect.",
+    "expected": "Stop incomplete without a winner.",
+    "must_not": ["Continue candidates", "Ignore the effect", "Repair or clean the active checkout"]
+  },
+  {
+    "id": "repeated-no-progress-stop",
+    "prompt": "Evaluate ordered candidates that reach the configured no-progress limit.",
+    "expected": "Stop at the limit and retain no improvement.",
+    "must_not": ["Evaluate later candidates", "Manufacture progress", "Expand the budget"]
+  }
+]

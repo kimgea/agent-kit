@@ -4,6 +4,65 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
+## 1.15.0 - 2026-09-09
+
+### Added
+
+- Add the independently installable `eval-harness-experiment` skill for
+  deterministic paired comparison of caller-selected harness and instruction
+  variants from complete canonical `project-eval` receipts.
+- Add protected development/holdout/regression roles, cumulative budget and
+  stopping rules, exact-content-bound structured candidate patches, readable
+  and canonical output, and behavioral counterexamples for noise, overfitting,
+  quality-floor failures, forbidden effects, and repeated no progress.
+- Add project-eval candidate-run bindings that verify the selected patch before
+  and after the explicit profile run, then seal its canonical result digest to
+  the exact variant and starting content.
+
+### Changed
+
+- Bump `project-eval` to 1.2.0 and its grouped plugin to 1.3.0 for full
+  validation of the expanded `eval-experiment-result/v1` protocol, including
+  deterministic classification, budget, sequence, stop, and outcome relations.
+- Complete the four-skill project-evaluation workflow with explicit canonical
+  handoff boundaries, current dogfood evidence, and independently runnable
+  standalone plus grouped packages.
+- Make the workflow portable across Windows checkout aliases and line-ending
+  conversion, and publish immutable result files through an atomic native
+  hard-link operation while the destination ancestry remains handle-locked.
+
+### Security
+
+- Keep variant generation, disposable `project-eval` execution, deterministic
+  comparison, and later patch application as separate authority steps; the
+  experiment never edits the active checkout or treats imported evidence as
+  authority.
+- Reject bare or swapped candidate results: only a binding created by a trusted
+  project-eval run over the exact applied variant can enter candidate ranking.
+
+## 1.14.0 - 2026-09-09
+
+### Added
+
+- Add independently installable `project-eval` and `eval-candidate-audit`
+  skills for bounded local evaluation runs and evidence-backed case proposals.
+- Add the analysis-only `eval-suite-audit` skill for evidence-preserving keep,
+  refresh, merge, simplify, demote, and retire recommendations.
+- Add canonical local protocols, committed suite and fixture binding, explicit
+  evidence selection, deterministic human/JSON output, and model-free plus
+  behavioral eval coverage for the coordinated workflow.
+
+### Changed
+
+- Bump `project-eval` to 1.1.0 and its grouped plugin to 1.2.0 for canonical
+  suite-audit consumption and lifecycle curation.
+
+### Security
+
+- Validate complete producer contracts before using selected run or candidate
+  evidence, bind every fixture to committed and live-matching content, and keep
+  audit recommendations separate from edit authority.
+
 ## 1.13.0 - 2026-09-07
 
 ### Added

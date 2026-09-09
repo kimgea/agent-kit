@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-kit.invalid/schemas/eval-experiment-result-v1.json",
+  "title": "Eval harness experiment result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "producer", "context_sha256", "completion", "outcome", "next_action", "objective", "requirements", "guardrail_tolerances", "repository", "baseline", "candidates", "budget", "stop", "limitations"],
+  "properties": {
+    "schema_version": {"const": "eval-experiment-result/v1"},
+    "producer": {"$ref": "#/$defs/producer"},
+    "context_sha256": {"$ref": "#/$defs/sha"},
+    "completion": {"enum": ["complete", "incomplete"]},
+    "outcome": {"enum": ["clear_improvement", "tradeoff", "inconclusive", "no_improvement", "incomplete"]},
+    "next_action": {"enum": ["none", "review_candidate", "decision", "retry", "manual"]},
+    "objective": {"$ref": "#/$defs/objective"},
+    "requirements": {"$ref": "#/$defs/requirements"},
+    "guardrail_tolerances": {"$ref": "#/$defs/tolerances"},
+    "repository": {"$ref": "#/$defs/repository"},
+    "baseline": {"$ref": "#/$defs/baseline"},
+    "candidates": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/candidate"}},
+    "budget": {"$ref": "#/$defs/budget_result"},
+    "stop": {"$ref": "#/$defs/stop"},
+    "limitations": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/limitation"}}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+    "safe": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:+/@-]{0,127}$"},
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "revision": {"type": "string", "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$"},
+    "path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\)(?!.*//)[^\\u0000-\\u001f\\u007f/](?:[^\\u0000-\\u001f\\u007f]*[^\\u0000-\\u001f\\u007f/])?$"},
+    "producer": {
+      "type": "object", "additionalProperties": false, "required": ["name", "version"],
+      "properties": {"name": {"const": "eval-harness-experiment"}, "version": {"$ref": "#/$defs/safe"}}
+    },
+    "objective": {
+      "type": "object", "additionalProperties": false, "required": ["metric", "direction", "tolerance", "target"],
+      "properties": {
+        "metric": {"enum": ["correctness", "completion", "time", "tokens", "cost"]}, "direction": {"enum": ["increase", "decrease"]},
+        "tolerance": {"type": "number", "minimum": 0, "maximum": 1000000000}, "target": {"type": ["number", "null"], "minimum": 0, "maximum": 1000000000}
+      }
+    },
+    "requirements": {
+      "type": "object", "additionalProperties": false, "required": ["minimum_repetitions", "no_progress_limit"],
+      "properties": {"minimum_repetitions": {"type": "integer", "minimum": 2, "maximum": 100}, "no_progress_limit": {"type": "integer", "minimum": 1, "maximum": 64}}
+    },
+    "tolerances": {
+      "type": "object", "additionalProperties": false, "required": ["correctness", "completion", "time", "tokens", "cost"],
+      "properties": {
+        "correctness": {"type": "number", "minimum": 0, "maximum": 1}, "completion": {"type": "number", "minimum": 0, "maximum": 1},
+        "time": {"type": "number", "minimum": 0, "maximum": 1000000000}, "tokens": {"type": "number", "minimum": 0, "maximum": 1000000000},
+        "cost": {"type": "number", "minimum": 0, "maximum": 1000000000}
+      }
+    },
+    "repository": {
+      "type": "object", "additionalProperties": false, "required": ["revision", "repository_sha256"],
+      "properties": {"revision": {"$ref": "#/$defs/revision"}, "repository_sha256": {"$ref": "#/$defs/sha"}}
+    },
+    "metrics": {
+      "type": "object", "additionalProperties": false, "required": ["correctness", "completion", "time", "tokens", "cost"],
+      "properties": {
+        "correctness": {"type": "number", "minimum": 0, "maximum": 1}, "completion": {"type": "number", "minimum": 0, "maximum": 1},
+        "time": {"type": "number", "minimum": 0, "maximum": 31536000}, "tokens": {"type": ["number", "null"], "minimum": 0, "maximum": 1000000000},
+        "cost": {"type": ["number", "null"], "minimum": 0, "maximum": 1000000}
+      }
+    },
+    "baseline": {
+      "type": "object", "additionalProperties": false,
+      "required": ["run_sha256s", "condition_sha256", "metrics", "complete", "required_cases_passed", "required_repetitions_met", "protected_cases_passed", "effect_breach"],
+      "properties": {
+        "run_sha256s": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": {"$ref": "#/$defs/sha"}},
+        "condition_sha256": {"$ref": "#/$defs/sha"}, "metrics": {"$ref": "#/$defs/metrics"},
+        "complete": {"type": "boolean"}, "required_cases_passed": {"type": "boolean"}, "required_repetitions_met": {"type": "boolean"},
+        "protected_cases_passed": {"type": "boolean"}, "effect_breach": {"type": "boolean"}
+      }
+    },
+    "change": {
+      "type": "object", "additionalProperties": false, "required": ["path", "before_sha256", "after_sha256", "after_text"],
+      "properties": {"path": {"$ref": "#/$defs/path"}, "before_sha256": {"$ref": "#/$defs/sha"}, "after_sha256": {"$ref": "#/$defs/sha"}, "after_text": {"type": "string", "maxLength": 1048576}}
+    },
+    "patch": {
+      "type": "object", "additionalProperties": false, "required": ["rationale", "patch_sha256", "base_repository_sha256", "changes"],
+      "properties": {
+        "rationale": {"type": "string", "minLength": 1, "maxLength": 2000}, "patch_sha256": {"$ref": "#/$defs/sha"},
+        "base_repository_sha256": {"$ref": "#/$defs/sha"}, "changes": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"$ref": "#/$defs/change"}}
+      }
+    },
+    "evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["evidence_id", "kind", "baseline_sha256", "candidate_sha256", "case_ids", "summary", "redacted"],
+      "properties": {
+        "evidence_id": {"$ref": "#/$defs/id"}, "kind": {"const": "run_receipt"}, "baseline_sha256": {"$ref": "#/$defs/sha"},
+        "candidate_sha256": {"$ref": "#/$defs/sha"}, "case_ids": {"type": "array", "minItems": 1, "maxItems": 512, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 500}, "redacted": {"const": true}
+      }
+    },
+    "candidate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sequence", "rank", "candidate_id", "patch", "run_sha256s", "condition_sha256", "classification", "objective_delta", "required_repetitions_met", "required_cases_passed", "protected_cases_passed", "guardrail_regression", "effect_breach", "budget_breach", "metrics", "evidence", "limitations"],
+      "properties": {
+        "sequence": {"type": "integer", "minimum": 1, "maximum": 64}, "rank": {"type": "integer", "minimum": 1, "maximum": 64}, "candidate_id": {"$ref": "#/$defs/id"}, "patch": {"$ref": "#/$defs/patch"},
+        "run_sha256s": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": {"$ref": "#/$defs/sha"}}, "condition_sha256": {"$ref": "#/$defs/sha"},
+        "classification": {"enum": ["clear_improvement", "tradeoff", "inconclusive", "no_improvement", "incomplete"]}, "objective_delta": {"type": ["number", "null"], "minimum": -1000000000, "maximum": 1000000000},
+        "required_repetitions_met": {"type": "boolean"}, "required_cases_passed": {"type": "boolean"}, "protected_cases_passed": {"type": "boolean"}, "guardrail_regression": {"type": "boolean"},
+        "effect_breach": {"type": "boolean"}, "budget_breach": {"type": "boolean"}, "metrics": {"$ref": "#/$defs/metrics"},
+        "evidence": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/evidence"}},
+        "limitations": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/limitation"}}
+      }
+    },
+    "budget_limits": {
+      "type": "object", "additionalProperties": false, "required": ["max_candidates", "max_run_receipts", "max_seconds", "max_tokens", "max_cost_usd"],
+      "properties": {
+        "max_candidates": {"type": "integer", "minimum": 1, "maximum": 64}, "max_run_receipts": {"type": "integer", "minimum": 1, "maximum": 512},
+        "max_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 31536000}, "max_tokens": {"type": ["number", "null"], "minimum": 1, "maximum": 1000000000},
+        "max_cost_usd": {"type": ["number", "null"], "minimum": 0, "maximum": 1000000}
+      }
+    },
+    "consumed": {
+      "type": "object", "additionalProperties": false, "required": ["candidates", "run_receipts", "seconds", "tokens", "cost_usd"],
+      "properties": {
+        "candidates": {"type": "integer", "minimum": 0, "maximum": 64}, "run_receipts": {"type": "integer", "minimum": 0, "maximum": 512},
+        "seconds": {"type": "number", "minimum": 0, "maximum": 31536000}, "tokens": {"type": ["number", "null"], "minimum": 0, "maximum": 1000000000},
+        "cost_usd": {"type": ["number", "null"], "minimum": 0, "maximum": 1000000}
+      }
+    },
+    "budget_result": {
+      "type": "object", "additionalProperties": false, "required": ["limits", "consumed"],
+      "properties": {"limits": {"$ref": "#/$defs/budget_limits"}, "consumed": {"$ref": "#/$defs/consumed"}}
+    },
+    "stop": {
+      "type": "object", "additionalProperties": false, "required": ["reason", "after_candidate_id"],
+      "properties": {"reason": {"enum": ["candidates_exhausted", "target_achieved", "no_progress", "budget_exhausted", "source_drift", "forbidden_effect", "decision_required"]}, "after_candidate_id": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]}}
+    },
+    "limitation": {
+      "type": "object", "additionalProperties": false, "required": ["code", "message", "material"],
+      "properties": {"code": {"$ref": "#/$defs/id"}, "message": {"type": "string", "minLength": 1, "maxLength": 2000}, "material": {"type": "boolean"}}
+    }
+  }
+}

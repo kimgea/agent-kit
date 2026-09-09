@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-kit.invalid/schemas/project-eval-runner-attempt-v1.json",
+  "title": "Project eval runner attempt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "case_id", "status", "error_category", "exit_code", "timed_out", "duration_ms", "tokens", "cost_microusd", "commands", "workspace_before_sha256", "workspace_after_sha256", "workspace_changed", "preparation_sha256", "fixture_sha256", "control_sha256", "configuration", "prompt_sha256", "result_sha256", "events_sha256", "errors_sha256", "effect_errors", "budget_exhausted", "unobservable_budgets", "attempt_sha256"],
+  "properties": {
+    "schema_version": {"const": "project-eval-runner-attempt/v1"},
+    "case_id": {"$ref": "#/$defs/id"},
+    "status": {"enum": ["completed", "failed", "timed_out", "budget_exceeded"]},
+    "error_category": {"anyOf": [{"enum": ["timeout", "runner_failure", "effect_violation", "budget_exceeded"]}, {"type": "null"}]},
+    "exit_code": {"type": ["integer", "null"], "minimum": -2147483648, "maximum": 2147483647},
+    "timed_out": {"type": "boolean"},
+    "duration_ms": {"$ref": "#/$defs/measurement"},
+    "tokens": {"$ref": "#/$defs/measurement"},
+    "cost_microusd": {"$ref": "#/$defs/measurement"},
+    "commands": {"$ref": "#/$defs/measurement"},
+    "workspace_before_sha256": {"$ref": "#/$defs/sha"},
+    "workspace_after_sha256": {"$ref": "#/$defs/sha"},
+    "workspace_changed": {"type": "boolean"},
+    "preparation_sha256": {"$ref": "#/$defs/sha"},
+    "fixture_sha256": {"$ref": "#/$defs/sha"},
+    "control_sha256": {"$ref": "#/$defs/sha"},
+    "configuration": {"$ref": "#/$defs/configuration"},
+    "prompt_sha256": {"$ref": "#/$defs/sha"},
+    "result_sha256": {"anyOf": [{"$ref": "#/$defs/sha"}, {"type": "null"}]},
+    "events_sha256": {"$ref": "#/$defs/sha"},
+    "errors_sha256": {"$ref": "#/$defs/sha"},
+    "effect_errors": {"type": "array", "maxItems": 4, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 200}},
+    "budget_exhausted": {"anyOf": [{"enum": ["invocations", "time", "tokens", "cost"]}, {"type": "null"}]},
+    "unobservable_budgets": {"type": "array", "maxItems": 2, "uniqueItems": true, "items": {"enum": ["tokens", "cost"]}},
+    "attempt_sha256": {"$ref": "#/$defs/sha"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "measurement": {"type": "object", "additionalProperties": false, "required": ["value", "provenance"], "properties": {"value": {"type": ["integer", "null"], "minimum": 0, "maximum": 1000000000}, "provenance": {"enum": ["host_observed", "runner_reported", "unavailable"]}}},
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runner", "runner_version", "agent", "model", "reasoning", "platform", "environment_sha256", "adapter_sha256", "launcher_sha256", "argv_sha256", "instructions_sha256", "network", "effects", "configuration_sha256"],
+      "properties": {
+        "runner": {"const": "codex-exec"},
+        "runner_version": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$"},
+        "agent": {"const": "codex"},
+        "model": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+        "reasoning": {"enum": ["low", "medium", "high", "xhigh", "max", "ultra"]},
+        "platform": {"enum": ["linux", "windows", "macos"]},
+        "environment_sha256": {"$ref": "#/$defs/sha"},
+        "adapter_sha256": {"$ref": "#/$defs/sha"},
+        "launcher_sha256": {"$ref": "#/$defs/sha"},
+        "argv_sha256": {"$ref": "#/$defs/sha"},
+        "instructions_sha256": {"$ref": "#/$defs/sha"},
+        "network": {"type": "boolean"},
+        "effects": {"type": "array", "maxItems": 16, "uniqueItems": true, "items": {"enum": ["workspace_edit", "command_execution", "local_output", "external_read"]}},
+        "configuration_sha256": {"$ref": "#/$defs/sha"}
+      }
+    }
+  }
+}

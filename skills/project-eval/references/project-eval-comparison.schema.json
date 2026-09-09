@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-kit.invalid/schemas/project-eval-comparison-v1.json",
+  "title": "Project eval comparison v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "producer", "baseline_sha256", "candidate_sha256", "compatible", "mismatches", "quality_gate", "stability_gate", "dimensions", "outcome", "next_action", "limitations"],
+  "properties": {
+    "schema_version": {"const": "project-eval-comparison/v1"},
+    "producer": {"$ref": "#/$defs/producer"},
+    "baseline_sha256": {"$ref": "#/$defs/sha"},
+    "candidate_sha256": {"$ref": "#/$defs/sha"},
+    "compatible": {"type": "boolean"},
+    "mismatches": {"type": "array", "maxItems": 16, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
+    "quality_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "candidate"],
+      "properties": {"baseline": {"type": "boolean"}, "candidate": {"type": "boolean"}}
+    },
+    "stability_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "candidate"],
+      "properties": {"baseline": {"type": "boolean"}, "candidate": {"type": "boolean"}}
+    },
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["completion", "important", "duration_ms", "tokens"],
+      "properties": {
+        "completion": {"$ref": "#/$defs/dimension"},
+        "important": {"$ref": "#/$defs/dimension"},
+        "duration_ms": {"$ref": "#/$defs/dimension"},
+        "tokens": {"$ref": "#/$defs/dimension"}
+      }
+    },
+    "outcome": {"enum": ["candidate_better", "baseline_better", "tradeoff", "equivalent", "incompatible", "inconclusive"]},
+    "next_action": {"enum": ["none", "retry", "decision", "rescope"]},
+    "limitations": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/limitation"}}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "identifier": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+    "safe_value": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:+/@-]{0,127}$"},
+    "producer": {"type": "object", "additionalProperties": false, "required": ["name", "version"], "properties": {"name": {"$ref": "#/$defs/identifier"}, "version": {"$ref": "#/$defs/safe_value"}}},
+    "dimension": {"type": "object", "additionalProperties": false, "required": ["baseline", "candidate", "eligible"], "properties": {"baseline": {"type": ["integer", "null"], "minimum": 0, "maximum": 1000000000}, "candidate": {"type": ["integer", "null"], "minimum": 0, "maximum": 1000000000}, "eligible": {"type": "boolean"}}},
+    "limitation": {"type": "object", "additionalProperties": false, "required": ["code", "message", "material"], "properties": {"code": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"}, "message": {"type": "string", "minLength": 1, "maxLength": 2000}, "material": {"type": "boolean"}}}
+  }
+}

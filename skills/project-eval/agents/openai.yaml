@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Eval"
+  short_description: "Run and compare local repository evals"
+  default_prompt: "Use $project-eval to validate the selected repository eval suite, and run or compare it only when I explicitly request the bounded operation."

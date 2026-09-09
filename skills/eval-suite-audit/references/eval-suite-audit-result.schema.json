@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-kit.invalid/schemas/eval-suite-audit-result-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "producer", "context_sha256", "completion", "outcome", "next_action", "repository_sha256", "suite_digest", "recommendations", "limitations"],
+  "properties": {
+    "schema_version": {"const": "eval-suite-audit-result/v1"},
+    "producer": {"$ref": "#/$defs/producer"},
+    "context_sha256": {"$ref": "#/$defs/sha"},
+    "completion": {"enum": ["complete", "incomplete"]},
+    "outcome": {"enum": ["pass", "maintenance_recommended", "unknown"]},
+    "next_action": {"enum": ["none", "maintain", "decision", "retry", "manual"]},
+    "repository_sha256": {"$ref": "#/$defs/sha"},
+    "suite_digest": {"$ref": "#/$defs/sha"},
+    "recommendations": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/$defs/recommendation"}},
+    "limitations": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/$defs/limitation"}}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "producer": {"type": "object", "additionalProperties": false, "required": ["name", "version"], "properties": {"name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}, "version": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:+/@-]{0,127}$"}}},
+    "evidence": {"type": "object", "additionalProperties": false, "required": ["evidence_id", "kind", "sha256", "summary", "redacted"], "properties": {"evidence_id": {"$ref": "#/$defs/id"}, "kind": {"enum": ["session_summary", "run_receipt", "assertion", "measurement", "repository"]}, "sha256": {"$ref": "#/$defs/sha"}, "summary": {"type": "string", "minLength": 1, "maxLength": 500}, "redacted": {"const": true}}},
+    "limitation": {"type": "object", "additionalProperties": false, "required": ["code", "message", "material"], "properties": {"code": {"$ref": "#/$defs/id"}, "message": {"type": "string", "minLength": 1, "maxLength": 2000}, "material": {"type": "boolean"}}},
+    "replacement": {"type": "object", "additionalProperties": false, "required": ["status", "case_ids", "explanation"], "properties": {"status": {"enum": ["none", "partial", "complete", "unknown"]}, "case_ids": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}, "explanation": {"type": "string", "minLength": 1, "maxLength": 2000}}},
+    "recommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recommendation_id", "case_ids", "action", "strength", "reason", "confidence", "evidence", "basis", "unique_coverage", "replacement_coverage", "coverage_effect", "cost_effect", "decision_required", "ready", "limitations"],
+      "properties": {
+        "recommendation_id": {"$ref": "#/$defs/id"},
+        "case_ids": {"type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "action": {"enum": ["keep", "refresh", "merge", "simplify", "demote", "retire"]},
+        "strength": {"enum": ["strong", "moderate", "optional"]},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "confidence": {"enum": ["high", "medium", "low", "unknown"]},
+        "evidence": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"$ref": "#/$defs/evidence"}},
+        "basis": {"enum": ["removed_behavior", "duplicate_coverage", "superseded_coverage", "obsolete_fixture", "obsolete_architecture", "no_unique_agent_value", "cost_without_unique_coverage", "healthy_unique_coverage", "stale_but_relevant", "compaction", "other"]},
+        "unique_coverage": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "replacement_coverage": {"$ref": "#/$defs/replacement"},
+        "coverage_effect": {"enum": ["preserved", "loss", "changed", "unknown"]},
+        "cost_effect": {"enum": ["decrease", "none", "increase", "unknown"]},
+        "decision_required": {"type": "boolean"},
+        "ready": {"type": "boolean"},
+        "limitations": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/limitation"}}
+      }
+    }
+  }
+}

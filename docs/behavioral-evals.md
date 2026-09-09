@@ -12,6 +12,9 @@ python scripts/behavioral_eval.py check --suite project-review
 python scripts/behavioral_eval.py check --suite review-and-fix
 python scripts/behavioral_eval.py check --suite verification-harness-audit
 python scripts/behavioral_eval.py check --suite verify-project
+python scripts/behavioral_eval.py check --suite eval-candidate-audit
+python scripts/behavioral_eval.py check --suite eval-suite-audit
+python scripts/behavioral_eval.py check --suite eval-harness-experiment
 ```
 
 GitHub Actions runs only that deterministic path. It does not invoke Codex,
@@ -188,6 +191,14 @@ The executable suites currently cover:
 | `review-and-fix` | Review-and-fix workflow result | Exact declared existing files only |
 | `verification-harness-audit` | Verification-harness audit result | No mutations |
 | `verify-project` | Verification result | Only predeclared disposable outputs |
+| `eval-candidate-audit` | Eval-candidate result | No mutations |
+| `eval-suite-audit` | Eval-suite-audit result | No mutations |
+| `eval-harness-experiment` | Eval-experiment result | Isolated variants only; no active-checkout mutations |
+
+`project-eval` also has a committed deterministic suite under `evals/project/`.
+It uses the installed skill's own validator and explicit local runner rather than
+the repository behavioral adapter; model-backed profile runs remain opt-in and
+outside CI.
 
 `review-and-fix` selects one reviewer per case from a code-owned allowlist:
 `project-review` v1, `review-guidance-audit` v1, or

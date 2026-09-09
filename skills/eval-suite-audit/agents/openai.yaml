@@ -1,0 +1,4 @@
+interface:
+  display_name: "Eval Suite Audit"
+  short_description: "Audit eval suite lifecycle without editing definitions"
+  default_prompt: "Use $eval-suite-audit to assess this committed evaluation suite and return evidence-backed lifecycle recommendations without changing it."

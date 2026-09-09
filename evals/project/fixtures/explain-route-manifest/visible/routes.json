@@ -1,0 +1,4 @@
+[
+  {"name": "health", "handler": "health.check"},
+  {"name": "users", "handler": "users.list"}
+]

@@ -1,0 +1,53 @@
+{
+  "schema_version": "project-eval-suite/v1",
+  "suite_id": "agent-kit-project-eval",
+  "title": "Agent Kit project-eval vertical slice",
+  "cases": [
+    {
+      "case_id": "explain-route-manifest",
+      "title": "Explain route manifest validation",
+      "kind": "explanation",
+      "importance": "important",
+      "fixture": "fixtures/explain-route-manifest",
+      "task": "Read this small project and classify its route-manifest behavior in answer.json. Follow the three-field format and allowed values in answer.schema.json, selecting each value from the implementation rather than guessing. Do not use network access.",
+      "coverage": "development",
+      "platforms": ["linux", "windows", "macos"],
+      "required_capabilities": [],
+      "assertion_ids": ["structured-explanation"]
+    },
+    {
+      "case_id": "implement-route-lookup",
+      "title": "Implement route lookup",
+      "kind": "implementation",
+      "importance": "required",
+      "fixture": "fixtures/implement-route-lookup",
+      "task": "Implement get_route in routes.py. It must return the handler for a known route name and raise KeyError for an unknown name. Keep the public signature and existing load_manifest behavior. Do not use network access.",
+      "coverage": "development",
+      "platforms": ["linux", "windows", "macos"],
+      "required_capabilities": [],
+      "assertion_ids": ["mapping-lookup"]
+    }
+  ],
+  "profiles": {
+    "smoke": {
+      "case_ids": ["explain-route-manifest", "implement-route-lookup"],
+      "repetitions": 1,
+      "max_invocations": 2,
+      "max_seconds": 300,
+      "max_tokens": null,
+      "max_cost_usd": null,
+      "network": false,
+      "effects": ["workspace_edit", "command_execution"]
+    },
+    "compare": {
+      "case_ids": ["explain-route-manifest", "implement-route-lookup"],
+      "repetitions": 3,
+      "max_invocations": 6,
+      "max_seconds": 900,
+      "max_tokens": null,
+      "max_cost_usd": null,
+      "network": false,
+      "effects": ["workspace_edit", "command_execution"]
+    }
+  }
+}

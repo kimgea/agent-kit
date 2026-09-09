@@ -18,7 +18,7 @@ roles and composition rules that govern future work.
 
 ## Current foundation
 
-Agent Kit already has three useful workflow areas:
+Agent Kit already has four useful workflow areas:
 
 1. Impact, review, verification, and local remediation: `change-impact`,
    `project-review`, `review-guidance-audit`, `verification-harness-audit`,
@@ -26,6 +26,8 @@ Agent Kit already has three useful workflow areas:
 2. Interactive explanation: `build-interactive-diagram` and `serve-artifacts`.
 3. Local context and work support: `agent-context`, `grill-me`, `todo-capture`,
    and `tool-audit`.
+4. Local project evaluation: `project-eval`, `eval-candidate-audit`,
+   `eval-harness-experiment`, and `eval-suite-audit`.
 
 The review family already proves several selected ecosystem principles:
 lead-owned targets, analysis/action separation, canonical producer results,
@@ -39,6 +41,34 @@ implemented. Impact results may inform later review and verification scope, but
 they never expand it automatically. The next likely capability should be
 promoted only from real failed-verification evidence, not from a speculative
 taxonomy.
+
+## Shipped foundation: project evaluation system
+
+The selected next delivery is a coordinated local evaluation family:
+
+- `project-eval` defines, runs, grades, compares, imports, and exports repository
+  evaluations;
+- `eval-candidate-audit` proposes cases from explicitly selected session
+  evidence;
+- `eval-suite-audit` recommends evidence-preserving suite maintenance; and
+- `eval-harness-experiment` compares bounded harness variants in disposable
+  workspaces.
+
+The execution, candidate-mining, lifecycle-curation, and paired-experiment
+slices are implemented, dogfooded, and packaged over separate stable result
+contracts. Deterministic consumer checks bind targets, configuration, schemas,
+digests, evidence, and authority at every handoff.
+
+The design is local-first, agent-neutral at its protocol boundary, and fully
+usable from a fresh clone without private history. Model calls remain explicit
+and outside ordinary CI. A scheduled external runner may eventually consume the
+same CLI and bundles, but GitHub publishing and automated pull requests are not
+part of the initial implementation.
+
+See the [project evaluation system design](project-eval-system.md),
+[`project-eval-system` PRD](../.claude/prds/project-eval-system.md), and delivery
+record under `.claude/epics/archived/project-eval-system/` for implementation
+and delivery evidence.
 
 ## Shipped foundation: change-impact
 
