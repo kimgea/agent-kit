@@ -1,7 +1,7 @@
 ---
 name: project-eval-system
 description: Define, run, improve, and retire local agent evaluations through a portable four-skill protocol family.
-status: active
+status: completed
 created: 2026-09-08T13:34:04Z
 ---
 

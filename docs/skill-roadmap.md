@@ -67,8 +67,8 @@ part of the initial implementation.
 
 See the [project evaluation system design](project-eval-system.md),
 [`project-eval-system` PRD](../.claude/prds/project-eval-system.md), and delivery
-record under `.claude/epics/project-eval-system/` while final exact-head gates
-are in progress.
+record under `.claude/epics/archived/project-eval-system/` for implementation
+and delivery evidence.
 
 ## Shipped foundation: change-impact
 
