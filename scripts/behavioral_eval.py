@@ -1592,8 +1592,17 @@ def _prepare_eval_harness_experiment_fixture(fixture: Path) -> None:
     if completed.returncode != 0:
         raise EvalError("cannot bind eval harness fixture HEAD")
     head = completed.stdout.decode("ascii").strip()
-    surface_path = fixture / "AGENTS.md"
-    surface = _read_bytes(surface_path, "eval harness surface", 1024 * 1024)
+    committed_surface = subprocess.run(
+        ["git", "cat-file", "blob", "HEAD:AGENTS.md"],
+        cwd=fixture,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=30,
+        check=False,
+    )
+    if committed_surface.returncode != 0 or len(committed_surface.stdout) > 1024 * 1024:
+        raise EvalError("cannot bind committed eval harness surface")
+    surface = committed_surface.stdout
     surface_sha = hashlib.sha256(surface).hexdigest()
     repository_sha = _sha256_json(
         {

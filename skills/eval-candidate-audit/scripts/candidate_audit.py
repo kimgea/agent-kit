@@ -234,8 +234,27 @@ def _source_sessions(source: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _relative_existing_path(path: Path, root: Path) -> str:
+    """Resolve an existing path beneath a physical root across Windows aliases."""
+    absolute = path.absolute()
+    boundary = root.absolute()
+    for ancestor in (absolute, *absolute.parents):
+        try:
+            matches = os.path.samefile(ancestor, boundary)
+        except OSError:
+            matches = False
+        if matches:
+            return path_safety.canonical_path(absolute.relative_to(ancestor).as_posix())
+    raise AuditError(f"path stays outside the selected root: {path}")
+
+
 def _repository_digest(root: Path, excluded: set[Path]) -> str:
-    excluded_absolute = {path.absolute() for path in excluded}
+    try:
+        excluded_identities = {
+            path_safety.filesystem_alias_identity(path) for path in excluded
+        }
+    except (OSError, path_safety.SafetyError) as exc:
+        raise AuditError(f"cannot bind excluded repository input: {exc}") from exc
     ignored_roots = {".git", ".eval-results", "dist", "__pycache__"}
     pending = [root]
     records: list[dict[str, Any]] = []
@@ -258,9 +277,12 @@ def _repository_digest(root: Path, excluded: set[Path]) -> str:
             traversed_entries += 1
             if directory == root and entry.name in ignored_roots:
                 continue
-            if entry.path.absolute() in excluded_absolute:
+            if entry.identity in excluded_identities:
                 continue
-            relative = entry.path.relative_to(root).as_posix()
+            try:
+                relative = _relative_existing_path(entry.path, root)
+            except AuditError as exc:
+                raise AuditError(f"repository entry escaped the selected root: {exc}") from exc
             if entry.link_like:
                 raise AuditError(f"repository snapshot contains a link-like entry: {relative}")
             if entry.is_directory:
@@ -421,8 +443,9 @@ def resolve_context(repo: Path, source_path: Path, suite_path: Path | None) -> d
     if suite_path is not None:
         candidate = (suite_path if suite_path.is_absolute() else repository_root / suite_path).absolute()
         try:
-            candidate.relative_to(repository_root)
-        except ValueError as exc:
+            relative = _relative_existing_path(candidate, repository_root)
+            candidate = path_safety.safe_repo_path(repository_root, relative)
+        except (AuditError, path_safety.SafetyError) as exc:
             raise AuditError("suite must stay inside the selected repository") from exc
         suite_value, suite_raw = _read_json(candidate, "project eval suite")
         _, existing_cases = _validate_suite(suite_value)

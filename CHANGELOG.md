@@ -27,6 +27,9 @@ in `toolkit.toml`.
 - Complete the four-skill project-evaluation workflow with explicit canonical
   handoff boundaries, current dogfood evidence, and independently runnable
   standalone plus grouped packages.
+- Make the workflow portable across Windows checkout aliases and line-ending
+  conversion, and publish immutable result files through the supported native
+  absolute-destination rename contract.
 
 ### Security
 

@@ -221,7 +221,7 @@ def _repository(root: Path) -> tuple[Path, str, str]:
     head = _git(original, "rev-parse", "--verify", "HEAD").decode("ascii").strip()
     if HEAD_RE.fullmatch(head) is None:
         raise AuditError("Git HEAD is not a supported object identifier")
-    return original, head, _sha_bytes(_canonical_bytes({"git_head": head}))
+    return top, head, _sha_bytes(_canonical_bytes({"git_head": head}))
 
 
 def _unique_identifiers(value: Any, label: str, *, minimum: int = 0, maximum: int = 256) -> list[str]:
@@ -286,6 +286,28 @@ def _validate_suite(value: Any) -> dict[str, Any]:
     return suite
 
 
+def _portable_fixture_bytes(content: bytes, label: str) -> bytes:
+    try:
+        _, normalized = path_safety.canonical_text(content, label)
+    except path_safety.SafetyError:
+        return content
+    return normalized
+
+
+def _relative_existing_path(path: Path, root: Path) -> str:
+    """Resolve an existing path beneath a physical root across Windows aliases."""
+    absolute = path.absolute()
+    boundary = root.absolute()
+    for ancestor in (absolute, *absolute.parents):
+        try:
+            matches = os.path.samefile(ancestor, boundary)
+        except OSError:
+            matches = False
+        if matches:
+            return path_safety.canonical_path(absolute.relative_to(ancestor).as_posix())
+    raise AuditError(f"path stays outside the selected root: {path}")
+
+
 def _committed_fixture_bindings(
     repository: Path,
     suite_relative: str,
@@ -337,12 +359,13 @@ def _committed_fixture_bindings(
                     total_bytes += len(content)
                     if len(seen_files) > MAX_FIXTURE_FILES or total_bytes > MAX_FIXTURE_BYTES:
                         raise AuditError("committed fixtures exceed the locked aggregate limits")
+                portable = _portable_fixture_bytes(content, path)
                 records.append(
                     {
                         "path": path,
                         "mode": mode,
-                        "bytes": len(content),
-                        "sha256": _sha_bytes(content),
+                        "bytes": len(portable),
+                        "sha256": _sha_bytes(portable),
                     }
                 )
             if not records:
@@ -397,7 +420,10 @@ def _live_fixture_records(
         if not complete:
             raise AuditError("live fixture exceeds the locked traversal limit")
         for entry in entries:
-            relative = entry.path.relative_to(repository).as_posix()
+            try:
+                relative = _relative_existing_path(entry.path, repository)
+            except AuditError as exc:
+                raise AuditError(f"live fixture entry escaped its repository: {exc}") from exc
             if entry.link_like:
                 raise AuditError(f"live fixture contains a link-like entry: {relative}")
             if entry.is_directory:
@@ -418,12 +444,13 @@ def _live_fixture_records(
                 raise AuditError(f"cannot inspect live fixture file: {exc}") from exc
             budget["bytes"] += len(content)
             mode = committed_modes[relative] if os.name == "nt" else "100755" if metadata.st_mode & 0o111 else "100644"
+            portable = _portable_fixture_bytes(content, relative)
             records.append(
                 {
                     "path": relative,
                     "mode": mode,
-                    "bytes": len(content),
-                    "sha256": _sha_bytes(content),
+                    "bytes": len(portable),
+                    "sha256": _sha_bytes(portable),
                 }
             )
     records.sort(key=lambda item: item["path"])

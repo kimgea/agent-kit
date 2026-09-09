@@ -874,30 +874,36 @@ def _read_descriptor(descriptor: int, maximum: int) -> bytes:
     return b"".join(chunks)
 
 
-def _windows_rename_handle(handle: int, parent_handle: int, name: str) -> None:
+def _windows_rename_handle(handle: int, destination: Path) -> None:
     import ctypes
     from ctypes import wintypes
 
     class FileRenameInfo(ctypes.Structure):
         _fields_ = [
-            ("replace_if_exists", wintypes.BOOL),
+            ("flags", wintypes.DWORD),
             ("root_directory", wintypes.HANDLE),
             ("file_name_length", wintypes.DWORD),
-            ("file_name", wintypes.WCHAR * (len(name) + 1)),
+            ("file_name", wintypes.WCHAR * 1),
         ]
 
-    information = FileRenameInfo()
-    information.replace_if_exists = False
-    information.root_directory = wintypes.HANDLE(parent_handle)
-    information.file_name_length = len(name.encode("utf-16-le"))
-    information.file_name = name
+    # SetFileInformationByHandle is portable across supported Windows versions
+    # when RootDirectory is NULL and FileName is absolute. The retained parent
+    # handle chain still prevents ancestor replacement while this path is used.
+    encoded = str(destination.absolute()).encode("utf-16-le")
+    name_offset = FileRenameInfo.file_name.offset
+    storage = ctypes.create_string_buffer(name_offset + len(encoded))
+    information = ctypes.cast(storage, ctypes.POINTER(FileRenameInfo)).contents
+    information.flags = 0
+    information.root_directory = None
+    information.file_name_length = len(encoded)
+    ctypes.memmove(ctypes.addressof(storage) + name_offset, encoded, len(encoded))
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     operation = kernel32.SetFileInformationByHandle
     operation.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD]
     operation.restype = wintypes.BOOL
-    if not operation(wintypes.HANDLE(handle), 3, ctypes.byref(information), ctypes.sizeof(information)):
+    if not operation(wintypes.HANDLE(handle), 3, storage, len(storage)):
         error = ctypes.get_last_error()
-        raise OSError(error, ctypes.FormatError(error), name)
+        raise OSError(error, ctypes.FormatError(error), str(destination))
 
 
 def _windows_delete_handle(handle: int) -> None:
@@ -944,9 +950,7 @@ def publish_immutable_output(
             try:
                 _write_descriptor(descriptor, data)
                 try:
-                    _windows_rename_handle(
-                        msvcrt.get_osfhandle(descriptor), parent_handle, absolute.name
-                    )
+                    _windows_rename_handle(msvcrt.get_osfhandle(descriptor), absolute)
                     renamed = True
                 except OSError as exc:
                     rename_error = exc
