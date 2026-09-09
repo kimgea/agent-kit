@@ -42,7 +42,7 @@ they never expand it automatically. The next likely capability should be
 promoted only from real failed-verification evidence, not from a speculative
 taxonomy.
 
-## Current delivery: project evaluation system
+## Shipped foundation: project evaluation system
 
 The selected next delivery is a coordinated local evaluation family:
 
@@ -55,8 +55,9 @@ The selected next delivery is a coordinated local evaluation family:
   workspaces.
 
 The execution, candidate-mining, lifecycle-curation, and paired-experiment
-slices are implemented over separate stable result contracts. Final integrated
-dogfooding and delivery evidence remain tracked in the active epic.
+slices are implemented, dogfooded, and packaged over separate stable result
+contracts. Deterministic consumer checks bind targets, configuration, schemas,
+digests, evidence, and authority at every handoff.
 
 The design is local-first, agent-neutral at its protocol boundary, and fully
 usable from a fresh clone without private history. Model calls remain explicit
@@ -65,8 +66,9 @@ same CLI and bundles, but GitHub publishing and automated pull requests are not
 part of the initial implementation.
 
 See the [project evaluation system design](project-eval-system.md),
-[`project-eval-system` PRD](../.claude/prds/project-eval-system.md), and active
-epic under `.claude/epics/project-eval-system/`.
+[`project-eval-system` PRD](../.claude/prds/project-eval-system.md), and delivery
+record under `.claude/epics/project-eval-system/` while final exact-head gates
+are in progress.
 
 ## Shipped foundation: change-impact
 

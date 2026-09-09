@@ -391,6 +391,29 @@ confidence, avoid a material cost increase, and retain no material limitation.
 Current definitions are deleted only by a later authorized actor; Git history
 is the archive.
 
+## Integrated handoffs and dogfood
+
+The skills compose through files rather than runtime imports:
+
+| Producer | Canonical handoff | Consumer boundary |
+| --- | --- | --- |
+| `project-eval` | local run receipt or sanitized portable bundle | Candidate and lifecycle analysis treat it as evidence; an experiment accepts a candidate only through a same-run variant binding |
+| `eval-candidate-audit` | candidate recommendation result | Lifecycle or maintenance consumers revalidate the selected suite, evidence, target, and authority before acting |
+| `eval-suite-audit` | lifecycle recommendation result | `project-eval` may apply only an explicitly selected ready, behavior-preserving recommendation under separate edit authority |
+| `eval-harness-experiment` | ranked paired evidence plus exact-content patch | `project-eval` can validate the artifact, but review and patch application remain separate caller-selected actions |
+
+Consumer conformance tests reject mismatched schema versions, repository or
+suite targets, runner configuration, content digests, evidence provenance, and
+claimed authority. A producer's valid JSON never grants its consumer permission
+to run commands, edit definitions, apply a patch, publish, or accept a result.
+
+Agent Kit dogfood covers explanation and implementation runs, reconstruction
+calibration, clarification trajectories, recurring candidate evidence, safe
+suite compaction, paired improvement, quality-floor and holdout tradeoffs,
+forbidden effects, and deterministic no-model validation. Model-backed runs are
+explicit local evidence bound to their exact model and configuration. Ordinary
+validation and hosted CI execute only deterministic checks.
+
 ## Network and future automation
 
 Runs are hermetic and offline by default. Dependencies are prepared before the

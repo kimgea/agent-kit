@@ -24,6 +24,9 @@ in `toolkit.toml`.
 - Bump `project-eval` to 1.2.0 and its grouped plugin to 1.3.0 for full
   validation of the expanded `eval-experiment-result/v1` protocol, including
   deterministic classification, budget, sequence, stop, and outcome relations.
+- Complete the four-skill project-evaluation workflow with explicit canonical
+  handoff boundaries, current dogfood evidence, and independently runnable
+  standalone plus grouped packages.
 
 ### Security
 
