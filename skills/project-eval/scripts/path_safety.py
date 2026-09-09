@@ -419,7 +419,7 @@ def _windows_handle_attributes(handle: int) -> tuple[int, int, int, int]:
 def _windows_locked_parent(
     path: Path, *, final_parent_access: int = 0x00000080
 ) -> Iterator[tuple[Path, int]]:
-    absolute = path.absolute()
+    absolute = Path(os.path.normpath(str(path.absolute())))
     assert_no_link_components(absolute, include_final=False)
     if not absolute.name:
         raise SafetyError(f"path must name a file: {path}")
@@ -874,34 +874,15 @@ def _read_descriptor(descriptor: int, maximum: int) -> bytes:
     return b"".join(chunks)
 
 
-def _windows_rename_handle(handle: int, destination: Path) -> None:
+def _windows_create_hard_link(source: Path, destination: Path) -> None:
     import ctypes
     from ctypes import wintypes
 
-    class FileRenameInfo(ctypes.Structure):
-        _fields_ = [
-            ("flags", wintypes.DWORD),
-            ("root_directory", wintypes.HANDLE),
-            ("file_name_length", wintypes.DWORD),
-            ("file_name", wintypes.WCHAR * 1),
-        ]
-
-    # SetFileInformationByHandle is portable across supported Windows versions
-    # when RootDirectory is NULL and FileName is absolute. The retained parent
-    # handle chain still prevents ancestor replacement while this path is used.
-    encoded = str(destination.absolute()).encode("utf-16-le")
-    name_offset = FileRenameInfo.file_name.offset
-    storage = ctypes.create_string_buffer(name_offset + len(encoded))
-    information = ctypes.cast(storage, ctypes.POINTER(FileRenameInfo)).contents
-    information.flags = 0
-    information.root_directory = None
-    information.file_name_length = len(encoded)
-    ctypes.memmove(ctypes.addressof(storage) + name_offset, encoded, len(encoded))
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    operation = kernel32.SetFileInformationByHandle
-    operation.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD]
+    operation = kernel32.CreateHardLinkW
+    operation.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.LPVOID]
     operation.restype = wintypes.BOOL
-    if not operation(wintypes.HANDLE(handle), 3, storage, len(storage)):
+    if not operation(str(destination), str(source), None):
         error = ctypes.get_last_error()
         raise OSError(error, ctypes.FormatError(error), str(destination))
 
@@ -950,10 +931,11 @@ def publish_immutable_output(
             try:
                 _write_descriptor(descriptor, data)
                 try:
-                    _windows_rename_handle(msvcrt.get_osfhandle(descriptor), absolute)
+                    _windows_create_hard_link(temporary, absolute)
                     renamed = True
                 except OSError as exc:
                     rename_error = exc
+                finally:
                     _windows_delete_handle(msvcrt.get_osfhandle(descriptor))
             finally:
                 os.close(descriptor)

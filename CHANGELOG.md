@@ -28,8 +28,8 @@ in `toolkit.toml`.
   handoff boundaries, current dogfood evidence, and independently runnable
   standalone plus grouped packages.
 - Make the workflow portable across Windows checkout aliases and line-ending
-  conversion, and publish immutable result files through the supported native
-  absolute-destination rename contract.
+  conversion, and publish immutable result files through an atomic native
+  hard-link operation while the destination ancestry remains handle-locked.
 
 ### Security
 
