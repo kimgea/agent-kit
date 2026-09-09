@@ -1128,6 +1128,61 @@ class RecordedGradingTests(unittest.TestCase):
             self.assertIn("missing", message)
 
 
+class EvalHarnessExperimentContractTests(unittest.TestCase):
+    def test_context_bound_validator_accepts_derived_result_and_rejects_forgery(self):
+        suite = behavioral_eval.load_suite(ROOT, "eval-harness-experiment")
+        case = behavioral_eval._case_by_id(suite, "clear-paired-improvement")
+        source = ROOT / "evals" / "eval-harness-experiment" / case["fixture"]
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            fixture = base / "fixture"
+            behavioral_eval.materialize_fixture(source, fixture)
+            behavioral_eval._prepare_eval_harness_experiment_fixture(fixture)
+            context_path = base / "context.json"
+            context = behavioral_eval.resolve_context(
+                suite, case, fixture, context_path, ROOT
+            )
+            result_path = base / "result.json"
+            helper = ROOT / "skills" / "eval-harness-experiment" / "scripts" / "experiment.py"
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-E",
+                    "-S",
+                    str(helper),
+                    "evaluate",
+                    "--context",
+                    str(context_path),
+                    "--format",
+                    "json",
+                    "--output",
+                    str(result_path),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            self.assertEqual(result["outcome"], "clear_improvement")
+            valid, message = behavioral_eval.validate_result_contract(
+                suite, result_path, context_path, ROOT
+            )
+            self.assertTrue(valid, message)
+            bound, message = behavioral_eval._bind_result(suite, context, result)
+            self.assertTrue(bound, message)
+            forged = json.loads(result_path.read_text(encoding="utf-8"))
+            forged["candidates"][0]["patch"]["rationale"] = "Forged"
+            forged_path = base / "forged.json"
+            forged_path.write_text(json.dumps(forged), encoding="utf-8")
+            valid, message = behavioral_eval.validate_result_contract(
+                suite, forged_path, context_path, ROOT
+            )
+            self.assertFalse(valid)
+            self.assertIn("deterministically derived", message)
+
+
 class EvalCandidateAuditContractTests(unittest.TestCase):
     def test_context_bound_validator_rejects_forged_candidate_derivation(self):
         suite = behavioral_eval.load_suite(ROOT, "eval-candidate-audit")

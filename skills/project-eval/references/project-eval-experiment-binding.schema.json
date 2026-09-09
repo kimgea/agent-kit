@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-kit.invalid/schemas/project-eval-experiment-binding-v1.json",
+  "title": "Project-eval experiment run binding v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "producer", "candidate_id", "base_revision", "base_repository_sha256", "patch_sha256", "variant_sha256", "run_result_sha256", "run_result"],
+  "properties": {
+    "schema_version": {"const": "project-eval-experiment-binding/v1"},
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"const": "project-eval"},
+        "version": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:+/@-]{0,127}$"}
+      }
+    },
+    "candidate_id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+    "base_revision": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"},
+    "base_repository_sha256": {"$ref": "#/$defs/sha"},
+    "patch_sha256": {"$ref": "#/$defs/sha"},
+    "variant_sha256": {"$ref": "#/$defs/sha"},
+    "run_result_sha256": {"$ref": "#/$defs/sha"},
+    "run_result": {
+      "type": "object",
+      "description": "A complete canonical project-eval-run-result/v1 validated by both producers."
+    }
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

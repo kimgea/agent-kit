@@ -36,6 +36,7 @@ profile envelope.
 Schemas version independently:
 
 - `project-eval-run-result/v1`;
+- `project-eval-experiment-binding/v1`;
 - `project-eval-comparison/v1`;
 - `project-eval-bundle/v1`;
 - `eval-candidate-result/v1`;
@@ -53,6 +54,21 @@ important-case performance, duration, and tokens into one score.
 
 Canonical JSON is the semantic result. Render human output only after validation.
 Consumers reject incompatible major versions and preserve producer-native states.
+
+`eval-experiment-result/v1` binds one predeclared objective, exact starting
+repository surfaces, baseline and candidate run digests, matching runner
+conditions, protected quality gates, cumulative budget consumption, stop
+reason, and structured candidate patches. A `clear_improvement` requires a
+strict beyond-tolerance gain plus every repetition, required-case, holdout,
+regression, effect, budget, and limitation gate. The result never grants patch
+application authority.
+
+`project-eval-experiment-binding/v1` is emitted only when an explicit profile
+run receives both an experiment variant and a create-only binding destination.
+It binds the complete canonical result to that variant, patch, base revision,
+and starting surfaces after preflight and postflight checks. Run the producer
+from a trusted copy outside the worktree whose harness surfaces are being
+compared.
 
 ## Portable bundles
 

@@ -4,6 +4,36 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
+## 1.15.0 - 2026-09-09
+
+### Added
+
+- Add the independently installable `eval-harness-experiment` skill for
+  deterministic paired comparison of caller-selected harness and instruction
+  variants from complete canonical `project-eval` receipts.
+- Add protected development/holdout/regression roles, cumulative budget and
+  stopping rules, exact-content-bound structured candidate patches, readable
+  and canonical output, and behavioral counterexamples for noise, overfitting,
+  quality-floor failures, forbidden effects, and repeated no progress.
+- Add project-eval candidate-run bindings that verify the selected patch before
+  and after the explicit profile run, then seal its canonical result digest to
+  the exact variant and starting content.
+
+### Changed
+
+- Bump `project-eval` to 1.2.0 and its grouped plugin to 1.3.0 for full
+  validation of the expanded `eval-experiment-result/v1` protocol, including
+  deterministic classification, budget, sequence, stop, and outcome relations.
+
+### Security
+
+- Keep variant generation, disposable `project-eval` execution, deterministic
+  comparison, and later patch application as separate authority steps; the
+  experiment never edits the active checkout or treats imported evidence as
+  authority.
+- Reject bare or swapped candidate results: only a binding created by a trusted
+  project-eval run over the exact applied variant can enter candidate ranking.
+
 ## 1.14.0 - 2026-09-09
 
 ### Added

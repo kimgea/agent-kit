@@ -18,7 +18,7 @@ roles and composition rules that govern future work.
 
 ## Current foundation
 
-Agent Kit already has three useful workflow areas:
+Agent Kit already has four useful workflow areas:
 
 1. Impact, review, verification, and local remediation: `change-impact`,
    `project-review`, `review-guidance-audit`, `verification-harness-audit`,
@@ -26,6 +26,8 @@ Agent Kit already has three useful workflow areas:
 2. Interactive explanation: `build-interactive-diagram` and `serve-artifacts`.
 3. Local context and work support: `agent-context`, `grill-me`, `todo-capture`,
    and `tool-audit`.
+4. Local project evaluation: `project-eval`, `eval-candidate-audit`,
+   `eval-harness-experiment`, and `eval-suite-audit`.
 
 The review family already proves several selected ecosystem principles:
 lead-owned targets, analysis/action separation, canonical producer results,
@@ -40,7 +42,7 @@ they never expand it automatically. The next likely capability should be
 promoted only from real failed-verification evidence, not from a speculative
 taxonomy.
 
-## Next: project evaluation system
+## Current delivery: project evaluation system
 
 The selected next delivery is a coordinated local evaluation family:
 
@@ -52,11 +54,9 @@ The selected next delivery is a coordinated local evaluation family:
 - `eval-harness-experiment` compares bounded harness variants in disposable
   workspaces.
 
-The first milestone is deliberately smaller than the full family: define one
-evaluation, run it locally with Codex, grade it deterministically, return human
-or canonical JSON, and round-trip a sanitized digest-bound evidence bundle.
-Later milestones add candidate mining, lifecycle curation, and paired
-experimentation over the stable result contracts.
+The execution, candidate-mining, lifecycle-curation, and paired-experiment
+slices are implemented over separate stable result contracts. Final integrated
+dogfooding and delivery evidence remain tracked in the active epic.
 
 The design is local-first, agent-neutral at its protocol boundary, and fully
 usable from a fresh clone without private history. Model calls remain explicit

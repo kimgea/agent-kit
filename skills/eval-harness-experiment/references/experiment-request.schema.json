@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-kit.invalid/schemas/eval-harness-experiment-request-v1.json",
+  "title": "Eval harness experiment request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "experiment_id", "objective", "editable_surfaces", "suites", "profile", "runner", "requirements", "guardrail_tolerances", "budget", "baseline", "candidates"],
+  "properties": {
+    "schema_version": {"const": "eval-harness-experiment-request/v1"},
+    "experiment_id": {"$ref": "#/$defs/id"},
+    "objective": {"$ref": "#/$defs/objective"},
+    "editable_surfaces": {"type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/path"}},
+    "suites": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/suite"}},
+    "profile": {"$ref": "#/$defs/id"},
+    "runner": {"$ref": "#/$defs/runner"},
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum_repetitions", "no_progress_limit"],
+      "properties": {
+        "minimum_repetitions": {"type": "integer", "minimum": 2, "maximum": 100},
+        "no_progress_limit": {"type": "integer", "minimum": 1, "maximum": 64}
+      }
+    },
+    "guardrail_tolerances": {"$ref": "#/$defs/metrics"},
+    "budget": {"$ref": "#/$defs/budget"},
+    "baseline": {"$ref": "#/$defs/observation"},
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {"$ref": "#/$defs/candidate"}
+    }
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+    "safe": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:+/@-]{0,127}$"},
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\)(?!.*//)[^\\u0000-\\u001f\\u007f/](?:[^\\u0000-\\u001f\\u007f]*[^\\u0000-\\u001f\\u007f/])?$"},
+    "nullable_number": {"type": ["number", "null"], "minimum": 0, "maximum": 1000000000},
+    "objective": {
+      "type": "object", "additionalProperties": false,
+      "required": ["metric", "direction", "tolerance", "target"],
+      "properties": {
+        "metric": {"enum": ["correctness", "completion", "time", "tokens", "cost"]},
+        "direction": {"enum": ["increase", "decrease"]},
+        "tolerance": {"type": "number", "minimum": 0, "maximum": 1000000000},
+        "target": {"$ref": "#/$defs/nullable_number"}
+      }
+    },
+    "suite": {
+      "type": "object", "additionalProperties": false,
+      "required": ["suite_id", "suite_sha256", "development_case_ids", "holdout_case_ids", "regression_case_ids"],
+      "properties": {
+        "suite_id": {"$ref": "#/$defs/id"}, "suite_sha256": {"$ref": "#/$defs/sha"},
+        "development_case_ids": {"type": "array", "maxItems": 512, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "holdout_case_ids": {"type": "array", "minItems": 1, "maxItems": 512, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "regression_case_ids": {"type": "array", "minItems": 1, "maxItems": 512, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}
+      }
+    },
+    "runner": {
+      "type": "object", "additionalProperties": false,
+      "required": ["runner", "runner_version", "agent", "model", "reasoning", "platform", "environment_sha256", "adapter_sha256", "launcher_sha256", "profile_sha256"],
+      "properties": {
+        "runner": {"$ref": "#/$defs/id"}, "runner_version": {"$ref": "#/$defs/safe"}, "agent": {"$ref": "#/$defs/id"},
+        "model": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+        "reasoning": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+        "platform": {"enum": ["linux", "windows", "macos"]},
+        "environment_sha256": {"$ref": "#/$defs/sha"}, "adapter_sha256": {"$ref": "#/$defs/sha"},
+        "launcher_sha256": {"$ref": "#/$defs/sha"}, "profile_sha256": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "metrics": {
+      "type": "object", "additionalProperties": false,
+      "required": ["correctness", "completion", "time", "tokens", "cost"],
+      "properties": {
+        "correctness": {"type": "number", "minimum": 0, "maximum": 1}, "completion": {"type": "number", "minimum": 0, "maximum": 1},
+        "time": {"type": "number", "minimum": 0, "maximum": 1000000000}, "tokens": {"type": "number", "minimum": 0, "maximum": 1000000000},
+        "cost": {"type": "number", "minimum": 0, "maximum": 1000000000}
+      }
+    },
+    "budget": {
+      "type": "object", "additionalProperties": false,
+      "required": ["max_candidates", "max_run_receipts", "max_seconds", "max_tokens", "max_cost_usd"],
+      "properties": {
+        "max_candidates": {"type": "integer", "minimum": 1, "maximum": 64}, "max_run_receipts": {"type": "integer", "minimum": 1, "maximum": 512},
+        "max_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 31536000}, "max_tokens": {"$ref": "#/$defs/nullable_number"},
+        "max_cost_usd": {"type": ["number", "null"], "minimum": 0, "maximum": 1000000}
+      }
+    },
+    "cost": {
+      "type": "object", "additionalProperties": false, "required": ["value", "provenance"],
+      "properties": {"value": {"type": ["number", "null"], "minimum": 0, "maximum": 1000000}, "provenance": {"enum": ["host_observed", "runner_reported", "unavailable"]}}
+    },
+    "run_ref": {
+      "type": "object", "additionalProperties": false, "required": ["suite_id", "path"],
+      "properties": {"suite_id": {"$ref": "#/$defs/id"}, "path": {"$ref": "#/$defs/path"}}
+    },
+    "observation": {
+      "type": "object", "additionalProperties": false, "required": ["runs", "cost_usd"],
+      "properties": {"runs": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/run_ref"}}, "cost_usd": {"$ref": "#/$defs/cost"}}
+    },
+    "candidate": {
+      "type": "object", "additionalProperties": false, "required": ["candidate_id", "variant_path", "runs", "cost_usd"],
+      "properties": {
+        "candidate_id": {"$ref": "#/$defs/id"}, "variant_path": {"$ref": "#/$defs/path"},
+        "runs": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/run_ref"}}, "cost_usd": {"$ref": "#/$defs/cost"}
+      }
+    }
+  }
+}

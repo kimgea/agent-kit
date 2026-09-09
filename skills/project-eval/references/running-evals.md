@@ -64,6 +64,13 @@ authority. Pass `--allow-project-checks`, `--allow-hidden-grader`, or
 corresponding effect. Add `--store` only after an explicit `state-init`; without
 it, the canonical result is returned or written to the explicit output only.
 
+For a candidate in a paired harness experiment, run this command from a trusted
+project-eval installation outside the variant worktree. Select both
+`--experiment-variant` and `--experiment-binding-output`. The producer verifies
+the worktree's exact selected-surface state before and after the run, rejects
+extra visible changes, and emits a sidecar binding the result to the variant and
+patch. The baseline remains an ordinary canonical local run receipt.
+
 Use `grade-recorded-case` for Claude, another agent, or manually supplied
 workspace output. That path performs the same deterministic grading without
 discovering Codex and returns an empty direct-runner compatibility list.

@@ -22,7 +22,11 @@ exact source-tree digest before and after validation instead.
 |---|---|---|---|
 | `agent-context` | Supported | Supported | Plain Markdown plus standard-library resolver; private registry paths are OS-native |
 | `build-interactive-diagram` | Supported | Supported | Plain HTML/CSS/JS starter; host is optional |
+| `eval-candidate-audit` | Supported | Supported | Standard-library analysis over explicitly selected sanitized evidence; no direct runner |
+| `eval-harness-experiment` | Supported | Supported | Agent-neutral paired-receipt protocol and standard-library comparison; direct run evidence currently exercised with Codex |
+| `eval-suite-audit` | Supported | Supported | Standard-library committed-suite lifecycle analysis; no direct runner |
 | `grill-me` | Supported | Supported | Plain Markdown; no runtime code |
+| `project-eval` | Supported | Supported | Agent-neutral protocols; fixed direct Codex runner tested, recorded-agent evidence supported, live Claude runner untested |
 | `project-review` | Supported | Supported | Standard-library scope/result helpers; Git is needed for change scopes |
 | `review-and-fix` | Supported | Supported | Standard-library batch, plan, verification-adapter, and round helpers; fresh subagents are required for unfamiliar prose and fresh verification/review roles |
 | `review-guidance-audit` | Supported | Supported | Standard-library current-filesystem resolver and canonical result helper; no external service required |

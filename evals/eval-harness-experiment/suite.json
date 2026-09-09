@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "suite": "eval-harness-experiment",
+  "skill": "eval-harness-experiment",
+  "result_contract": "eval-harness-experiment/v1",
+  "default_assertions": [
+    {"id": "canonical-version", "path": "/schema_version", "operator": "equals", "value": "eval-experiment-result/v1"}
+  ],
+  "cases": [
+    {
+      "id": "clear-paired-improvement",
+      "fixture": "fixtures/clear-paired-improvement",
+      "target": {"kind": "path", "path": "AGENTS.md", "start_line": null, "end_line": null},
+      "prompt": "Evaluate the caller-selected paired experiment from the exact resolved context. Return canonical JSON only and do not apply the candidate patch.",
+      "assertions": [
+        {"id": "complete", "path": "/completion", "operator": "equals", "value": "complete"},
+        {"id": "clear", "path": "/outcome", "operator": "equals", "value": "clear_improvement"},
+        {"id": "review", "path": "/next_action", "operator": "equals", "value": "review_candidate"},
+        {"id": "candidate-clear", "path": "/candidates/*/classification", "operator": "any", "value": "clear_improvement"}
+      ],
+      "required_commands": ["skills/eval-harness-experiment/scripts/experiment.py"],
+      "forbidden_commands": []
+    },
+    {
+      "id": "holdout-overfit-tradeoff",
+      "fixture": "fixtures/holdout-overfit-tradeoff",
+      "target": {"kind": "path", "path": "AGENTS.md", "start_line": null, "end_line": null},
+      "prompt": "Evaluate the caller-selected paired experiment from the exact resolved context. Return canonical JSON only and do not apply the candidate patch.",
+      "assertions": [
+        {"id": "tradeoff", "path": "/outcome", "operator": "equals", "value": "tradeoff"},
+        {"id": "decision", "path": "/next_action", "operator": "equals", "value": "decision"},
+        {"id": "regression", "path": "/candidates/*/guardrail_regression", "operator": "any", "value": true}
+      ],
+      "required_commands": ["skills/eval-harness-experiment/scripts/experiment.py"],
+      "forbidden_commands": []
+    },
+    {
+      "id": "noisy-win-inconclusive",
+      "fixture": "fixtures/noisy-win-inconclusive",
+      "target": {"kind": "path", "path": "AGENTS.md", "start_line": null, "end_line": null},
+      "prompt": "Evaluate the caller-selected paired experiment from the exact resolved context. Return canonical JSON only and do not apply the candidate patch.",
+      "assertions": [
+        {"id": "inconclusive", "path": "/outcome", "operator": "equals", "value": "inconclusive"},
+        {"id": "retry", "path": "/next_action", "operator": "equals", "value": "retry"}
+      ],
+      "required_commands": ["skills/eval-harness-experiment/scripts/experiment.py"],
+      "forbidden_commands": []
+    },
+    {
+      "id": "cost-win-below-quality-floor",
+      "fixture": "fixtures/cost-win-below-quality-floor",
+      "target": {"kind": "path", "path": "AGENTS.md", "start_line": null, "end_line": null},
+      "prompt": "Evaluate the caller-selected paired experiment from the exact resolved context. Return canonical JSON only and do not apply the candidate patch.",
+      "assertions": [
+        {"id": "no-improvement", "path": "/outcome", "operator": "equals", "value": "no_improvement"},
+        {"id": "not-clear", "path": "/candidates/*/classification", "operator": "none", "value": "clear_improvement"}
+      ],
+      "required_commands": ["skills/eval-harness-experiment/scripts/experiment.py"],
+      "forbidden_commands": []
+    },
+    {
+      "id": "forbidden-effect-stop",
+      "fixture": "fixtures/forbidden-effect-stop",
+      "target": {"kind": "path", "path": "AGENTS.md", "start_line": null, "end_line": null},
+      "prompt": "Evaluate the caller-selected paired experiment from the exact resolved context. Return canonical JSON only and do not apply the candidate patch.",
+      "assertions": [
+        {"id": "incomplete", "path": "/completion", "operator": "equals", "value": "incomplete"},
+        {"id": "effect-stop", "path": "/stop/reason", "operator": "equals", "value": "forbidden_effect"},
+        {"id": "no-winner", "path": "/candidates/*/classification", "operator": "none", "value": "clear_improvement"}
+      ],
+      "required_commands": ["skills/eval-harness-experiment/scripts/experiment.py"],
+      "forbidden_commands": []
+    },
+    {
+      "id": "repeated-no-progress-stop",
+      "fixture": "fixtures/repeated-no-progress-stop",
+      "target": {"kind": "path", "path": "AGENTS.md", "start_line": null, "end_line": null},
+      "prompt": "Evaluate the caller-selected paired experiment from the exact resolved context. Return canonical JSON only and do not apply the candidate patch.",
+      "assertions": [
+        {"id": "no-progress", "path": "/stop/reason", "operator": "equals", "value": "no_progress"},
+        {"id": "no-winner", "path": "/outcome", "operator": "equals", "value": "no_improvement"}
+      ],
+      "required_commands": ["skills/eval-harness-experiment/scripts/experiment.py"],
+      "forbidden_commands": []
+    }
+  ]
+}

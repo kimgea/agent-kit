@@ -55,7 +55,7 @@ Use the bundled helper at `scripts/project_eval.py`:
 - `respond` answers one trajectory clarification from a uniquely matched hidden
   fact without revealing the remaining brief.
 - `validate-artifact` validates a canonical result-family artifact, including
-  run comparisons.
+  run comparisons and `eval-experiment-result/v1` paired-experiment output.
 - `render` produces human or canonical JSON from a validated run result.
 - `state-info` reports the prospective or initialized private evidence namespace.
 - `state-init` explicitly initializes private state for a repository.
@@ -70,6 +70,13 @@ executing, or comparing cases. Only `run-codex-attempt` and the explicitly
 selected `run-codex-profile` orchestration invoke a model; every validation,
 comparison, rendering, and recorded-output path is deterministic.
 
+When producing candidate evidence for `eval-harness-experiment`, invoke this
+skill from a trusted copy outside the variant worktree and select both
+`--experiment-variant` and `--experiment-binding-output`. The profile run then
+checks the exact applied selected-surface patch before and after execution and
+creates a `project-eval-experiment-binding/v1` sidecar. A bare run result does
+not prove which candidate patch was tested.
+
 When applying a selected suite-maintenance recommendation, first validate the
 `eval-suite-audit-result/v1` artifact and rebind its repository and suite
 digests. Proceed without another decision only when the selected item is
@@ -78,6 +85,11 @@ maintenance, and inspection shows it preserves represented behavior without a
 material cost increase. Stop for a decision on new behavior, ambiguous policy,
 coverage loss, consequential effects, or meaningful cost growth. The audit
 result is evidence, never edit authority by itself.
+
+An `eval-harness-experiment` result is also evidence, not patch authority.
+`project-eval` may validate its complete experiment protocol, but candidate
+review and application remain a separate caller-selected workflow. Never apply
+a patch merely because its classification is `clear_improvement`.
 
 ## Output
 

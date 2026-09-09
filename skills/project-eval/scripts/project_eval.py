@@ -10,14 +10,17 @@ import hashlib
 import importlib.util
 import io
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
 import platform
 import re
 import secrets
 import stat
+import subprocess
 import sys
 from typing import Any, Iterable
+import unicodedata
 import zipfile
 
 _PATH_SAFETY_SPEC = importlib.util.spec_from_file_location(
@@ -58,7 +61,7 @@ _CODEX_RUNNER_SPEC.loader.exec_module(_CODEX_RUNNER)
 RunnerError = _CODEX_RUNNER.RunnerError
 
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 MAX_JSON_BYTES = 4 * 1024 * 1024
 MAX_ARCHIVE_BYTES = 16 * 1024 * 1024
 MAX_ARCHIVE_CONTENT = 8 * 1024 * 1024
@@ -577,24 +580,203 @@ def _validate_candidate_item(value: Any, label: str) -> None:
         raise EvalError(f"{label} cannot be ready with new/ambiguous behavior or material cost uncertainty")
 
 
-def _validate_experiment_candidate(value: Any, label: str) -> None:
+def _validate_experiment_metrics(value: Any, label: str) -> dict[str, Any]:
+    metrics = _mapping(value, label)
+    _exact(metrics, label, ("correctness", "completion", "time", "tokens", "cost"))
+    for field in ("correctness", "completion"):
+        current = metrics[field]
+        if isinstance(current, bool) or not isinstance(current, (int, float)) or not math.isfinite(current) or not 0 <= current <= 1:
+            raise EvalError(f"{label}.{field} must be a number between 0 and 1")
+    for field, maximum in (("time", 31_536_000), ("tokens", 1_000_000_000), ("cost", 1_000_000)):
+        current = metrics[field]
+        if current is not None and (isinstance(current, bool) or not isinstance(current, (int, float)) or not math.isfinite(current) or not 0 <= current <= maximum):
+            raise EvalError(f"{label}.{field} must be null or a bounded number")
+    return metrics
+
+
+def _experiment_delta(metric: str, direction: str, baseline: dict[str, Any], candidate: dict[str, Any]) -> float | None:
+    before, after = baseline[metric], candidate[metric]
+    if before is None or after is None:
+        return None
+    return float(after - before if direction == "increase" else before - after)
+
+
+def _experiment_expected_classification(
+    *,
+    baseline: dict[str, Any],
+    delta: float | None,
+    tolerance: float,
+    required_repetitions_met: bool,
+    required_cases_passed: bool,
+    protected_cases_passed: bool,
+    guardrail_regression: bool,
+    effect_breach: bool,
+    budget_breach: bool,
+    limitations: list[dict[str, Any]],
+) -> str:
+    if (
+        delta is None
+        or any(item["material"] for item in limitations)
+        or not baseline["complete"]
+        or not baseline["required_cases_passed"]
+        or not baseline["protected_cases_passed"]
+        or baseline["effect_breach"]
+        or effect_breach
+        or budget_breach
+    ):
+        return "incomplete"
+    if (
+        delta > tolerance
+        and required_repetitions_met
+        and required_cases_passed
+        and protected_cases_passed
+        and not guardrail_regression
+    ):
+        return "clear_improvement"
+    if delta > tolerance and required_cases_passed:
+        return "tradeoff"
+    if not required_repetitions_met or (abs(delta) <= tolerance and delta != 0):
+        return "inconclusive"
+    return "no_improvement"
+
+
+def _experiment_add_consumed(
+    consumed: dict[str, Any], metrics: dict[str, Any], run_count: int
+) -> None:
+    consumed["run_receipts"] += run_count
+    consumed["seconds"] += metrics["time"]
+    consumed["tokens"] = (
+        None
+        if consumed["tokens"] is None or metrics["tokens"] is None
+        else consumed["tokens"] + metrics["tokens"]
+    )
+    consumed["cost_usd"] = (
+        None
+        if consumed["cost_usd"] is None or metrics["cost"] is None
+        else consumed["cost_usd"] + metrics["cost"]
+    )
+
+
+def _experiment_budget_breach(consumed: dict[str, Any], limits: dict[str, Any]) -> bool:
+    return bool(
+        consumed["candidates"] > limits["max_candidates"]
+        or consumed["run_receipts"] > limits["max_run_receipts"]
+        or consumed["seconds"] > limits["max_seconds"]
+        or (
+            limits["max_tokens"] is not None
+            and (
+                consumed["tokens"] is None
+                or consumed["tokens"] > limits["max_tokens"]
+            )
+        )
+        or (
+            limits["max_cost_usd"] is not None
+            and (
+                consumed["cost_usd"] is None
+                or consumed["cost_usd"] > limits["max_cost_usd"]
+            )
+        )
+    )
+
+
+def _validate_experiment_candidate(
+    value: Any,
+    label: str,
+    *,
+    baseline: dict[str, Any],
+    objective: dict[str, Any],
+    repository_sha256: str,
+) -> None:
     candidate = _mapping(value, label)
-    _exact(candidate, label, ("candidate_id", "patch_sha256", "run_sha256", "target_sha256", "configuration_sha256", "classification", "objective_delta", "required_cases_passed", "guardrail_regression", "budget_breach", "evidence"))
+    _exact(candidate, label, ("sequence", "rank", "candidate_id", "patch", "run_sha256s", "condition_sha256", "classification", "objective_delta", "required_repetitions_met", "required_cases_passed", "protected_cases_passed", "guardrail_regression", "effect_breach", "budget_breach", "metrics", "evidence", "limitations"))
+    _integer(candidate["sequence"], f"{label}.sequence", 1, 64)
+    _integer(candidate["rank"], f"{label}.rank", 1, 64)
     _identifier(candidate["candidate_id"], f"{label}.candidate_id", PROFILE_ID)
-    for field in ("patch_sha256", "run_sha256", "target_sha256", "configuration_sha256"):
-        _digest(candidate[field], f"{label}.{field}")
+    patch = _mapping(candidate["patch"], f"{label}.patch")
+    _exact(patch, f"{label}.patch", ("rationale", "patch_sha256", "base_repository_sha256", "changes"))
+    _text(patch["rationale"], f"{label}.patch.rationale", maximum=2000)
+    _digest(patch["patch_sha256"], f"{label}.patch.patch_sha256")
+    if _digest(patch["base_repository_sha256"], f"{label}.patch.base_repository_sha256") != repository_sha256:
+        raise EvalError(f"{label}.patch does not bind the selected repository")
+    changes = _array(patch["changes"], f"{label}.patch.changes", minimum=1, maximum=256)
+    changed_paths: set[str] = set()
+    for index, raw_change in enumerate(changes):
+        change_label = f"{label}.patch.changes[{index}]"
+        change = _mapping(raw_change, change_label)
+        _exact(change, change_label, ("path", "before_sha256", "after_sha256", "after_text"))
+        path = _relative(change["path"], f"{change_label}.path")
+        if path in changed_paths:
+            raise EvalError(f"{label}.patch contains duplicate paths")
+        changed_paths.add(path)
+        _digest(change["before_sha256"], f"{change_label}.before_sha256")
+        after_sha = _digest(change["after_sha256"], f"{change_label}.after_sha256")
+        after_text = change["after_text"]
+        if not isinstance(after_text, str) or "\x00" in after_text or any(unicodedata.category(char) == "Cs" for char in after_text) or _sha(after_text.encode("utf-8")) != after_sha:
+            raise EvalError(f"{change_label}.after_text digest is inconsistent")
+    semantic_patch = {"base_repository_sha256": patch["base_repository_sha256"], "changes": changes}
+    if patch["patch_sha256"] != _sha(_canonical_bytes(semantic_patch)):
+        raise EvalError(f"{label}.patch digest is inconsistent")
+    runs = _array(candidate["run_sha256s"], f"{label}.run_sha256s", minimum=1, maximum=32)
+    if len(runs) != len(baseline["run_sha256s"]):
+        raise EvalError(f"{label} does not bind one run per baseline suite")
+    for digest in runs:
+        _digest(digest, f"{label}.run_sha256s")
+    if len(set(runs)) != len(runs):
+        raise EvalError(f"{label}.run_sha256s must be unique")
+    if _digest(candidate["condition_sha256"], f"{label}.condition_sha256") != baseline["condition_sha256"]:
+        raise EvalError(f"{label} conditions differ from baseline")
     classification = _enum(candidate["classification"], f"{label}.classification", {"clear_improvement", "tradeoff", "inconclusive", "no_improvement", "incomplete"})
     delta = candidate["objective_delta"]
-    if isinstance(delta, bool) or not isinstance(delta, (int, float)) or not -1_000_000_000 <= delta <= 1_000_000_000:
+    if delta is not None and (isinstance(delta, bool) or not isinstance(delta, (int, float)) or not math.isfinite(delta) or not -1_000_000_000 <= delta <= 1_000_000_000):
         raise EvalError(f"{label}.objective_delta must be a bounded number")
+    repetitions = _boolean(candidate["required_repetitions_met"], f"{label}.required_repetitions_met")
     required_passed = _boolean(candidate["required_cases_passed"], f"{label}.required_cases_passed")
+    protected_passed = _boolean(candidate["protected_cases_passed"], f"{label}.protected_cases_passed")
     regression = _boolean(candidate["guardrail_regression"], f"{label}.guardrail_regression")
+    effect = _boolean(candidate["effect_breach"], f"{label}.effect_breach")
     breach = _boolean(candidate["budget_breach"], f"{label}.budget_breach")
+    metrics = _validate_experiment_metrics(candidate["metrics"], f"{label}.metrics")
+    if delta != _experiment_delta(objective["metric"], objective["direction"], baseline["metrics"], metrics):
+        raise EvalError(f"{label}.objective_delta is inconsistent")
     evidence = _array(candidate["evidence"], f"{label}.evidence", maximum=256, minimum=1)
-    for index, item in enumerate(evidence):
-        _validate_evidence_reference(item, f"{label}.evidence[{index}]")
-    if classification == "clear_improvement" and (not required_passed or regression or breach):
-        raise EvalError(f"{label} cannot claim clear improvement after a quality, guardrail, or budget failure")
+    evidence_ids: set[str] = set()
+    for index, raw_evidence in enumerate(evidence):
+        evidence_label = f"{label}.evidence[{index}]"
+        item = _mapping(raw_evidence, evidence_label)
+        _exact(item, evidence_label, ("evidence_id", "kind", "baseline_sha256", "candidate_sha256", "case_ids", "summary", "redacted"))
+        evidence_id = _identifier(item["evidence_id"], f"{evidence_label}.evidence_id", PROFILE_ID)
+        if evidence_id in evidence_ids:
+            raise EvalError(f"{label}.evidence contains duplicate IDs")
+        evidence_ids.add(evidence_id)
+        if item["kind"] != "run_receipt":
+            raise EvalError(f"{evidence_label}.kind must be run_receipt")
+        _digest(item["baseline_sha256"], f"{evidence_label}.baseline_sha256")
+        _digest(item["candidate_sha256"], f"{evidence_label}.candidate_sha256")
+        case_ids = _array(item["case_ids"], f"{evidence_label}.case_ids", minimum=1, maximum=512)
+        for case_id in case_ids:
+            _identifier(case_id, f"{evidence_label}.case_ids", PROFILE_ID)
+        if len(set(case_ids)) != len(case_ids):
+            raise EvalError(f"{evidence_label}.case_ids must be unique")
+        _text(item["summary"], f"{evidence_label}.summary", maximum=500)
+        if item["redacted"] is not True:
+            raise EvalError(f"{evidence_label}.redacted must be true")
+    limitations = _array(candidate["limitations"], f"{label}.limitations", maximum=64)
+    for index, item in enumerate(limitations):
+        _validate_limitation(item, f"{label}.limitations[{index}]")
+    expected_classification = _experiment_expected_classification(
+        baseline=baseline,
+        delta=delta,
+        tolerance=objective["tolerance"],
+        required_repetitions_met=repetitions,
+        required_cases_passed=required_passed,
+        protected_cases_passed=protected_passed,
+        guardrail_regression=regression,
+        effect_breach=effect,
+        budget_breach=breach,
+        limitations=limitations,
+    )
+    if classification != expected_classification:
+        raise EvalError(f"{label}.classification is inconsistent with evidence and gates")
 
 
 def _validate_suite_recommendation(value: Any, label: str) -> None:
@@ -910,7 +1092,7 @@ def _validate_family_result(value: Any, family: str) -> dict[str, Any]:
         ),
         "experiment": (
             "eval-experiment-result/v1",
-            ("schema_version", "producer", "completion", "outcome", "next_action", "objective", "baseline", "candidates", "limitations"),
+            ("schema_version", "producer", "context_sha256", "completion", "outcome", "next_action", "objective", "requirements", "guardrail_tolerances", "repository", "baseline", "candidates", "budget", "stop", "limitations"),
             {"clear_improvement", "tradeoff", "inconclusive", "no_improvement", "incomplete"},
             {"none", "review_candidate", "decision", "retry", "manual"},
             "candidates",
@@ -944,18 +1126,66 @@ def _validate_family_result(value: Any, family: str) -> dict[str, Any]:
         _digest(result["repository_sha256"], "suite-audit.repository_sha256")
         _digest(result["suite_digest"], "suite-audit.suite_digest")
     else:
+        _digest(result["context_sha256"], "experiment.context_sha256")
         objective = _mapping(result["objective"], "experiment.objective")
-        _exact(objective, "experiment.objective", ("metric", "direction", "tolerance"))
-        _enum(objective["metric"], "experiment.objective.metric", {"correctness", "completion", "time", "tokens", "cost"})
-        _enum(objective["direction"], "experiment.objective.direction", {"increase", "decrease"})
+        _exact(objective, "experiment.objective", ("metric", "direction", "tolerance", "target"))
+        metric = _enum(objective["metric"], "experiment.objective.metric", {"correctness", "completion", "time", "tokens", "cost"})
+        direction = _enum(objective["direction"], "experiment.objective.direction", {"increase", "decrease"})
         tolerance = objective["tolerance"]
-        if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)) or not 0 <= tolerance <= 1_000_000_000:
+        if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)) or not math.isfinite(tolerance) or not 0 <= tolerance <= 1_000_000_000:
             raise EvalError("experiment.objective.tolerance must be a bounded non-negative number")
+        _number_or_null(objective["target"], "experiment.objective.target", 1_000_000_000)
+        if metric in {"correctness", "completion"} and direction != "increase":
+            raise EvalError("experiment quality objectives must increase")
+        requirements = _mapping(result["requirements"], "experiment.requirements")
+        _exact(requirements, "experiment.requirements", ("minimum_repetitions", "no_progress_limit"))
+        _integer(requirements["minimum_repetitions"], "experiment.requirements.minimum_repetitions", 2, 100)
+        no_progress_limit = _integer(requirements["no_progress_limit"], "experiment.requirements.no_progress_limit", 1, 64)
+        tolerances = _mapping(result["guardrail_tolerances"], "experiment.guardrail_tolerances")
+        _exact(tolerances, "experiment.guardrail_tolerances", ("correctness", "completion", "time", "tokens", "cost"))
+        for field, maximum in (("correctness", 1), ("completion", 1), ("time", 1_000_000_000), ("tokens", 1_000_000_000), ("cost", 1_000_000_000)):
+            current = tolerances[field]
+            if isinstance(current, bool) or not isinstance(current, (int, float)) or not math.isfinite(current) or not 0 <= current <= maximum:
+                raise EvalError(f"experiment.guardrail_tolerances.{field} must be bounded and non-negative")
+        repository = _mapping(result["repository"], "experiment.repository")
+        _exact(repository, "experiment.repository", ("revision", "repository_sha256"))
+        _identifier(repository["revision"], "experiment.repository.revision", REVISION)
+        repository_sha256 = _digest(repository["repository_sha256"], "experiment.repository.repository_sha256")
         baseline = _mapping(result["baseline"], "experiment.baseline")
-        _exact(baseline, "experiment.baseline", ("run_sha256", "target_sha256", "configuration_sha256"))
-        for field in ("run_sha256", "target_sha256", "configuration_sha256"):
-            _digest(baseline[field], f"experiment.baseline.{field}")
-    collection = _array(result[collection_key], f"{family}.{collection_key}", maximum=2000)
+        _exact(baseline, "experiment.baseline", ("run_sha256s", "condition_sha256", "metrics", "complete", "required_cases_passed", "required_repetitions_met", "protected_cases_passed", "effect_breach"))
+        baseline_runs = _array(baseline["run_sha256s"], "experiment.baseline.run_sha256s", minimum=1, maximum=32)
+        for digest in baseline_runs:
+            _digest(digest, "experiment.baseline.run_sha256s")
+        if len(set(baseline_runs)) != len(baseline_runs):
+            raise EvalError("experiment baseline run digests must be unique")
+        baseline["condition_sha256"] = _digest(baseline["condition_sha256"], "experiment.baseline.condition_sha256")
+        baseline["metrics"] = _validate_experiment_metrics(baseline["metrics"], "experiment.baseline.metrics")
+        for field in ("complete", "required_cases_passed", "required_repetitions_met", "protected_cases_passed", "effect_breach"):
+            _boolean(baseline[field], f"experiment.baseline.{field}")
+        budget = _mapping(result["budget"], "experiment.budget")
+        _exact(budget, "experiment.budget", ("limits", "consumed"))
+        limits = _mapping(budget["limits"], "experiment.budget.limits")
+        _exact(limits, "experiment.budget.limits", ("max_candidates", "max_run_receipts", "max_seconds", "max_tokens", "max_cost_usd"))
+        _integer(limits["max_candidates"], "experiment.budget.limits.max_candidates", 1, 64)
+        _integer(limits["max_run_receipts"], "experiment.budget.limits.max_run_receipts", 1, 512)
+        for field, maximum in (("max_seconds", 31_536_000), ("max_tokens", 1_000_000_000), ("max_cost_usd", 1_000_000)):
+            current = limits[field]
+            if field == "max_seconds" and (isinstance(current, bool) or not isinstance(current, (int, float)) or not math.isfinite(current) or not 0 < current <= maximum):
+                raise EvalError("experiment.budget.limits.max_seconds must be positive and bounded")
+            if field != "max_seconds":
+                _number_or_null(current, f"experiment.budget.limits.{field}", maximum)
+        consumed = _mapping(budget["consumed"], "experiment.budget.consumed")
+        _exact(consumed, "experiment.budget.consumed", ("candidates", "run_receipts", "seconds", "tokens", "cost_usd"))
+        _integer(consumed["candidates"], "experiment.budget.consumed.candidates", 0, 64)
+        _integer(consumed["run_receipts"], "experiment.budget.consumed.run_receipts", 0, 512)
+        for field, maximum in (("seconds", 31_536_000), ("tokens", 1_000_000_000), ("cost_usd", 1_000_000)):
+            _number_or_null(consumed[field], f"experiment.budget.consumed.{field}", maximum)
+        stop = _mapping(result["stop"], "experiment.stop")
+        _exact(stop, "experiment.stop", ("reason", "after_candidate_id"))
+        stop_reason = _enum(stop["reason"], "experiment.stop.reason", {"candidates_exhausted", "target_achieved", "no_progress", "budget_exhausted", "source_drift", "forbidden_effect", "decision_required"})
+        if stop["after_candidate_id"] is not None:
+            _identifier(stop["after_candidate_id"], "experiment.stop.after_candidate_id", PROFILE_ID)
+    collection = _array(result[collection_key], f"{family}.{collection_key}", minimum=1 if family == "experiment" else 0, maximum=64 if family == "experiment" else 2000)
     identities: set[str] = set()
     for index, item in enumerate(collection):
         label = f"{family}.{collection_key}[{index}]"
@@ -963,10 +1193,8 @@ def _validate_family_result(value: Any, family: str) -> dict[str, Any]:
             _validate_candidate_item(item, label)
             identity = item["candidate_id"]
         elif family == "experiment":
-            _validate_experiment_candidate(item, label)
+            _validate_experiment_candidate(item, label, baseline=baseline, objective=objective, repository_sha256=repository_sha256)
             identity = item["candidate_id"]
-            if item["target_sha256"] != baseline["target_sha256"] or item["configuration_sha256"] != baseline["configuration_sha256"]:
-                raise EvalError(f"{label} does not match the baseline target and configuration")
         else:
             _validate_suite_recommendation(item, label)
             identity = item["recommendation_id"]
@@ -1000,10 +1228,119 @@ def _validate_family_result(value: Any, family: str) -> dict[str, Any]:
             expected_suite_audit = ("maintenance_recommended", "manual")
         if (result["outcome"], result["next_action"]) != expected_suite_audit:
             raise EvalError("suite-audit outcome or next_action is inconsistent")
-    if family == "experiment" and result["outcome"] == "clear_improvement" and not any(
-        item["classification"] == "clear_improvement" for item in collection
-    ):
-        raise EvalError("clear_improvement outcome requires a clear candidate")
+    if family == "experiment":
+        sequences = [item["sequence"] for item in collection]
+        if sorted(sequences) != list(range(1, len(collection) + 1)):
+            raise EvalError("experiment candidate sequence is not contiguous")
+        ranks = [item["rank"] for item in collection]
+        if sorted(ranks) != list(range(1, len(collection) + 1)):
+            raise EvalError("experiment candidate ranks are not contiguous")
+        order = {"clear_improvement": 0, "tradeoff": 1, "inconclusive": 2, "no_improvement": 3, "incomplete": 4}
+        expected = sorted(collection, key=lambda item: (order[item["classification"]], -(item["objective_delta"] if item["objective_delta"] is not None else -1_000_000_001), item["candidate_id"]))
+        if [item["candidate_id"] for item in collection] != [item["candidate_id"] for item in expected]:
+            raise EvalError("experiment candidate ranking is inconsistent")
+        identities = {item["candidate_id"] for item in collection}
+        if stop["after_candidate_id"] is not None and stop["after_candidate_id"] not in identities:
+            raise EvalError("experiment stop names an unknown candidate")
+        baseline_invalid = (
+            not baseline["complete"]
+            or not baseline["required_cases_passed"]
+            or not baseline["protected_cases_passed"]
+            or baseline["effect_breach"]
+        )
+        if baseline_invalid and not any(
+            item["code"] == "invalid-baseline" and item["material"]
+            for item in limitations
+        ):
+            raise EvalError("experiment invalid baseline requires a material limitation")
+        expected_consumed = {
+            "candidates": 0,
+            "run_receipts": 0,
+            "seconds": 0.0,
+            "tokens": 0,
+            "cost_usd": 0.0,
+        }
+        _experiment_add_consumed(
+            expected_consumed, baseline["metrics"], len(baseline["run_sha256s"])
+        )
+        ordered = sorted(collection, key=lambda item: item["sequence"])
+        no_progress = 0
+        expected_stop_reason = "candidates_exhausted"
+        expected_stop_after = None
+        for sequence_index, item in enumerate(ordered):
+            _experiment_add_consumed(
+                expected_consumed, item["metrics"], len(item["run_sha256s"])
+            )
+            expected_consumed["candidates"] += 1
+            expected_breach = _experiment_budget_breach(expected_consumed, limits)
+            if item["budget_breach"] != expected_breach:
+                raise EvalError("experiment candidate budget breach is inconsistent")
+            expected_classification = _experiment_expected_classification(
+                baseline=baseline,
+                delta=item["objective_delta"],
+                tolerance=objective["tolerance"],
+                required_repetitions_met=item["required_repetitions_met"],
+                required_cases_passed=item["required_cases_passed"],
+                protected_cases_passed=item["protected_cases_passed"],
+                guardrail_regression=item["guardrail_regression"],
+                effect_breach=item["effect_breach"],
+                budget_breach=item["budget_breach"],
+                limitations=item["limitations"],
+            )
+            if item["classification"] != expected_classification:
+                raise EvalError("experiment candidate classification is inconsistent")
+            expected_stop_after = item["candidate_id"]
+            if item["effect_breach"]:
+                expected_stop_reason = "forbidden_effect"
+            elif item["budget_breach"]:
+                expected_stop_reason = "budget_exhausted"
+            elif item["classification"] == "clear_improvement" and (
+                objective["target"] is None
+                or item["objective_delta"] >= objective["target"]
+            ):
+                expected_stop_reason = "target_achieved"
+            elif item["classification"] == "tradeoff":
+                expected_stop_reason = "decision_required"
+            else:
+                no_progress = (
+                    no_progress + 1
+                    if item["classification"] in {"no_improvement", "inconclusive"}
+                    else 0
+                )
+                if no_progress >= no_progress_limit:
+                    expected_stop_reason = "no_progress"
+            if expected_stop_reason != "candidates_exhausted":
+                if sequence_index != len(ordered) - 1:
+                    raise EvalError("experiment retains candidates after its stop condition")
+                break
+        if consumed != expected_consumed:
+            raise EvalError("experiment cumulative budget consumption is inconsistent")
+        if (stop_reason, stop["after_candidate_id"]) != (
+            expected_stop_reason,
+            expected_stop_after,
+        ):
+            raise EvalError("experiment stop condition is inconsistent")
+        classes = [item["classification"] for item in collection]
+        if stop_reason == "decision_required":
+            expected_state = ("tradeoff", "decision")
+        elif stop_reason == "target_achieved":
+            expected_state = ("clear_improvement", "review_candidate")
+        elif "clear_improvement" in classes:
+            expected_state = ("clear_improvement", "review_candidate")
+        elif "tradeoff" in classes:
+            expected_state = ("tradeoff", "decision")
+        elif classes and all(item == "no_improvement" for item in classes):
+            expected_state = ("no_improvement", "none")
+        elif "inconclusive" in classes:
+            expected_state = ("inconclusive", "retry")
+        else:
+            expected_state = ("incomplete", "manual")
+        if any(item["material"] for item in limitations) or stop_reason in {"forbidden_effect", "budget_exhausted", "source_drift"}:
+            expected_state = ("incomplete", "manual")
+        if (result["outcome"], result["next_action"]) != expected_state:
+            raise EvalError("experiment outcome or next_action is inconsistent")
+        if completion != ("incomplete" if result["outcome"] == "incomplete" else "complete"):
+            raise EvalError("experiment completion is inconsistent")
     return result
 
 
@@ -1036,6 +1373,212 @@ def _workflow_adapter_sha256() -> str:
             }
         )
     )
+
+
+def _experiment_git(repository: Path, *arguments: str) -> bytes:
+    environment = os.environ.copy()
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    environment["GIT_NO_REPLACE_OBJECTS"] = "1"
+    environment["GIT_LITERAL_PATHSPECS"] = "1"
+    for key in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+        environment.pop(key, None)
+    command = [
+        "git",
+        "--no-pager",
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        f"core.hooksPath={os.devnull}",
+        *arguments,
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=repository,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise EvalError(f"cannot bind experiment repository: {exc}") from exc
+    if completed.returncode:
+        detail = completed.stderr.decode("utf-8", "replace")[:500]
+        raise EvalError(f"cannot bind experiment repository: {detail}")
+    if len(completed.stdout) > MAX_JSON_BYTES:
+        raise EvalError("experiment repository metadata exceeds the supported limit")
+    return completed.stdout
+
+
+def _validate_experiment_variant_state(
+    repository: Path, value: Any
+) -> dict[str, Any]:
+    repository = repository.absolute()
+    try:
+        assert_no_link_components(repository, include_final=True)
+    except SafetyError as exc:
+        raise EvalError(f"cannot bind experiment repository: {exc}") from exc
+    try:
+        top = Path(
+            _experiment_git(repository, "rev-parse", "--show-toplevel")
+            .decode("utf-8")
+            .strip()
+        ).absolute()
+    except UnicodeDecodeError as exc:
+        raise EvalError("experiment repository root is not UTF-8") from exc
+    try:
+        same_root = os.path.samefile(top, repository)
+    except OSError:
+        same_root = os.path.normcase(str(top)) == os.path.normcase(str(repository))
+    if not same_root:
+        raise EvalError("--repo must name the exact experiment repository root")
+    try:
+        revision = _experiment_git(repository, "rev-parse", "--verify", "HEAD").decode("ascii").strip()
+    except UnicodeDecodeError as exc:
+        raise EvalError("experiment repository revision is malformed") from exc
+
+    variant = _mapping(value, "experiment variant")
+    _exact(
+        variant,
+        "experiment variant",
+        (
+            "schema_version",
+            "candidate_id",
+            "base_revision",
+            "base_repository_sha256",
+            "editable_surfaces",
+            "rationale",
+            "edits",
+        ),
+    )
+    if variant["schema_version"] != "eval-harness-variant/v1":
+        raise EvalError("unsupported experiment variant schema_version")
+    candidate_id = _identifier(variant["candidate_id"], "experiment variant.candidate_id", PROFILE_ID)
+    base_revision = _identifier(variant["base_revision"], "experiment variant.base_revision", REVISION)
+    if revision != base_revision:
+        raise EvalError("experiment variant does not match repository HEAD")
+    base_repository_sha = _digest(
+        variant["base_repository_sha256"],
+        "experiment variant.base_repository_sha256",
+    )
+    _text(variant["rationale"], "experiment variant.rationale", maximum=2000)
+
+    surfaces: list[dict[str, Any]] = []
+    seen_surfaces: set[str] = set()
+    for index, raw_surface in enumerate(
+        _array(variant["editable_surfaces"], "experiment variant.editable_surfaces", minimum=1, maximum=256)
+    ):
+        label = f"experiment variant.editable_surfaces[{index}]"
+        surface = _mapping(raw_surface, label)
+        _exact(surface, label, ("path", "sha256", "mode"))
+        path = _relative(surface["path"], f"{label}.path")
+        if path in seen_surfaces:
+            raise EvalError("experiment variant contains duplicate editable surfaces")
+        seen_surfaces.add(path)
+        surfaces.append(
+            {
+                "path": path,
+                "sha256": _digest(surface["sha256"], f"{label}.sha256"),
+                "mode": _enum(surface["mode"], f"{label}.mode", {"100644", "100755"}),
+            }
+        )
+    expected_repository_sha = _sha(
+        _canonical_bytes({"revision": base_revision, "surfaces": surfaces})
+    )
+    if base_repository_sha != expected_repository_sha:
+        raise EvalError("experiment variant starting repository digest is inconsistent")
+
+    changes: list[dict[str, Any]] = []
+    seen_changes: set[str] = set()
+    surface_map = {item["path"]: item for item in surfaces}
+    for index, raw_edit in enumerate(
+        _array(variant["edits"], "experiment variant.edits", minimum=1, maximum=256)
+    ):
+        label = f"experiment variant.edits[{index}]"
+        edit = _mapping(raw_edit, label)
+        _exact(edit, label, ("path", "before_sha256", "after_text"))
+        path = _relative(edit["path"], f"{label}.path")
+        if path in seen_changes or path not in surface_map:
+            raise EvalError("experiment variant edit is duplicate or outside editable surfaces")
+        seen_changes.add(path)
+        before_sha = _digest(edit["before_sha256"], f"{label}.before_sha256")
+        if before_sha != surface_map[path]["sha256"]:
+            raise EvalError("experiment variant edit does not bind starting content")
+        after_text = edit["after_text"]
+        if (
+            not isinstance(after_text, str)
+            or "\x00" in after_text
+            or any(unicodedata.category(char) == "Cs" for char in after_text)
+        ):
+            raise EvalError("experiment variant after_text must be safe UTF-8 text")
+        after_sha = _sha(after_text.encode("utf-8"))
+        if after_sha == before_sha:
+            raise EvalError("experiment variant edit does not change content")
+        changes.append(
+            {
+                "path": path,
+                "before_sha256": before_sha,
+                "after_sha256": after_sha,
+                "after_text": after_text,
+            }
+        )
+    changes.sort(key=lambda item: item["path"])
+    patch = {"base_repository_sha256": base_repository_sha, "changes": changes}
+    patch_sha = _sha(_canonical_bytes(patch))
+
+    for surface in surfaces:
+        path = safe_repo_path(repository, surface["path"])
+        try:
+            metadata, raw = read_regular(path, MAX_JSON_BYTES, require_single_link=True)
+            _, canonical_raw = _PATH_SAFETY.canonical_text(
+                raw, f"experiment surface {surface['path']}"
+            )
+        except SafetyError as exc:
+            raise EvalError(f"cannot bind experiment surface {surface['path']}: {exc}") from exc
+        expected_sha = next(
+            (item["after_sha256"] for item in changes if item["path"] == surface["path"]),
+            surface["sha256"],
+        )
+        if _sha(canonical_raw) != expected_sha:
+            raise EvalError(f"experiment surface does not match selected variant: {surface['path']}")
+        if os.name != "nt" and bool(metadata.st_mode & 0o111) != (surface["mode"] == "100755"):
+            raise EvalError(f"experiment surface mode changed: {surface['path']}")
+
+    try:
+        changed_raw = _experiment_git(repository, "diff", "--name-only", "-z", "HEAD", "--")
+        untracked_raw = _experiment_git(repository, "ls-files", "--others", "--exclude-standard", "-z")
+        changed = {
+            canonical_path(item.decode("utf-8"))
+            for item in changed_raw.split(b"\0") + untracked_raw.split(b"\0")
+            if item
+        }
+    except (UnicodeDecodeError, SafetyError) as exc:
+        raise EvalError("experiment repository change set is not canonical UTF-8") from exc
+    if changed != seen_changes:
+        raise EvalError("experiment repository contains changes outside the selected variant")
+
+    return {
+        "candidate_id": candidate_id,
+        "base_revision": base_revision,
+        "base_repository_sha256": base_repository_sha,
+        "variant_sha256": _sha(_canonical_bytes(variant)),
+        "patch_sha256": patch_sha,
+    }
+
+
+def _experiment_run_binding(
+    variant_state: dict[str, Any], run_result: dict[str, Any]
+) -> dict[str, Any]:
+    result = validate_run_result(run_result)
+    return {
+        "schema_version": "project-eval-experiment-binding/v1",
+        "producer": {"name": "project-eval", "version": VERSION},
+        **variant_state,
+        "run_result_sha256": _sha(_canonical_bytes(result)),
+        "run_result": result,
+    }
 
 
 def _case_grader_sha(control: dict[str, Any], *, hidden: bool, checks: bool) -> str:
@@ -2461,6 +3004,8 @@ def _parser() -> argparse.ArgumentParser:
     run_profile_command.add_argument("--format", choices=("human", "json"), default="human")
     run_profile_command.add_argument("--store", action="store_true")
     run_profile_command.add_argument("--state-root")
+    run_profile_command.add_argument("--experiment-variant")
+    run_profile_command.add_argument("--experiment-binding-output")
 
     calibrate_command = commands.add_parser("calibrate-reconstruction", help="prove one reconstruction fixture's deterministic boundaries")
     calibrate_command.add_argument("--repo", required=True)
@@ -2658,6 +3203,33 @@ def main(argv: list[str] | None = None) -> int:
             _write_stdout(attempt, canonical=True)
         elif args.command == "run-codex-profile":
             repository = Path(args.repo)
+            if bool(args.experiment_variant) != bool(args.experiment_binding_output):
+                raise EvalError(
+                    "--experiment-variant and --experiment-binding-output must be selected together"
+                )
+            variant_value = None
+            variant_state = None
+            binding_output = None
+            if args.experiment_variant:
+                variant_path = _external_workspace_path(
+                    repository, args.experiment_variant, "experiment variant"
+                )
+                variant_value, _ = _load_json(str(variant_path), "experiment variant")
+                variant_state = _validate_experiment_variant_state(
+                    repository, variant_value
+                )
+                binding_output = _external_workspace_path(
+                    repository,
+                    args.experiment_binding_output,
+                    "experiment binding output",
+                )
+                workspace_root = Path(args.workspace_root).absolute()
+                if binding_output == workspace_root or workspace_root in binding_output.parents:
+                    raise EvalError(
+                        "experiment binding output must remain outside the evaluated workspace root"
+                    )
+                if args.output and os.path.normcase(str(Path(args.output).absolute())) == os.path.normcase(str(binding_output)):
+                    raise EvalError("run result and experiment binding outputs must be distinct")
             result = run_codex_profile(
                 repository,
                 args.eval_root,
@@ -2672,12 +3244,24 @@ def main(argv: list[str] | None = None) -> int:
                 allow_hidden_grader=args.allow_hidden_grader,
                 allow_project_checks=args.allow_project_checks,
             )
+            binding = None
+            if variant_state is not None:
+                refreshed_state = _validate_experiment_variant_state(
+                    repository, variant_value
+                )
+                if refreshed_state != variant_state:
+                    raise EvalError("experiment variant state changed during the profile run")
+                binding = _experiment_run_binding(variant_state, result)
             if args.output:
                 output = _external_workspace_path(repository, args.output, "run result output")
                 workspace_root = Path(args.workspace_root).absolute()
                 if output == workspace_root or workspace_root in output.parents:
                     raise EvalError("run result output must remain outside the evaluated workspace root")
                 write_created_output(output, _canonical_bytes(result) + b"\n")
+            if binding is not None and binding_output is not None:
+                write_created_output(
+                    binding_output, _canonical_bytes(binding) + b"\n"
+                )
             if args.store:
                 _store_local_result(repository, _state_root(args.state_root), result)
             _write_stdout(result if args.format == "json" else render_run(result), canonical=args.format == "json")

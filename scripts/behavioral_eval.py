@@ -325,6 +325,18 @@ CONSUMER_CHANGE_IMPACT_ADVISORIES = {
     },
 }
 CONTRACTS = {
+    "eval-harness-experiment/v1": {
+        "skill": "eval-harness-experiment",
+        "context": "skills/eval-harness-experiment/scripts/experiment.py",
+        "validator": "skills/eval-harness-experiment/scripts/experiment.py",
+        "schema": "skills/eval-harness-experiment/references/eval-experiment-result.schema.json",
+        "context_kind": "eval-harness-experiment",
+        "validator_kind": "simple",
+        "binding_kind": "eval-harness-experiment",
+        "target_kinds": {"path"},
+        "dependencies": [],
+        "reviewers": [],
+    },
     "eval-candidate-audit/v1": {
         "skill": "eval-candidate-audit",
         "context": "skills/eval-candidate-audit/scripts/candidate_audit.py",
@@ -1559,6 +1571,220 @@ def _prepare_eval_suite_audit_fixture(fixture: Path) -> None:
             raise EvalError(detail or "cannot prepare eval-suite-audit Git fixture")
 
 
+def _prepare_eval_harness_experiment_fixture(fixture: Path) -> None:
+    """Create exact local project-eval receipts after freezing the fixture HEAD."""
+
+    _prepare_eval_suite_audit_fixture(fixture)
+    scenario = _load_json(fixture / "scenario.json", "eval harness scenario")
+    if not isinstance(scenario, dict) or set(scenario) != {"kind"}:
+        raise EvalError("eval harness scenario must contain only kind")
+    kind = scenario["kind"]
+    if kind not in {"clear", "tradeoff", "noise", "cost-floor", "effect", "no-progress"}:
+        raise EvalError("unknown eval harness scenario")
+    completed = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=fixture,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=30,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise EvalError("cannot bind eval harness fixture HEAD")
+    head = completed.stdout.decode("ascii").strip()
+    surface_path = fixture / "AGENTS.md"
+    surface = _read_bytes(surface_path, "eval harness surface", 1024 * 1024)
+    surface_sha = hashlib.sha256(surface).hexdigest()
+    repository_sha = _sha256_json(
+        {
+            "revision": head,
+            "surfaces": [
+                {"path": "AGENTS.md", "sha256": surface_sha, "mode": "100644"}
+            ],
+        }
+    )
+    inputs = fixture / "inputs"
+    inputs.mkdir()
+
+    def configuration(instructions: str) -> dict[str, Any]:
+        value = {
+            "runner": "codex-cli",
+            "runner_version": "0.150.1",
+            "agent": "codex",
+            "model": "gpt-5.6-sol",
+            "reasoning": "medium",
+            "platform": "linux",
+            "environment_sha256": "3" * 64,
+            "adapter_sha256": "4" * 64,
+            "launcher_sha256": "5" * 64,
+            "instructions_sha256": instructions,
+            "profile_sha256": "6" * 64,
+        }
+        value["configuration_sha256"] = _sha256_json(value)
+        return value
+
+    def run_result(
+        run_id: str,
+        durations: list[int],
+        *,
+        instructions: str,
+        target_repository: str,
+        failures: dict[str, int] | None = None,
+        effects: dict[str, int] | None = None,
+    ) -> dict[str, Any]:
+        failures = failures or {}
+        effects = effects or {}
+        cases: list[dict[str, Any]] = []
+        for case_id, importance, duration in zip(
+            ("development", "holdout", "regression"),
+            ("required", "standard", "important"),
+            durations,
+            strict=True,
+        ):
+            failed = failures.get(case_id, 0)
+            passed = 3 - failed
+            status = "passed" if not failed else "failed"
+            cases.append(
+                {
+                    "case_id": case_id,
+                    "importance": importance,
+                    "status": status,
+                    "last_observation": status,
+                    "stability": "repeated_observations",
+                    "repetitions": 3,
+                    "passed": passed,
+                    "failed": failed,
+                    "forbidden_effect_failures": effects.get(case_id, 0),
+                    "duration_ms": duration,
+                    "tokens": {"value": 100, "provenance": "host_observed"},
+                    "target_sha256": hashlib.sha256(f"target:{run_id}:{case_id}".encode()).hexdigest(),
+                    "grader_sha256": hashlib.sha256(f"grader:{case_id}".encode()).hexdigest(),
+                    "observation_sha256s": [hashlib.sha256(f"{run_id}:{case_id}:{index}".encode()).hexdigest() for index in range(3)],
+                    "evidence": [],
+                    "limitations": [],
+                }
+            )
+        required_failed = int(cases[0]["status"] != "passed")
+        return {
+            "schema_version": "project-eval-run-result/v1",
+            "run_id": run_id,
+            "producer": {"name": "project-eval", "version": "1.1.0"},
+            "suite": {"suite_id": "harness-suite", "suite_sha256": "1" * 64, "profile": "compare"},
+            "source": {"kind": "local", "authority": "evidence_only", "bundle_sha256": None},
+            "target": {"repository_sha256": target_repository, "definition_sha256": "8" * 64, "fixture_set_sha256": "9" * 64, "revision": None},
+            "configuration": configuration(instructions),
+            "completion": "complete",
+            "outcome": "fail" if required_failed else "pass",
+            "next_action": "triage" if required_failed else "none",
+            "cases": cases,
+            "summary": {
+                "total_cases": 3,
+                "passed_cases": sum(item["status"] == "passed" for item in cases),
+                "failed_cases": sum(item["status"] == "failed" for item in cases),
+                "unavailable_cases": 0,
+                "total_repetitions": 9,
+                "passed_repetitions": sum(item["passed"] for item in cases),
+                "failed_repetitions": sum(item["failed"] for item in cases),
+                "required_failures": required_failed,
+                "important_failures": int(cases[2]["status"] != "passed"),
+                "forbidden_effect_failures": sum(item["forbidden_effect_failures"] for item in cases),
+                "last_observation": cases[-1]["last_observation"],
+                "stability": "repeated_observations",
+                "duration_ms": sum(durations),
+                "tokens": {"value": 300, "provenance": "host_observed"},
+            },
+            "limitations": [],
+        }
+
+    candidate_ids = ["candidate-one", "candidate-two"] if kind == "no-progress" else ["candidate-one"]
+    _write_new_json(inputs / "baseline.json", run_result("baseline", [3000, 3000, 3000], instructions="2" * 64, target_repository="7" * 64))
+    candidates = []
+    for index, candidate_id in enumerate(candidate_ids):
+        durations = [3000, 3000, 3000]
+        failures: dict[str, int] = {}
+        effects: dict[str, int] = {}
+        if kind in {"clear", "tradeoff", "cost-floor", "effect"}:
+            durations = [1000, 1000, 1000]
+        elif kind == "noise":
+            durations = [2999, 3000, 3000]
+        if kind == "tradeoff":
+            failures = {"holdout": 1}
+        elif kind == "cost-floor":
+            failures = {"development": 1}
+        elif kind == "effect":
+            failures = {"holdout": 1}
+            effects = {"holdout": 1}
+        instructions = hashlib.sha256(candidate_id.encode()).hexdigest()
+        target_repository = hashlib.sha256(f"{candidate_id}:repo".encode()).hexdigest()
+        run = run_result(candidate_id, durations, instructions=instructions, target_repository=target_repository, failures=failures, effects=effects)
+        variant = {
+            "schema_version": "eval-harness-variant/v1",
+            "candidate_id": candidate_id,
+            "base_revision": head,
+            "base_repository_sha256": repository_sha,
+            "editable_surfaces": [
+                {"path": "AGENTS.md", "sha256": surface_sha, "mode": "100644"}
+            ],
+            "rationale": "Try one bounded instruction variant.",
+            "edits": [
+                {
+                    "path": "AGENTS.md",
+                    "before_sha256": surface_sha,
+                    "after_text": f"Use the {candidate_id} harness.\n",
+                }
+            ],
+        }
+        semantic_patch = {
+            "base_repository_sha256": repository_sha,
+            "changes": [
+                {
+                    "path": "AGENTS.md",
+                    "before_sha256": surface_sha,
+                    "after_sha256": hashlib.sha256(
+                        f"Use the {candidate_id} harness.\n".encode()
+                    ).hexdigest(),
+                    "after_text": f"Use the {candidate_id} harness.\n",
+                }
+            ],
+        }
+        binding = {
+            "schema_version": "project-eval-experiment-binding/v1",
+            "producer": {"name": "project-eval", "version": "1.2.0"},
+            "candidate_id": candidate_id,
+            "base_revision": head,
+            "base_repository_sha256": repository_sha,
+            "patch_sha256": _sha256_json(semantic_patch),
+            "variant_sha256": _sha256_json(variant),
+            "run_result_sha256": _sha256_json(run),
+            "run_result": run,
+        }
+        _write_new_json(inputs / f"{candidate_id}.variant.json", variant)
+        _write_new_json(inputs / f"{candidate_id}.json", binding)
+        candidates.append(
+            {
+                "candidate_id": candidate_id,
+                "variant_path": f"{candidate_id}.variant.json",
+                "runs": [{"suite_id": "harness-suite", "path": f"{candidate_id}.json"}],
+                "cost_usd": {"value": 1 if kind == "cost-floor" else None, "provenance": "host_observed" if kind == "cost-floor" else "unavailable"},
+            }
+        )
+    request = {
+        "schema_version": "eval-harness-experiment-request/v1",
+        "experiment_id": "instruction-tuning",
+        "objective": {"metric": "cost" if kind == "cost-floor" else "time", "direction": "decrease", "tolerance": 1 if kind == "noise" else 0.01, "target": None},
+        "editable_surfaces": ["AGENTS.md"],
+        "suites": [{"suite_id": "harness-suite", "suite_sha256": "1" * 64, "development_case_ids": ["development"], "holdout_case_ids": ["holdout"], "regression_case_ids": ["regression"]}],
+        "profile": "compare",
+        "runner": {key: value for key, value in configuration("2" * 64).items() if key not in {"instructions_sha256", "configuration_sha256"}},
+        "requirements": {"minimum_repetitions": 3, "no_progress_limit": 2 if kind == "no-progress" else 3},
+        "guardrail_tolerances": {"correctness": 0, "completion": 0, "time": 0, "tokens": 0, "cost": 0},
+        "budget": {"max_candidates": len(candidates), "max_run_receipts": 1 + len(candidates), "max_seconds": 100, "max_tokens": 100000, "max_cost_usd": 20 if kind == "cost-floor" else None},
+        "baseline": {"runs": [{"suite_id": "harness-suite", "path": "baseline.json"}], "cost_usd": {"value": 5 if kind == "cost-floor" else None, "provenance": "host_observed" if kind == "cost-floor" else "unavailable"}},
+        "candidates": candidates,
+    }
+    _write_new_json(fixture / "request.json", request)
+
+
 def _resolve_verify_project_context(
     case: dict[str, Any],
     fixture: Path,
@@ -1734,6 +1960,27 @@ def resolve_context(
             timeout=60,
             check=False,
         )
+        if completed.returncode != 0:
+            message = completed.stderr.decode("utf-8", "replace")[:2000]
+            raise EvalError(f"context resolver failed: {message}")
+        return _load_json(output, "resolved context")
+    if contract["context_kind"] == "eval-harness-experiment":
+        command = [
+            sys.executable,
+            "-E",
+            "-S",
+            str(contract_paths["context"]),
+            "resolve",
+            "--repo",
+            str(fixture),
+            "--request",
+            str(fixture / "request.json"),
+            "--input-root",
+            str(fixture / "inputs"),
+            "--output",
+            str(output),
+        ]
+        completed = subprocess.run(command, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60, check=False)
         if completed.returncode != 0:
             message = completed.stderr.decode("utf-8", "replace")[:2000]
             raise EvalError(f"context resolver failed: {message}")
@@ -2049,7 +2296,7 @@ def validate_result_contract(
                     str(verify_root),
                 ]
             )
-    elif contract["binding_kind"] in {"change-impact", "eval-candidate-audit", "eval-suite-audit"}:
+    elif contract["binding_kind"] in {"change-impact", "eval-candidate-audit", "eval-suite-audit", "eval-harness-experiment"}:
         command.extend(["--context", str(context_path)])
     try:
         completed = subprocess.run(
@@ -2296,6 +2543,15 @@ def _bind_result_unchecked(
                 "repository_sha256": context.get("target", {}).get("repository_sha256"),
                 "suite_sha256": context.get("target", {}).get("suite_sha256"),
             },
+        }
+    elif contract["binding_kind"] == "eval-harness-experiment":
+        expected = {
+            "context_sha256": context.get("context_sha256"),
+            "repository": {
+                "revision": context.get("target", {}).get("revision"),
+                "repository_sha256": context.get("target", {}).get("repository_sha256"),
+            },
+            "objective": context.get("request", {}).get("objective"),
         }
     elif contract["binding_kind"] == "eval-suite-audit":
         expected = {
@@ -3779,6 +4035,8 @@ def command_grade(args: argparse.Namespace) -> int:
         _prepare_verify_project_fixture(case, fixture)
         if suite["skill"] == "eval-suite-audit":
             _prepare_eval_suite_audit_fixture(fixture)
+        if suite["skill"] == "eval-harness-experiment":
+            _prepare_eval_harness_experiment_fixture(fixture)
         before = snapshot_fixture_state(fixture)
         expected_path = base / "expected-context.json"
         expected_context = resolve_context(suite, case, fixture, expected_path, ROOT)
@@ -3926,6 +4184,8 @@ def command_run(args: argparse.Namespace) -> int:
             _prepare_verify_project_fixture(case, fixture)
             if suite["skill"] == "eval-suite-audit":
                 _prepare_eval_suite_audit_fixture(fixture)
+            if suite["skill"] == "eval-harness-experiment":
+                _prepare_eval_harness_experiment_fixture(fixture)
             before = snapshot_fixture_state(fixture)
             context_path = host / "context.json"
             context = resolve_context(

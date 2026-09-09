@@ -4,8 +4,8 @@
 
 This document records the selected design for a coordinated local evaluation
 system. The independently installable `project-eval`, `eval-candidate-audit`,
-and `eval-suite-audit` slices are implemented in this source tree; the
-experiment skill remains tracked delivery work. Delivery is tracked in
+`eval-harness-experiment`, and `eval-suite-audit` slices are implemented in
+this source tree. Final cross-skill evidence and delivery are tracked in
 [`project-eval-system`](../.claude/prds/project-eval-system.md).
 
 ## Purpose
@@ -65,6 +65,7 @@ The protocol family has separate major-versioned schemas:
 - canonical run result;
 - portable evidence bundle;
 - candidate recommendation result;
+- project-eval candidate-run binding;
 - experiment result; and
 - lifecycle recommendation result.
 
@@ -200,6 +201,70 @@ run with matching conditions when the candidate:
 
 Other supported outcomes include `tradeoff`, `inconclusive`,
 `no_improvement`, and `incomplete`.
+
+### Paired harness experiments
+
+`eval-harness-experiment` is the deterministic coordinator around actual
+`project-eval` runs; it is not another model runner. The caller first selects a
+request containing one objective, exact committed editable files, suites,
+development/holdout/regression case roles, one profile, runner/model
+conditions, tolerances, ordered variants, and a cumulative budget. Baseline run
+receipts, candidate run bindings, and structured variants live below one
+separately selected input root.
+
+Resolve exact authority and complete producer evidence:
+
+```text
+python skills/eval-harness-experiment/scripts/experiment.py resolve \
+  --repo . --request /tmp/experiment/request.json \
+  --input-root /tmp/experiment/inputs \
+  --output /tmp/experiment/context.json
+```
+
+Every editable surface must match committed `HEAD`. Variants bind that exact
+revision, the complete selected-surface inventory, before digests, and
+replacement text only for selected files. Every baseline run receipt passes the
+complete `project-eval-run-result/v1` validator. A candidate uses a
+`project-eval-experiment-binding/v1` created by the same explicit profile run:
+
+```text
+python <trusted-project-eval>/scripts/project_eval.py run-codex-profile \
+  --repo /tmp/variant-worktree ... \
+  --experiment-variant /tmp/experiment/inputs/candidate.variant.json \
+  --experiment-binding-output /tmp/experiment/inputs/candidate.binding.json
+```
+
+The project-eval producer must be a trusted copy outside the variant worktree.
+It verifies the applied selected-surface patch before and after the run and
+binds the complete result digest to that patch. The experiment then requires
+matching suite, profile, runner, agent, model, reasoning, environment, fixtures,
+graders, case roles, and paired repetitions. Imported results and bare
+candidate results remain evidence only and cannot establish experimental
+authority.
+
+The lead invokes `project-eval` separately for the baseline and each candidate.
+That producer owns fresh disposable workspaces and hidden grading. Optional
+variant generation is a separate fresh agent that receives visible development
+evidence but not holdout/regression outcomes or command authority. The
+experiment helper never launches a model or arbitrary command.
+
+Evaluate the frozen context:
+
+```text
+python skills/eval-harness-experiment/scripts/experiment.py evaluate \
+  --context /tmp/experiment/context.json --format json \
+  --output /tmp/experiment/result.json
+```
+
+The helper revalidates all current inputs and ranks quality-qualified candidates
+without a universal score. It stops on forbidden effects, budget exhaustion,
+target achievement, a tradeoff requiring a decision, repeated no progress, or
+candidate exhaustion. Source/scope drift fails closed before comparison. The
+canonical result contains the original evaluation sequence, declared
+requirements/tolerances, paired receipt evidence, and structured patches bound
+to the exact starting content. Its standalone validator re-derives every
+classification, cumulative budget, stop, and outcome relation; review and
+application remain separate actions.
 
 ## Platform and agent identity
 
@@ -345,8 +410,8 @@ hosted model execution belongs in v1.
 1. Protocols, definitions, deterministic validation, and portable evidence.
 2. Isolated case preparation, grading, and fixed Codex execution.
 3. `project-eval` human/JSON workflow and first realistic cases.
-4. Candidate audit and suite lifecycle audit.
-5. Paired harness experimentation.
+4. Candidate audit and suite lifecycle audit (implemented).
+5. Paired harness experimentation (implemented).
 6. Cross-skill integration, dogfooding, packaging, and behavioral proof.
 
 The first three slices form the minimum useful vertical product. Later slices

@@ -17,8 +17,8 @@ Detailed behavior stays in each skill's `SKILL.md` and maintainer guide. See the
 [repository architecture](architecture.md) for packaging, installation, and
 infrastructure details. The separately selected
 [project evaluation system](project-eval-system.md) applies these composition
-rules to four planned local evaluation skills without treating them as shipped
-capabilities.
+rules to four independently installable local evaluation skills. Each keeps its
+own authority boundary and composes through validated canonical artifacts.
 
 ## Shape of the toolkit
 
