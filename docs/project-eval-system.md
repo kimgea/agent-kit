@@ -101,6 +101,7 @@ private state.
 
 The protocol family has separate major-versioned schemas:
 
+- readiness and bootstrap setup result;
 - suite and case definition;
 - canonical run result;
 - portable evidence bundle;

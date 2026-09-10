@@ -23,7 +23,7 @@
       "additionalProperties": false,
       "required": ["repository", "eval_root", "suite"],
       "properties": {
-        "repository": {"type": "string", "minLength": 1, "maxLength": 8192},
+        "repository": {"$ref": "#/$defs/text8192"},
         "eval_root": {"$ref": "#/$defs/path"},
         "suite": {"$ref": "#/$defs/path"}
       }
@@ -41,7 +41,7 @@
             "suite_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
             "suite_sha256": {"$ref": "#/$defs/sha256"},
             "source_sha256": {"$ref": "#/$defs/sha256"},
-            "path": {"type": "string", "minLength": 1, "maxLength": 8192},
+            "path": {"$ref": "#/$defs/text8192"},
             "case_count": {"type": "integer", "minimum": 1, "maximum": 500},
             "profile_count": {"type": "integer", "minimum": 1, "maximum": 32}
           }
@@ -57,6 +57,7 @@
           "type": "array",
           "minItems": 0,
           "maxItems": 64,
+          "uniqueItems": true,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -80,7 +81,7 @@
         "required": ["code", "message", "material"],
         "properties": {
           "code": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
-          "message": {"type": "string", "minLength": 1, "maxLength": 20000},
+          "message": {"$ref": "#/$defs/text20000"},
           "material": {"type": "boolean"}
         }
       }
@@ -121,7 +122,9 @@
     }
   ],
   "$defs": {
-    "path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?/)(?!.*//)(?!.*\\\\)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.?$).+[^/]$"},
+    "path": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)(?!.*[\\u0000-\\u001f\\u007f]).+(?<!/)$"},
+    "text8192": {"type": "string", "minLength": 1, "maxLength": 8192, "pattern": "^[^\\u0000-\\u001f\\u007f]+$"},
+    "text20000": {"type": "string", "minLength": 1, "maxLength": 20000, "pattern": "^[^\\u0000-\\u001f\\u007f]+$"},
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
   }
 }

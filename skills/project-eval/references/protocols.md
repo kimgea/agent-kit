@@ -22,6 +22,11 @@ digest-listed assets and never merges with or overwrites existing content. The
 starter case proves materialization and grading mechanics only. It is not
 evidence that the adopting project's behavior is covered.
 
+The setup JSON Schema mirrors direct field shapes, bounds, and text/path
+safety. Consumers must still call `validate-artifact --kind setup` for
+canonical cross-field relations such as target containment, ordering, and
+status-derived evidence.
+
 Project owners may separately adopt `instructions/project-eval-lifecycle.md`
 as project-level agent guidance. Neither installation nor bootstrap edits agent
 instructions, initializes private state, schedules work, or invokes a model.

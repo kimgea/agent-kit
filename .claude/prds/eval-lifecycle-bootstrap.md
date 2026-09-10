@@ -1,7 +1,7 @@
 ---
 name: eval-lifecycle-bootstrap
 description: Make the local project-evaluation workflow discoverable and safely adoptable without hidden repository mutations or model runs.
-status: completed
+status: active
 created: 2026-09-10T10:47:43Z
 ---
 

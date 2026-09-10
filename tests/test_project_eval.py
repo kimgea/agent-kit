@@ -548,6 +548,72 @@ class SetupTests(unittest.TestCase):
             value = project_eval.project_eval_bootstrap(repository)
             self.assertTrue(jsonschema.Draft202012Validator(schema).is_valid(value))
 
+    def test_setup_schema_and_runtime_reject_direct_text_and_path_drift(self):
+        try:
+            import jsonschema
+        except ImportError:
+            jsonschema = None
+        schema = json.loads(
+            (SKILL / "references" / "project-eval-setup-result.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        validator = (
+            jsonschema.Draft202012Validator(schema) if jsonschema is not None else None
+        )
+
+        def direct_string_accepts(rule, value):
+            return (
+                rule["minLength"] <= len(value) <= rule["maxLength"]
+                and project_eval.re.search(rule["pattern"], value) is not None
+            )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            preview = project_eval.project_eval_bootstrap(repository)
+            invalid_results = []
+
+            oversized_path = copy.deepcopy(preview)
+            oversized_path["target"]["eval_root"] = "a" * 4097
+            invalid_results.append(
+                (oversized_path, schema["$defs"]["path"], "a" * 4097)
+            )
+
+            controlled_repository = copy.deepcopy(preview)
+            controlled_repository["target"]["repository"] += "\nredirected"
+            invalid_results.append(
+                (
+                    controlled_repository,
+                    schema["$defs"]["text8192"],
+                    controlled_repository["target"]["repository"],
+                )
+            )
+
+            controlled_limitation = copy.deepcopy(preview)
+            controlled_limitation["operation"] = "readiness"
+            controlled_limitation["status"] = "unsafe"
+            controlled_limitation["starter"]["files"] = []
+            controlled_limitation["next_action"] = "inspect_repository"
+            controlled_limitation["limitations"] = [
+                {"code": "unsafe-repository", "message": "unsafe\npath", "material": True}
+            ]
+            invalid_results.append(
+                (
+                    controlled_limitation,
+                    schema["$defs"]["text20000"],
+                    "unsafe\npath",
+                )
+            )
+
+            for value, rule, direct_value in invalid_results:
+                with self.subTest(value=value):
+                    self.assertFalse(direct_string_accepts(rule, direct_value))
+                    if validator is not None:
+                        self.assertFalse(validator.is_valid(value))
+                    with self.assertRaises(project_eval.EvalError):
+                        project_eval.validate_setup_result(value)
+
     def test_setup_human_output_makes_format_controls_visible(self):
         with tempfile.TemporaryDirectory(prefix="repo-\u202e-") as temporary:
             repository = Path(temporary)
@@ -589,9 +655,7 @@ class SetupTests(unittest.TestCase):
                 {"schema_version": "project-eval-setup-result/v1", "valid": True},
             )
 
-    def test_posix_creation_failure_preserves_partial_tree_for_safe_recovery(self):
-        if os.name == "nt":
-            self.skipTest("native Windows rollback is exercised by hosted tests")
+    def test_creation_failure_uses_platform_safe_recovery(self):
         with tempfile.TemporaryDirectory() as temporary:
             repository = Path(temporary) / "repo"
             repository.mkdir()
@@ -608,17 +672,22 @@ class SetupTests(unittest.TestCase):
             with mock.patch.object(
                 project_eval._PATH_SAFETY, "_write_descriptor", side_effect=fail_second
             ):
-                with self.assertRaisesRegex(
-                    project_eval.EvalError, "partial created content was preserved"
-                ):
+                expected = (
+                    "cannot create starter evaluation tree"
+                    if os.name == "nt"
+                    else "partial created content was preserved"
+                )
+                with self.assertRaisesRegex(project_eval.EvalError, expected):
                     project_eval.project_eval_bootstrap(
                         repository, apply=True, yes=True
                     )
-            self.assertTrue((repository / "evals" / "project").is_dir())
-            readiness = project_eval.project_eval_readiness(repository)
-            self.assertEqual(readiness["status"], "incomplete")
+            if os.name == "nt":
+                self.assertEqual(list(repository.iterdir()), [])
+            else:
+                self.assertTrue((repository / "evals" / "project").is_dir())
+                readiness = project_eval.project_eval_readiness(repository)
+                self.assertEqual(readiness["status"], "incomplete")
 
-    @unittest.skipUnless(os.name == "posix", "POSIX replacement-race recovery probe")
     def test_creation_failure_preserves_raced_replacement(self):
         with tempfile.TemporaryDirectory() as temporary:
             repository = Path(temporary) / "repo"
@@ -648,9 +717,12 @@ class SetupTests(unittest.TestCase):
                 "_write_descriptor",
                 side_effect=replace_then_fail,
             ):
-                with self.assertRaisesRegex(
-                    project_eval.EvalError, "partial created content was preserved"
-                ):
+                expected = (
+                    "rollback was incomplete"
+                    if os.name == "nt"
+                    else "partial created content was preserved"
+                )
+                with self.assertRaisesRegex(project_eval.EvalError, expected):
                     project_eval.project_eval_bootstrap(
                         repository, apply=True, yes=True
                     )
