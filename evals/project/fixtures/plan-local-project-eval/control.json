@@ -1,0 +1,28 @@
+{
+  "schema_version": "project-eval-case-control/v1",
+  "case_id": "plan-local-project-eval",
+  "materialization": {"mode": "copy", "source": "visible", "remove_paths": [], "history": []},
+  "assertions": [
+    {
+      "assertion_id": "safe-local-run-plan",
+      "kind": "json_equals",
+      "path": "run-plan.json",
+      "expected": {
+        "preflight": "validate_suite",
+        "profile": "smoke",
+        "private_roots": "runner_creates_absent_roots",
+        "allow_project_checks": true,
+        "allow_network": false,
+        "allow_hidden_grader": false,
+        "store": false,
+        "validate_receipt": true,
+        "confirm_disposable_contents_removed": true,
+        "confirm_repository_clean": true
+      }
+    }
+  ],
+  "checks": [],
+  "hidden_grader": null,
+  "trajectory": null,
+  "reconstruction": null
+}

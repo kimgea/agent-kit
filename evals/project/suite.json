@@ -26,6 +26,18 @@
       "platforms": ["linux", "windows", "macos"],
       "required_capabilities": [],
       "assertion_ids": ["mapping-lookup"]
+    },
+    {
+      "case_id": "plan-local-project-eval",
+      "title": "Plan a safe local project-eval run",
+      "kind": "explanation",
+      "importance": "important",
+      "fixture": "fixtures/plan-local-project-eval",
+      "task": "Read the local operator guidance and record the least-friction safe run plan in run-plan.json. Use only the choices declared in run-plan.schema.json. Do not invoke a model, use network access, or initialize persistent state.",
+      "coverage": "regression",
+      "platforms": ["linux", "windows", "macos"],
+      "required_capabilities": [],
+      "assertion_ids": ["safe-local-run-plan"]
     }
   ],
   "profiles": {
@@ -44,6 +56,16 @@
       "repetitions": 3,
       "max_invocations": 6,
       "max_seconds": 900,
+      "max_tokens": null,
+      "max_cost_usd": null,
+      "network": false,
+      "effects": ["workspace_edit", "command_execution"]
+    },
+    "operator-smoke": {
+      "case_ids": ["plan-local-project-eval"],
+      "repetitions": 1,
+      "max_invocations": 1,
+      "max_seconds": 120,
       "max_tokens": null,
       "max_cost_usd": null,
       "network": false,

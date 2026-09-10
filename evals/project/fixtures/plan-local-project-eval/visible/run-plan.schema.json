@@ -1,0 +1,12 @@
+{
+  "preflight": ["validate_suite", "skip_validation"],
+  "profile": ["smoke", "compare"],
+  "private_roots": ["runner_creates_absent_roots", "precreate_default_permissions"],
+  "allow_project_checks": [true, false],
+  "allow_network": [true, false],
+  "allow_hidden_grader": [true, false],
+  "store": [true, false],
+  "validate_receipt": [true, false],
+  "confirm_disposable_contents_removed": [true, false],
+  "confirm_repository_clean": [true, false]
+}

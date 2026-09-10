@@ -414,13 +414,72 @@ class ProfileWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(
             [item["kind"] for item in suite["cases"]],
-            ["explanation", "implementation"],
+            ["explanation", "implementation", "explanation"],
         )
-        for case_id in ("explain-route-manifest", "implement-route-lookup"):
+        self.assertEqual(
+            suite["profiles"]["operator-smoke"],
+            {
+                "case_ids": ["plan-local-project-eval"],
+                "repetitions": 1,
+                "max_invocations": 1,
+                "max_seconds": 120,
+                "max_tokens": None,
+                "max_cost_usd": None,
+                "network": False,
+                "effects": ["workspace_edit", "command_execution"],
+            },
+        )
+        for case_id in (
+            "explain-route-manifest",
+            "implement-route-lookup",
+            "plan-local-project-eval",
+        ):
             _, selected, _, fixture = project_eval._case_components(
                 ROOT, "evals/project", "suite.json", case_id
             )
             project_eval._CASE_ENGINE.validate_case_fixture(fixture, selected)
+
+    def test_operator_case_distinguishes_safe_and_broad_private_root_plans(self):
+        _, selected, _, fixture = project_eval._case_components(
+            ROOT, "evals/project", "suite.json", "plan-local-project-eval"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            prepared = project_eval._CASE_ENGINE.materialize_case(
+                fixture, selected, Path(temporary) / "workspaces"
+            )
+            workspace = Path(prepared["workspace"])
+            unsafe = {
+                "preflight": "validate_suite",
+                "profile": "smoke",
+                "private_roots": "precreate_default_permissions",
+                "allow_project_checks": True,
+                "allow_network": False,
+                "allow_hidden_grader": False,
+                "store": False,
+                "validate_receipt": True,
+                "confirm_disposable_contents_removed": True,
+                "confirm_repository_clean": True,
+            }
+            (workspace / "run-plan.json").write_text(
+                json.dumps(unsafe), encoding="utf-8"
+            )
+            self.assertEqual(
+                project_eval._CASE_ENGINE.grade_case(
+                    fixture, selected, prepared
+                )["status"],
+                "failed",
+            )
+            safe = dict(unsafe)
+            safe["private_roots"] = "runner_creates_absent_roots"
+            (workspace / "run-plan.json").write_text(
+                json.dumps(safe), encoding="utf-8"
+            )
+            self.assertEqual(
+                project_eval._CASE_ENGINE.grade_case(
+                    fixture, selected, prepared
+                )["status"],
+                "passed",
+            )
 
 
 if __name__ == "__main__":

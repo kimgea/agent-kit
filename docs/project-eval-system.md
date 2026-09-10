@@ -178,6 +178,11 @@ and workspaces, and returns human output by default. Add `--format json` for a
 canonical consumer result. `--store` is optional and requires prior explicit
 private `state-init`.
 
+Agent Kit's committed suite also provides the one-case `operator-smoke`
+profile. It checks whether an agent can derive the safe local run procedure,
+including allowing the runner to create absent private roots, without launching
+a nested model evaluation or increasing the regular `smoke` profile.
+
 Correctness and forbidden effects are hard gates. Completion across repetitions
 and important-case performance come next. Time and tokens compare only variants
 that meet the quality threshold. Results may remain Pareto tradeoffs.
