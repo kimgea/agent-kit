@@ -25,6 +25,10 @@ files, so neither standalone skill imports the other's runtime. `project-review`
 `verify-project`, and `review-and-fix` likewise use `change-impact` only as an
 optional trusted installed producer: each applies its own trigger, validates
 canonical JSON, and continues safely when the standalone analyzer is absent.
+The `project-eval` plugin groups its runner, candidate audit, suite audit, and
+paired harness experiment. Installing it exposes those skills only: repository
+readiness, preview-first bootstrap, optional lifecycle instructions, private
+state, and model-backed runs remain separate explicit operations.
 
 ## Build and inspect
 

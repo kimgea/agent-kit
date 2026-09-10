@@ -16,7 +16,7 @@ low-value suite weight. It keeps four concerns separate:
 
 | Skill | Primary role | Mutates the live repository by default? |
 | --- | --- | --- |
-| `project-eval` | Define, run, grade, compare, import, export, and apply selected eval maintenance | Only during an explicitly authorized maintenance operation |
+| `project-eval` | Inspect readiness; bootstrap, define, run, grade, compare, import, export, and apply selected eval maintenance | Only during an explicitly authorized bootstrap or maintenance operation |
 | `eval-candidate-audit` | Propose evaluation candidates from selected sessions | No |
 | `eval-harness-experiment` | Compare disposable harness variants | No |
 | `eval-suite-audit` | Recommend suite lifecycle changes | No |
@@ -25,6 +25,46 @@ Each skill is independently installable. Composition happens through validated
 files and consumer-owned adapters, not cross-skill Python imports. A third-party
 agent or evaluator can participate through the same recorded-output and bundle
 contracts without joining Agent Kit's ecosystem.
+
+## Adoption and activation
+
+Installation makes the four skills discoverable; it does not mutate the current
+repository, create `evals/project/`, modify `AGENTS.md`, initialize private
+state, schedule a cycle, or invoke a model. Inspect a repository first:
+
+```bash
+python <installed-project-eval>/scripts/project_eval.py readiness \
+  --repo /path/to/project
+```
+
+Use `--format json` for the canonical `project-eval-setup-result/v1` artifact.
+It distinguishes a ready suite from missing, partial, invalid, and unsafe
+setup. If the repository is not configured, preview the exact starter files,
+sizes, and digests without changing anything:
+
+```bash
+python <installed-project-eval>/scripts/project_eval.py bootstrap \
+  --repo /path/to/project
+```
+
+Creation is a separate explicit operation:
+
+```bash
+python <installed-project-eval>/scripts/project_eval.py bootstrap \
+  --repo /path/to/project --apply --yes
+```
+
+Bootstrap is create-only and refuses existing or partial content. Its one
+synthetic case proves materialization and deterministic grading mechanics; it
+does not establish useful coverage of the adopting project. Replace or extend
+it with project-owned explanation, implementation, or trajectory cases.
+
+Projects that want durable lifecycle triggers may deliberately copy or adapt
+[`instructions/project-eval-lifecycle.md`](../instructions/project-eval-lifecycle.md)
+into their project-level agent instructions. The fragment points substantial
+behavior changes, recurring sanitized friction, harness variants, and suite
+bloat toward the appropriate skill while explicitly skipping small unrelated
+changes and keeping every model-backed run caller-authorized.
 
 ## Core workflow
 
@@ -179,9 +219,11 @@ canonical consumer result. `--store` is optional and requires prior explicit
 private `state-init`.
 
 Agent Kit's committed suite also provides the one-case `operator-smoke`
-profile. It checks whether an agent can derive the safe local run procedure,
-including allowing the runner to create absent private roots, without launching
-a nested model evaluation or increasing the regular `smoke` profile.
+profile. It checks whether an agent can derive the safe adoption and local run
+procedure: readiness before setup, preview before explicit creation, separate
+instruction adoption, explicit model authority, and letting the runner create
+absent private roots. The case does not launch a nested model evaluation or
+increase the regular `smoke` profile.
 
 Correctness and forbidden effects are hard gates. Completion across repetitions
 and important-case performance come next. Time and tokens compare only variants

@@ -583,6 +583,35 @@ class CatalogAndValidationTests(unittest.TestCase):
         self.assertIn("do not fall back to the reviewed copy", contract)
         self.assertIn("explicitly requests a different review method", contract)
         self.assertIn("does not authorize verification", contract)
+
+    def test_agent_contract_routes_proportional_eval_lifecycle(self):
+        contract = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        lifecycle = (ROOT / "instructions" / "project-eval-lifecycle.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("instructions/project-eval-lifecycle.md", contract)
+        self.assertIn("skip evaluation work", contract)
+        self.assertIn("Model-backed eval execution always requires", contract)
+        self.assertIn("eval-candidate-audit", lifecycle)
+        self.assertIn("eval-harness-experiment", lifecycle)
+        self.assertIn("eval-suite-audit", lifecycle)
+        self.assertIn("does not edit project instructions", lifecycle)
+
+        catalog = agent_kit.load_catalog(ROOT)
+        plugin = next(
+            item for item in catalog["plugins"] if item["id"] == "project-eval"
+        )
+        self.assertEqual(
+            plugin["skills"],
+            [
+                "eval-candidate-audit",
+                "eval-harness-experiment",
+                "eval-suite-audit",
+                "project-eval",
+            ],
+        )
+        self.assertTrue(any("readiness" in item for item in plugin["default_prompts"]))
+        self.assertNotIn("project-eval-lifecycle-instruction", plugin["skills"])
         self.assertIn("durable, non-obvious acceptance", contract)
         self.assertIn("merely because a subtree exists", contract)
         self.assertIn("duplicate `SKILL.md`", contract)

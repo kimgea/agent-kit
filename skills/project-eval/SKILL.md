@@ -1,6 +1,6 @@
 ---
 name: project-eval
-description: Define, validate, run, grade, compare, import, and export bounded local coding-agent evaluations for a repository. Use when an agent should measure explanation or implementation behavior, compare agent or harness configurations, inspect the latest eval status, or exchange sanitized evaluation evidence. Do not use it as an ordinary project test runner or as authority to publish or merge changes.
+description: Inspect readiness, bootstrap, define, validate, run, grade, compare, import, and export bounded local coding-agent evaluations for a repository. Use when an agent should set up or measure explanation or implementation behavior, compare agent or harness configurations, inspect eval status, or exchange sanitized evaluation evidence. Do not use it as an ordinary project test runner or as authority to publish or merge changes.
 ---
 
 # Project Eval
@@ -26,6 +26,12 @@ model-backed execution.
 
 Use the bundled helper at `scripts/project_eval.py`:
 
+- `readiness` deterministically reports whether the selected repository has a
+  complete valid suite. It never writes files, initializes state, or invokes an
+  agent.
+- `bootstrap` previews the exact synthetic starter files by default. Creation
+  requires `--apply --yes`, is create-only, and refuses existing or partial
+  content. The starter proves mechanics, not project coverage.
 - `validate-suite` resolves and validates an explicit suite beneath a selected
   in-repository eval root without invoking an agent.
 - `validate-case` validates a case's hidden control contract without exposing it
@@ -68,7 +74,13 @@ integrating another skill, or handling portable evidence. Read
 [running-evals.md](references/running-evals.md) when preparing, grading,
 executing, or comparing cases. Only `run-codex-attempt` and the explicitly
 selected `run-codex-profile` orchestration invoke a model; every validation,
-comparison, rendering, and recorded-output path is deterministic.
+setup, comparison, rendering, and recorded-output path is deterministic.
+
+Installing this skill or its plugin only makes the capability available. It
+does not inspect or modify repositories. Use `readiness` when the user asks
+about adoption. Show the non-mutating `bootstrap` preview before applying it,
+and never edit `AGENTS.md` automatically; projects may deliberately adopt the
+separate `project-eval-lifecycle` instruction fragment.
 
 When producing candidate evidence for `eval-harness-experiment`, invoke this
 skill from a trusted copy outside the variant worktree and select both

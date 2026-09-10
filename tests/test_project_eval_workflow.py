@@ -449,6 +449,11 @@ class ProfileWorkflowTests(unittest.TestCase):
             )
             workspace = Path(prepared["workspace"])
             unsafe = {
+                "adoption_preflight": "readiness",
+                "missing_suite_action": "preview_bootstrap",
+                "bootstrap_apply_authority": "explicit_apply_and_yes",
+                "instruction_adoption": "separate_deliberate_change",
+                "model_execution": "explicit_run_only",
                 "preflight": "validate_suite",
                 "profile": "smoke",
                 "private_roots": "precreate_default_permissions",

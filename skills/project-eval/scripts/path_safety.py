@@ -1078,3 +1078,271 @@ def write_created_output(path: Path, data: bytes) -> None:
                 raise SafetyError(f"output entry changed while being written: {absolute}")
         finally:
             os.close(descriptor)
+
+
+def create_repository_tree(
+    repository: Path,
+    root_relative: str,
+    files: dict[str, bytes],
+) -> None:
+    """Create one absent repository subtree without following path components.
+
+    Parent directories between the repository and the selected subtree may be
+    created. Every supplied file is create-only. Windows can remove created
+    entries through retained handles if publication fails. POSIX preserves a
+    partial tree instead: pathname deletion cannot be made identity-bound, so
+    fail-closed recovery is safer than a racy rollback.
+    """
+    repository = repository.absolute()
+    root_path = canonical_path(root_relative)
+    root_parts = PurePosixPath(root_path).parts
+    if not files or len(files) > 64:
+        raise SafetyError("repository tree must contain between 1 and 64 files")
+    normalized: dict[str, bytes] = {}
+    total = 0
+    for raw_path, raw in files.items():
+        relative = canonical_path(raw_path)
+        if relative in normalized or not isinstance(raw, bytes):
+            raise SafetyError("repository tree files must have unique canonical byte content")
+        total += len(raw)
+        if total > 1024 * 1024:
+            raise SafetyError("repository tree exceeds 1048576 bytes")
+        normalized[relative] = raw
+    file_parts = {path: PurePosixPath(path).parts for path in normalized}
+    directory_parts = sorted(
+        {
+            parts[:index]
+            for parts in file_parts.values()
+            for index in range(1, len(parts))
+        },
+        key=lambda item: (len(item), item),
+    )
+    if os.name == "nt":
+        _create_repository_tree_windows(
+            repository, root_parts, directory_parts, file_parts, normalized
+        )
+        return
+    if not SAFE_POSIX_DIR_FD:
+        raise SafetyError("safe repository tree creation is unavailable")
+    _create_repository_tree_posix(
+        repository, root_parts, directory_parts, file_parts, normalized
+    )
+
+
+def _create_repository_tree_posix(
+    repository: Path,
+    root_parts: tuple[str, ...],
+    directory_parts: list[tuple[str, ...]],
+    file_parts: dict[str, tuple[str, ...]],
+    files: dict[str, bytes],
+) -> None:
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+    descriptors: dict[tuple[str, ...], int] = {}
+    error: BaseException | None = None
+    with _posix_bound_parent(repository) as (repository_parent, name, absolute):
+        try:
+            descriptors[()] = os.open(name, flags, dir_fd=repository_parent)
+            if not stat.S_ISDIR(os.fstat(descriptors[()]).st_mode):
+                raise SafetyError(f"repository is not a directory: {absolute}")
+            current: tuple[str, ...] = ()
+            for index, part in enumerate(root_parts):
+                child = current + (part,)
+                parent_descriptor = descriptors[current]
+                if index == len(root_parts) - 1:
+                    os.mkdir(part, 0o755, dir_fd=parent_descriptor)
+                else:
+                    try:
+                        descriptors[child] = os.open(part, flags, dir_fd=parent_descriptor)
+                    except FileNotFoundError:
+                        os.mkdir(part, 0o755, dir_fd=parent_descriptor)
+                if child not in descriptors:
+                    descriptors[child] = os.open(part, flags, dir_fd=parent_descriptor)
+                current = child
+            tree_root = current
+            for parts in directory_parts:
+                key = tree_root + parts
+                parent = tree_root + parts[:-1]
+                os.mkdir(parts[-1], 0o755, dir_fd=descriptors[parent])
+                descriptors[key] = os.open(parts[-1], flags, dir_fd=descriptors[parent])
+            for relative in sorted(files):
+                parts = file_parts[relative]
+                parent = tree_root + parts[:-1]
+                descriptor = os.open(
+                    parts[-1],
+                    os.O_WRONLY
+                    | os.O_CREAT
+                    | os.O_EXCL
+                    | os.O_NOFOLLOW
+                    | getattr(os, "O_BINARY", 0)
+                    | getattr(os, "O_CLOEXEC", 0),
+                    0o644,
+                    dir_fd=descriptors[parent],
+                )
+                try:
+                    metadata = os.fstat(descriptor)
+                    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                        raise SafetyError(f"refusing unsafe new repository file: {relative}")
+                    _write_descriptor(descriptor, files[relative])
+                finally:
+                    os.close(descriptor)
+        except BaseException as exc:
+            error = exc
+        if error is not None:
+            for key in sorted(descriptors, key=len, reverse=True):
+                os.close(descriptors[key])
+            raise SafetyError(
+                "repository tree creation failed; partial created content was "
+                "preserved for safe recovery"
+            ) from error
+        for key in sorted(descriptors, key=len, reverse=True):
+            os.close(descriptors[key])
+
+
+def _create_repository_tree_windows(
+    repository: Path,
+    root_parts: tuple[str, ...],
+    directory_parts: list[tuple[str, ...]],
+    file_parts: dict[str, tuple[str, ...]],
+    files: dict[str, bytes],
+) -> None:
+    directory_access = 0x00000001 | 0x00000002 | 0x00000004 | 0x00000080
+    created_access = directory_access | 0x00010000
+    descriptors: dict[tuple[str, ...], int] = {}
+    created_directories: list[tuple[tuple[str, ...], str, tuple[str, ...]]] = []
+    created_files: list[tuple[tuple[str, ...], str, tuple[int, int]]] = []
+    error: BaseException | None = None
+    with _windows_locked_parent(repository) as (absolute, repository_parent):
+        descriptors[()] = _windows_relative_handle(
+            repository_parent,
+            absolute.name,
+            access=directory_access,
+            creation=3,
+            display_path=absolute,
+            directory=True,
+        )
+        try:
+            attributes, _, _, _ = _windows_handle_attributes(descriptors[()])
+            if attributes & 0x00000400 or not attributes & 0x00000010:
+                raise SafetyError(f"repository is link-like or not a directory: {absolute}")
+            current: tuple[str, ...] = ()
+            for index, part in enumerate(root_parts):
+                child = current + (part,)
+                display = absolute.joinpath(*child)
+                if index == len(root_parts) - 1:
+                    descriptors[child] = _windows_relative_handle(
+                        descriptors[current],
+                        part,
+                        access=created_access,
+                        creation=1,
+                        display_path=display,
+                        directory=True,
+                    )
+                    created_directories.append((current, part, child))
+                else:
+                    try:
+                        descriptors[child] = _windows_relative_handle(
+                            descriptors[current],
+                            part,
+                            access=directory_access,
+                            creation=3,
+                            display_path=display,
+                            directory=True,
+                        )
+                    except OSError as exc:
+                        if (getattr(exc, "winerror", None) or exc.errno) not in {2, 3}:
+                            raise
+                        descriptors[child] = _windows_relative_handle(
+                            descriptors[current],
+                            part,
+                            access=created_access,
+                            creation=1,
+                            display_path=display,
+                            directory=True,
+                        )
+                        created_directories.append((current, part, child))
+                attributes, _, _, _ = _windows_handle_attributes(descriptors[child])
+                if attributes & 0x00000400 or not attributes & 0x00000010:
+                    raise SafetyError(f"refusing unsafe repository directory: {display}")
+                current = child
+            tree_root = current
+            for parts in directory_parts:
+                key = tree_root + parts
+                parent = tree_root + parts[:-1]
+                display = absolute.joinpath(*key)
+                descriptors[key] = _windows_relative_handle(
+                    descriptors[parent],
+                    parts[-1],
+                    access=created_access,
+                    creation=1,
+                    display_path=display,
+                    directory=True,
+                )
+                created_directories.append((parent, parts[-1], key))
+            for relative in sorted(files):
+                parts = file_parts[relative]
+                parent = tree_root + parts[:-1]
+                display = absolute.joinpath(*(tree_root + parts))
+                descriptor = _windows_file_descriptor(
+                    display,
+                    parent_handle=descriptors[parent],
+                    access=0x40000000 | 0x00010000 | 0x00000080,
+                    creation=1,
+                    descriptor_flags=os.O_WRONLY | getattr(os, "O_BINARY", 0),
+                )
+                try:
+                    metadata = os.fstat(descriptor)
+                    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                        raise SafetyError(f"refusing unsafe new repository file: {relative}")
+                    import msvcrt
+
+                    _, _, volume, file_index = _windows_handle_attributes(
+                        msvcrt.get_osfhandle(descriptor)
+                    )
+                    created_files.append((parent, parts[-1], (volume, file_index)))
+                    _write_descriptor(descriptor, files[relative])
+                finally:
+                    os.close(descriptor)
+        except BaseException as exc:
+            error = exc
+        if error is not None:
+            rollback_errors: list[str] = []
+            for parent, child, identity in reversed(created_files):
+                handle = None
+                try:
+                    handle = _windows_relative_handle(
+                        descriptors[parent],
+                        child,
+                        access=0x00010000 | 0x00000080,
+                        creation=3,
+                        display_path=absolute / child,
+                    )
+                    attributes, _, volume, file_index = _windows_handle_attributes(handle)
+                    if attributes & 0x00000400 or (volume, file_index) != identity:
+                        raise SafetyError(
+                            f"created repository file was replaced before rollback: {child}"
+                        )
+                    _windows_delete_handle(handle)
+                except (OSError, SafetyError) as exc:
+                    rollback_errors.append(str(exc))
+                finally:
+                    if handle is not None:
+                        _windows_close_handle(handle)
+            for parent, child, key in reversed(created_directories):
+                handle = descriptors.pop(key, None)
+                if handle is None:
+                    continue
+                try:
+                    _windows_delete_handle(handle)
+                except OSError as exc:
+                    rollback_errors.append(str(exc))
+                finally:
+                    _windows_close_handle(handle)
+            for key in sorted(descriptors, key=len, reverse=True):
+                _windows_close_handle(descriptors[key])
+            if rollback_errors:
+                raise SafetyError(
+                    f"repository tree creation failed and rollback was incomplete: {rollback_errors[0]}"
+                ) from error
+            raise error
+        for key in sorted(descriptors, key=len, reverse=True):
+            _windows_close_handle(descriptors[key])

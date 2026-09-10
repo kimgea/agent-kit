@@ -30,6 +30,7 @@ Current skills:
 | `eval-harness-experiment` | Compare paired harness or instruction variants under protected quality gates | Reads committed selected surfaces, canonical baseline receipts, and project-eval-bound candidate runs; writes only explicit context/result outputs and never applies patches |
 | `eval-suite-audit` | Recommend compact, evidence-preserving lifecycle changes for a selected committed eval suite | Reads committed definitions and explicitly selected compatible evidence; writes output only when explicitly requested |
 | `grill-me` | Pressure-test decisions, plans, artifacts, and diagnoses | None |
+| `project-eval` | Inspect readiness, bootstrap, run, grade, compare, and exchange bounded local repository evaluations | Reads repository-owned definitions; bootstrap writes only an explicitly selected absent eval root; model runs and private state remain separate explicit operations |
 | `project-review` | Review bounded changes under root and nested `REVIEW.md` guidance | Reads project source and optional user guidance; writes output only when explicitly requested |
 | `review-and-fix` | Safely address local review findings through decision, verification, and fresh-review gates | Reads bounded project/review/verification data; changes only eligible or approved local files |
 | `review-guidance-audit` | Improve hierarchical `REVIEW.md` guidance without editing it | Reads selected project files and review guidance; writes output only when explicitly requested |
@@ -68,7 +69,11 @@ model calls out of the canonical gate and GitHub Actions.
 The [project evaluation system](docs/project-eval-system.md) includes
 independently installable `project-eval` execution, `eval-candidate-audit`
 discovery, `eval-suite-audit` lifecycle curation, and quality-gated paired
-experiments through `eval-harness-experiment`.
+experiments through `eval-harness-experiment`. Installing that plugin exposes
+the skills but does not alter a repository. `project-eval readiness` can inspect
+setup without mutation, and its preview-first bootstrap creates a synthetic
+starter only after explicit apply confirmation. Projects can separately adopt
+the optional `instructions/project-eval-lifecycle.md` fragment.
 The [skill ecosystem guide](docs/skill-ecosystem.md) maps current capability
 roles, safe handoffs, workflow bundles, and supporting infrastructure. Its
 [roadmap](docs/skill-roadmap.md) separates the next local capability from likely
@@ -168,8 +173,8 @@ setup script can preview and remove them separately.
 
 ## Reusable non-skill resources
 
-- `instructions/` — reviewed global instruction fragments that require human
-  adoption.
+- `instructions/` — reviewed global or project instruction fragments that
+  require deliberate human adoption, including optional eval lifecycle triggers.
 - `templates/` — project instruction starters.
 - `templates/context-repo/` — starter files for a separate private context
   repository or directory.

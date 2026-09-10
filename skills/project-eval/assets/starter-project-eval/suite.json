@@ -1,0 +1,31 @@
+{
+  "schema_version": "project-eval-suite/v1",
+  "suite_id": "starter-project-eval",
+  "title": "Starter project evaluation",
+  "cases": [
+    {
+      "case_id": "explain-starter",
+      "title": "Explain the starter contract",
+      "kind": "explanation",
+      "importance": "exploratory",
+      "fixture": "fixtures/explain-starter",
+      "task": "Read the isolated fixture and record its purpose and coverage boundary in answer.json using only the values in answer.schema.json. Do not use network access.",
+      "coverage": "development",
+      "platforms": ["linux", "windows", "macos"],
+      "required_capabilities": [],
+      "assertion_ids": ["starter-boundary"]
+    }
+  ],
+  "profiles": {
+    "starter-smoke": {
+      "case_ids": ["explain-starter"],
+      "repetitions": 1,
+      "max_invocations": 1,
+      "max_seconds": 120,
+      "max_tokens": null,
+      "max_cost_usd": null,
+      "network": false,
+      "effects": ["workspace_edit", "command_execution"]
+    }
+  }
+}

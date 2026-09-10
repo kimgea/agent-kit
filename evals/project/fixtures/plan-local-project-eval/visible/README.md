@@ -1,7 +1,14 @@
 # Local project-eval operator guidance
 
-Validate the committed suite before invoking its selected profile. A run must
-name an explicit profile, model, and reasoning level.
+Start by inspecting repository readiness. If no suite exists, preview the
+synthetic bootstrap before any creation. Applying the starter requires one
+explicit operation with both apply and confirmation flags; adopting lifecycle
+guidance in project agent instructions is a separate deliberate change. Neither
+operation invokes a model.
+
+For an existing suite, validate the committed definition before invoking its
+selected profile. A run must name an explicit profile, model, and reasoning
+level, and model execution must be explicitly requested by the caller.
 
 The workspace and host roots contain private, disposable run material. The
 runner securely creates absent roots with private permissions. Existing roots

@@ -34,6 +34,8 @@ SafetyError = _PATH_SAFETY.SafetyError
 assert_no_link_components = _PATH_SAFETY.assert_no_link_components
 bound_directory_entries = _PATH_SAFETY.bound_directory_entries
 canonical_path = _PATH_SAFETY.canonical_path
+canonical_text = _PATH_SAFETY.canonical_text
+create_repository_tree = _PATH_SAFETY.create_repository_tree
 ensure_private_directory = _PATH_SAFETY.ensure_private_directory
 is_link_like = _PATH_SAFETY.is_link_like
 publish_immutable_output = _PATH_SAFETY.publish_immutable_output
@@ -61,7 +63,7 @@ _CODEX_RUNNER_SPEC.loader.exec_module(_CODEX_RUNNER)
 RunnerError = _CODEX_RUNNER.RunnerError
 
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 MAX_JSON_BYTES = 4 * 1024 * 1024
 MAX_ARCHIVE_BYTES = 16 * 1024 * 1024
 MAX_ARCHIVE_CONTENT = 8 * 1024 * 1024
@@ -100,6 +102,14 @@ SENSITIVE_KEYS = {
     "environment_values",
     "workspace_contents",
 }
+STARTER_ROOT = Path(__file__).resolve().parents[1] / "assets" / "starter-project-eval"
+STARTER_FILES = (
+    "fixtures/explain-starter/control.json",
+    "fixtures/explain-starter/visible/README.md",
+    "fixtures/explain-starter/visible/answer.json",
+    "fixtures/explain-starter/visible/answer.schema.json",
+    "suite.json",
+)
 
 
 class EvalError(ValueError):
@@ -367,7 +377,7 @@ def load_repository_suite(
         raise EvalError(f"repository is not a directory: {repository}")
     eval_root_relative = _relative(eval_root_value, "evaluation root")
     suite_relative = _relative(suite_value, "suite path")
-    if not suite_relative.endswith(".json"):
+    if not suite_relative.casefold().endswith(".json"):
         raise EvalError("suite path must name a JSON file")
     try:
         eval_root = safe_repo_path(repository, eval_root_relative)
@@ -388,6 +398,350 @@ def load_repository_suite(
         if not fixture.is_dir():
             raise EvalError(f"case {case['case_id']} fixture is not a directory")
     return suite, raw, suite_path
+
+
+def _starter_files(suite_path: str = "suite.json") -> dict[str, bytes]:
+    try:
+        suite_path = canonical_path(suite_path)
+    except SafetyError as exc:
+        raise EvalError(f"starter suite path is invalid: {exc}") from exc
+    if not suite_path.casefold().endswith(".json"):
+        raise EvalError("starter suite path must name a JSON file")
+    files: dict[str, bytes] = {}
+    for relative in STARTER_FILES:
+        try:
+            source = safe_repo_path(STARTER_ROOT, relative)
+            _, raw = read_regular(source, 64 * 1024, require_single_link=True)
+            _, normalized = canonical_text(raw, f"starter asset {relative}")
+        except SafetyError as exc:
+            raise EvalError(f"cannot load starter asset {relative}: {exc}") from exc
+        files[relative] = normalized
+    suite = validate_suite(_decode_json(files["suite.json"], "starter suite"))
+    case = suite["cases"][0]
+    try:
+        _CASE_ENGINE.validate_case_fixture(
+            STARTER_ROOT / case["fixture"], case
+        )
+    except CaseError as exc:
+        raise EvalError(f"bundled starter case is invalid: {exc}") from exc
+    if suite_path != "suite.json":
+        suite_parts = tuple(part.casefold() for part in PurePosixPath(suite_path).parts)
+        for existing in files:
+            if existing == "suite.json":
+                continue
+            existing_parts = tuple(
+                part.casefold() for part in PurePosixPath(existing).parts
+            )
+            common = min(len(suite_parts), len(existing_parts))
+            if suite_parts[:common] == existing_parts[:common]:
+                raise EvalError(
+                    f"starter suite path collides with bundled fixture content: {suite_path}"
+                )
+        files[suite_path] = files.pop("suite.json")
+    return files
+
+
+def _readiness_target(
+    repository: Path, eval_root_value: str, suite_value: str
+) -> tuple[Path, str, str]:
+    repository = repository.absolute()
+    eval_root = _relative(eval_root_value, "evaluation root")
+    suite_path = _relative(suite_value, "suite path")
+    if not suite_path.casefold().endswith(".json"):
+        raise EvalError("suite path must name a JSON file")
+    return repository, eval_root, suite_path
+
+
+def _starter_listing(eval_root: str, files: dict[str, bytes]) -> list[dict[str, Any]]:
+    return [
+        {
+            "path": PurePosixPath(eval_root, relative).as_posix(),
+            "size": len(files[relative]),
+            "sha256": _sha(files[relative]),
+        }
+        for relative in sorted(files)
+    ]
+
+
+def validate_setup_result(value: Any) -> dict[str, Any]:
+    result = _mapping(value, "setup result")
+    _exact(
+        result,
+        "setup result",
+        (
+            "schema_version",
+            "producer",
+            "operation",
+            "mutated",
+            "target",
+            "status",
+            "suite",
+            "starter",
+            "next_action",
+            "limitations",
+        ),
+    )
+    if result["schema_version"] != "project-eval-setup-result/v1":
+        raise EvalError("setup result has unsupported schema_version")
+    _validate_producer(result["producer"], "setup result.producer")
+    if result["producer"]["name"] != "project-eval":
+        raise EvalError("setup result producer must be project-eval")
+    operation = _enum(result["operation"], "setup result.operation", {"readiness", "preview", "apply"})
+    if not isinstance(result["mutated"], bool):
+        raise EvalError("setup result.mutated must be boolean")
+    target = _mapping(result["target"], "setup result.target")
+    _exact(target, "setup result.target", ("repository", "eval_root", "suite"))
+    _text(target["repository"], "setup result.target.repository", maximum=8192)
+    _relative(target["eval_root"], "setup result.target.eval_root")
+    _relative(target["suite"], "setup result.target.suite")
+    status = _enum(
+        result["status"],
+        "setup result.status",
+        {"ready", "not_configured", "incomplete", "invalid", "unsafe", "preview", "applied", "not_needed", "blocked"},
+    )
+    if result["suite"] is not None:
+        suite = _mapping(result["suite"], "setup result.suite")
+        _exact(
+            suite,
+            "setup result.suite",
+            ("schema_version", "suite_id", "suite_sha256", "source_sha256", "path", "case_count", "profile_count"),
+        )
+        if suite["schema_version"] != "project-eval-suite/v1":
+            raise EvalError("setup result suite has unsupported schema_version")
+        _identifier(suite["suite_id"], "setup result.suite.suite_id")
+        _digest(suite["suite_sha256"], "setup result.suite.suite_sha256")
+        _digest(suite["source_sha256"], "setup result.suite.source_sha256")
+        _text(suite["path"], "setup result.suite.path", maximum=8192)
+        _integer(suite["case_count"], "setup result.suite.case_count", 1, 500)
+        _integer(suite["profile_count"], "setup result.suite.profile_count", 1, 32)
+    starter = _mapping(result["starter"], "setup result.starter")
+    _exact(starter, "setup result.starter", ("files",))
+    listed = _array(starter["files"], "setup result.starter.files", maximum=64)
+    seen: set[str] = set()
+    for index, raw_item in enumerate(listed):
+        item = _mapping(raw_item, f"setup result.starter.files[{index}]")
+        _exact(item, f"setup result.starter.files[{index}]", ("path", "size", "sha256"))
+        path = _relative(item["path"], f"setup result.starter.files[{index}].path")
+        if path in seen:
+            raise EvalError("setup result starter contains a duplicate path")
+        seen.add(path)
+        _integer(item["size"], f"setup result.starter.files[{index}].size", 0, 1024 * 1024)
+        _digest(item["sha256"], f"setup result.starter.files[{index}].sha256")
+    if listed:
+        expected_prefix = target["eval_root"] + "/"
+        if any(not item["path"].startswith(expected_prefix) for item in listed):
+            raise EvalError("setup result starter path is outside the selected eval root")
+        expected_suite = PurePosixPath(target["eval_root"], target["suite"]).as_posix()
+        if expected_suite not in seen:
+            raise EvalError("setup result starter listing omits the selected suite path")
+        if [item["path"] for item in listed] != sorted(seen):
+            raise EvalError("setup result starter files are not canonically ordered")
+    _enum(
+        result["next_action"],
+        "setup result.next_action",
+        {"none", "inspect_repository", "select_repository", "repair_repository_path", "repair_eval_path", "repair_suite_path", "resolve_existing_content", "repair_suite", "preview_bootstrap", "apply_bootstrap", "replace_or_extend_starter_cases"},
+    )
+    limitations = _array(result["limitations"], "setup result.limitations", maximum=32)
+    for index, raw_limitation in enumerate(limitations):
+        limitation = _mapping(raw_limitation, f"setup result.limitations[{index}]")
+        _exact(limitation, f"setup result.limitations[{index}]", ("code", "message", "material"))
+        _identifier(limitation["code"], f"setup result.limitations[{index}].code", PROFILE_ID)
+        _text(limitation["message"], f"setup result.limitations[{index}].message")
+        if not isinstance(limitation["material"], bool):
+            raise EvalError(f"setup result.limitations[{index}].material must be boolean")
+    if operation != "apply" and result["mutated"]:
+        raise EvalError("only an apply result may report mutation")
+    allowed_statuses = {
+        "readiness": {"ready", "not_configured", "incomplete", "invalid", "unsafe"},
+        "preview": {"preview", "not_needed", "blocked"},
+        "apply": {"applied", "not_needed", "blocked"},
+    }
+    if status not in allowed_statuses[operation]:
+        raise EvalError("setup result operation and status are inconsistent")
+    if result["mutated"] != (status == "applied"):
+        raise EvalError("setup result mutation status is inconsistent")
+    if status in {"ready", "applied", "not_needed"} and result["suite"] is None:
+        raise EvalError("ready setup status requires suite evidence")
+    if status in {"not_configured", "incomplete", "invalid", "unsafe", "preview", "blocked"} and result["suite"] is not None:
+        raise EvalError("non-ready setup status must not claim suite evidence")
+    if status in {"ready", "not_configured", "preview", "applied", "not_needed"} and limitations:
+        raise EvalError("successful setup status must not retain limitations")
+    if status in {"incomplete", "invalid", "unsafe", "blocked"} and not limitations:
+        raise EvalError("blocked setup status requires a material limitation")
+    if status in {"not_configured", "preview", "applied"} and not listed:
+        raise EvalError("setup result status requires the exact starter file listing")
+    if status not in {"not_configured", "preview", "applied"} and listed:
+        raise EvalError("setup result includes an irrelevant starter file listing")
+    return result
+
+
+def project_eval_readiness(
+    repository: Path,
+    eval_root_value: str = "evals/project",
+    suite_value: str = "suite.json",
+) -> dict[str, Any]:
+    repository, eval_root, suite_path = _readiness_target(
+        repository, eval_root_value, suite_value
+    )
+    result: dict[str, Any] = {
+        "schema_version": "project-eval-setup-result/v1",
+        "producer": {"name": "project-eval", "version": VERSION},
+        "operation": "readiness",
+        "mutated": False,
+        "target": {
+            "repository": str(repository),
+            "eval_root": eval_root,
+            "suite": suite_path,
+        },
+        "status": "unsafe",
+        "suite": None,
+        "starter": {"files": []},
+        "next_action": "inspect_repository",
+        "limitations": [],
+    }
+
+    def stop(status: str, next_action: str, code: str, message: str) -> dict[str, Any]:
+        result["status"] = status
+        result["next_action"] = next_action
+        result["limitations"] = [
+            {"code": code, "message": message, "material": True}
+        ]
+        return validate_setup_result(result)
+
+    try:
+        assert_no_link_components(repository, include_final=True)
+    except SafetyError as exc:
+        return stop("unsafe", "repair_repository_path", "unsafe-repository", str(exc))
+    if repository.parent == repository:
+        return stop(
+            "unsafe",
+            "select_repository",
+            "invalid-repository",
+            "the filesystem root cannot be used as a project-eval repository",
+        )
+    if not repository.is_dir():
+        return stop(
+            "unsafe",
+            "select_repository",
+            "invalid-repository",
+            f"repository is not a directory: {repository}",
+        )
+    try:
+        eval_path = safe_repo_path(repository, eval_root, allow_absent_final=True)
+    except SafetyError as exc:
+        return stop("unsafe", "repair_eval_path", "unsafe-eval-root", str(exc))
+    if not eval_path.exists():
+        files = _starter_files(suite_path)
+        result["starter"]["files"] = _starter_listing(eval_root, files)
+        result["status"] = "not_configured"
+        result["next_action"] = "preview_bootstrap"
+        return validate_setup_result(result)
+    if is_link_like(eval_path):
+        return stop(
+            "unsafe",
+            "repair_eval_path",
+            "unsafe-eval-root",
+            f"evaluation root is link-like: {eval_root}",
+        )
+    if not eval_path.is_dir():
+        return stop(
+            "incomplete",
+            "resolve_existing_content",
+            "eval-root-not-directory",
+            f"evaluation root is not a directory: {eval_root}",
+        )
+    try:
+        selected_suite = safe_repo_path(eval_path, suite_path, allow_absent_final=True)
+    except SafetyError as exc:
+        return stop("unsafe", "repair_suite_path", "unsafe-suite", str(exc))
+    if not selected_suite.exists():
+        return stop(
+            "incomplete",
+            "resolve_existing_content",
+            "suite-missing",
+            f"evaluation root exists but suite is missing: {suite_path}",
+        )
+    try:
+        suite, raw, resolved = load_repository_suite(repository, eval_root, suite_path)
+        for case in suite["cases"]:
+            fixture = safe_repo_path(eval_path, case["fixture"])
+            _CASE_ENGINE.validate_case_fixture(fixture, case)
+    except (EvalError, CaseError, SafetyError) as exc:
+        return stop("invalid", "repair_suite", "suite-invalid", str(exc))
+    result["status"] = "ready"
+    result["suite"] = {
+        "schema_version": suite["schema_version"],
+        "suite_id": suite["suite_id"],
+        "suite_sha256": _sha(_canonical_bytes(suite)),
+        "source_sha256": _sha(raw),
+        "path": str(resolved),
+        "case_count": len(suite["cases"]),
+        "profile_count": len(suite["profiles"]),
+    }
+    result["next_action"] = "none"
+    return validate_setup_result(result)
+
+
+def project_eval_bootstrap(
+    repository: Path,
+    eval_root_value: str = "evals/project",
+    suite_value: str = "suite.json",
+    *,
+    apply: bool = False,
+    yes: bool = False,
+) -> dict[str, Any]:
+    if apply != yes:
+        raise EvalError("bootstrap creation requires --apply and --yes together")
+    readiness = project_eval_readiness(repository, eval_root_value, suite_value)
+    result = copy.deepcopy(readiness)
+    result["operation"] = "apply" if apply else "preview"
+    result["mutated"] = False
+    if readiness["status"] != "not_configured":
+        result["status"] = "not_needed" if readiness["status"] == "ready" else "blocked"
+        return validate_setup_result(result)
+    if not apply:
+        result["status"] = "preview"
+        result["next_action"] = "apply_bootstrap"
+        return validate_setup_result(result)
+    repository_path, eval_root, suite_path = _readiness_target(
+        repository, eval_root_value, suite_value
+    )
+    files = _starter_files(suite_path)
+    try:
+        create_repository_tree(repository_path, eval_root, files)
+    except (SafetyError, OSError) as exc:
+        raise EvalError(f"cannot create starter evaluation tree: {exc}") from exc
+    refreshed = project_eval_readiness(repository_path, eval_root, suite_path)
+    if refreshed["status"] != "ready":
+        raise EvalError("starter files were created but did not pass readiness validation")
+    result = copy.deepcopy(refreshed)
+    result["operation"] = "apply"
+    result["mutated"] = True
+    result["status"] = "applied"
+    result["starter"]["files"] = _starter_listing(eval_root, files)
+    result["next_action"] = "replace_or_extend_starter_cases"
+    return validate_setup_result(result)
+
+
+def render_readiness(result: dict[str, Any]) -> str:
+    target = result["target"]
+    lines = [
+        f"Project eval {_display(result.get('operation', 'readiness'))}: {_display(result['status'])}",
+        f"Target: {_display(target['repository'])} :: {_display(target['eval_root'])}/{_display(target['suite'])}",
+    ]
+    if result["suite"] is not None:
+        suite = result["suite"]
+        lines.append(
+            f"Suite: {_display(suite['suite_id'])} ({suite['case_count']} cases, {suite['profile_count']} profiles)"
+        )
+    if result["status"] in {"not_configured", "preview"}:
+        lines.append("Starter files (mechanics only; project coverage is not established):")
+        for item in result["starter"]["files"]:
+            lines.append(f"- {_display(item['path'])} ({item['size']} bytes, sha256 {item['sha256']})")
+    for limitation in result["limitations"]:
+        lines.append(f"Limitation: {_display(limitation['message'])}")
+    lines.append(f"Next action: {_display(result['next_action'])}")
+    return "\n".join(lines)
 
 
 def _case_components(
@@ -1351,6 +1705,8 @@ def validate_artifact(value: Any, kind: str) -> dict[str, Any]:
         return validate_run_result(value)
     if kind == "comparison":
         return validate_comparison(value)
+    if kind == "setup":
+        return validate_setup_result(value)
     if kind in {"candidate", "experiment", "suite-audit"}:
         return _validate_family_result(value, kind)
     raise EvalError(f"unsupported artifact kind: {kind}")
@@ -2924,6 +3280,24 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=VERSION)
     commands = parser.add_subparsers(dest="command", required=True)
 
+    readiness_command = commands.add_parser(
+        "readiness", help="inspect repository evaluation readiness without mutation"
+    )
+    readiness_command.add_argument("--repo", required=True)
+    readiness_command.add_argument("--eval-root", default="evals/project")
+    readiness_command.add_argument("--suite", default="suite.json")
+    readiness_command.add_argument("--format", choices=("human", "json"), default="human")
+
+    bootstrap_command = commands.add_parser(
+        "bootstrap", help="preview or explicitly create a minimal starter evaluation suite"
+    )
+    bootstrap_command.add_argument("--repo", required=True)
+    bootstrap_command.add_argument("--eval-root", default="evals/project")
+    bootstrap_command.add_argument("--suite", default="suite.json")
+    bootstrap_command.add_argument("--format", choices=("human", "json"), default="human")
+    bootstrap_command.add_argument("--apply", action="store_true")
+    bootstrap_command.add_argument("--yes", action="store_true")
+
     validate_suite_command = commands.add_parser("validate-suite", help="validate a suite without running an agent")
     validate_suite_command.add_argument("--repo", required=True)
     validate_suite_command.add_argument("--eval-root", default="evals/project")
@@ -3025,7 +3399,7 @@ def _parser() -> argparse.ArgumentParser:
     respond_command.add_argument("--question", required=True)
 
     validate_artifact_command = commands.add_parser("validate-artifact", help="validate one canonical protocol artifact")
-    validate_artifact_command.add_argument("--kind", choices=("suite", "run", "comparison", "candidate", "experiment", "suite-audit"), required=True)
+    validate_artifact_command.add_argument("--kind", choices=("suite", "run", "comparison", "candidate", "experiment", "suite-audit", "setup"), required=True)
     validate_artifact_command.add_argument("--input", required=True)
 
     render = commands.add_parser("render", help="render a validated run result")
@@ -3066,7 +3440,27 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        if args.command == "validate-suite":
+        if args.command == "readiness":
+            value = project_eval_readiness(Path(args.repo), args.eval_root, args.suite)
+            _write_stdout(
+                value if args.format == "json" else render_readiness(value),
+                canonical=args.format == "json",
+            )
+        elif args.command == "bootstrap":
+            value = project_eval_bootstrap(
+                Path(args.repo),
+                args.eval_root,
+                args.suite,
+                apply=args.apply,
+                yes=args.yes,
+            )
+            _write_stdout(
+                value if args.format == "json" else render_readiness(value),
+                canonical=args.format == "json",
+            )
+            if value["status"] == "blocked":
+                return 2
+        elif args.command == "validate-suite":
             value, raw, path = load_repository_suite(
                 Path(args.repo), args.eval_root, args.suite
             )
