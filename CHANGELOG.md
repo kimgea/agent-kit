@@ -4,6 +4,32 @@ All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.
 
+## 1.16.0 - 2026-09-10
+
+### Added
+
+- Add deterministic `project-eval readiness` output and a preview-first,
+  create-only bootstrap for one cross-platform synthetic starter suite.
+- Add an optional project evaluation lifecycle instruction fragment for
+  proportional eval maintenance without automatic model execution.
+- Add a canonical `project-eval-setup-result/v1` schema for agent and tool
+  consumers.
+
+### Changed
+
+- Bump `project-eval` to 1.3.0 and its grouped plugin to 1.4.0 so installation
+  exposes the new readiness and adoption path while remaining non-mutating.
+- Clarify that plugin installation, repository bootstrap, private state, agent
+  instructions, and model-backed cycles are separate authority boundaries.
+
+### Security
+
+- Require `--apply --yes` for starter creation, refuse existing or partial eval
+  roots, and create every path without following links or replacing files.
+  Failed creation uses identity-bound handle rollback on Windows; POSIX
+  preserves the partial tree for explicit recovery rather than risk deleting a
+  concurrently replaced pathname.
+
 ## 1.15.0 - 2026-09-09
 
 ### Added

@@ -1,0 +1,21 @@
+{
+  "schema_version": "project-eval-case-control/v1",
+  "case_id": "explain-starter",
+  "materialization": {"mode": "copy", "source": "visible", "remove_paths": [], "history": []},
+  "assertions": [
+    {
+      "assertion_id": "starter-boundary",
+      "kind": "json_equals",
+      "path": "answer.json",
+      "expected": {
+        "source": "README.md",
+        "purpose": "prove_eval_mechanics",
+        "project_coverage": "not_established"
+      }
+    }
+  ],
+  "checks": [],
+  "hidden_grader": null,
+  "trajectory": null,
+  "reconstruction": null
+}

@@ -1,4 +1,9 @@
 {
+  "adoption_preflight": ["readiness", "validate_suite"],
+  "missing_suite_action": ["preview_bootstrap", "apply_bootstrap"],
+  "bootstrap_apply_authority": ["explicit_apply_and_yes", "implicit_after_install"],
+  "instruction_adoption": ["separate_deliberate_change", "automatic_plugin_setup"],
+  "model_execution": ["explicit_run_only", "automatic_after_bootstrap"],
   "preflight": ["validate_suite", "skip_validation"],
   "profile": ["smoke", "compare"],
   "private_roots": ["runner_creates_absent_roots", "precreate_default_permissions"],

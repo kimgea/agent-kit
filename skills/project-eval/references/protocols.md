@@ -2,11 +2,34 @@
 
 ## Contents
 
+- Repository adoption
 - Definition contract
 - Result families
 - Portable bundles
 - Private state
 - Consumer rules
+
+## Repository adoption
+
+Skill or plugin installation does not create evaluation definitions. Use the
+deterministic `readiness` operation to distinguish a ready suite from missing,
+partial, invalid, or unsafe setup. Its canonical
+`project-eval-setup-result/v1` output can be consumed by another agent or tool.
+
+`bootstrap` is preview-only unless the caller explicitly selects both `--apply`
+and `--yes`. It creates one absent `evals/project/` tree from bundled,
+digest-listed assets and never merges with or overwrites existing content. The
+starter case proves materialization and grading mechanics only. It is not
+evidence that the adopting project's behavior is covered.
+
+The setup JSON Schema mirrors direct field shapes, bounds, and text/path
+safety. Consumers must still call `validate-artifact --kind setup` for
+canonical cross-field relations such as target containment, ordering, and
+status-derived evidence.
+
+Project owners may separately adopt `instructions/project-eval-lifecycle.md`
+as project-level agent guidance. Neither installation nor bootstrap edits agent
+instructions, initializes private state, schedules work, or invokes a model.
 
 ## Definition contract
 
@@ -36,6 +59,7 @@ profile envelope.
 Schemas version independently:
 
 - `project-eval-run-result/v1`;
+- `project-eval-setup-result/v1`;
 - `project-eval-experiment-binding/v1`;
 - `project-eval-comparison/v1`;
 - `project-eval-bundle/v1`;

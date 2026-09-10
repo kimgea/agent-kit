@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-kit.invalid/schemas/project-eval-setup-result-v1.json",
+  "title": "Project eval setup result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "producer", "operation", "mutated", "target", "status", "suite", "starter", "next_action", "limitations"],
+  "properties": {
+    "schema_version": {"const": "project-eval-setup-result/v1"},
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"const": "project-eval"},
+        "version": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:+/@-]{0,127}$"}
+      }
+    },
+    "operation": {"enum": ["readiness", "preview", "apply"]},
+    "mutated": {"type": "boolean"},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "eval_root", "suite"],
+      "properties": {
+        "repository": {"$ref": "#/$defs/text8192"},
+        "eval_root": {"$ref": "#/$defs/path"},
+        "suite": {"$ref": "#/$defs/path"}
+      }
+    },
+    "status": {"enum": ["ready", "not_configured", "incomplete", "invalid", "unsafe", "preview", "applied", "not_needed", "blocked"]},
+    "suite": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schema_version", "suite_id", "suite_sha256", "source_sha256", "path", "case_count", "profile_count"],
+          "properties": {
+            "schema_version": {"const": "project-eval-suite/v1"},
+            "suite_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+            "suite_sha256": {"$ref": "#/$defs/sha256"},
+            "source_sha256": {"$ref": "#/$defs/sha256"},
+            "path": {"$ref": "#/$defs/text8192"},
+            "case_count": {"type": "integer", "minimum": 1, "maximum": 500},
+            "profile_count": {"type": "integer", "minimum": 1, "maximum": 32}
+          }
+        }
+      ]
+    },
+    "starter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files"],
+      "properties": {
+        "files": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "size", "sha256"],
+            "properties": {
+              "path": {"$ref": "#/$defs/path"},
+              "size": {"type": "integer", "minimum": 0, "maximum": 1048576},
+              "sha256": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        }
+      }
+    },
+    "next_action": {"enum": ["none", "inspect_repository", "select_repository", "repair_repository_path", "repair_eval_path", "repair_suite_path", "resolve_existing_content", "repair_suite", "preview_bootstrap", "apply_bootstrap", "replace_or_extend_starter_cases"]},
+    "limitations": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message", "material"],
+        "properties": {
+          "code": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+          "message": {"$ref": "#/$defs/text20000"},
+          "material": {"type": "boolean"}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"operation": {"const": "readiness"}}},
+      "then": {"properties": {"status": {"enum": ["ready", "not_configured", "incomplete", "invalid", "unsafe"]}, "mutated": {"const": false}}}
+    },
+    {
+      "if": {"properties": {"operation": {"const": "preview"}}},
+      "then": {"properties": {"status": {"enum": ["preview", "not_needed", "blocked"]}, "mutated": {"const": false}}}
+    },
+    {
+      "if": {"properties": {"operation": {"const": "apply"}}},
+      "then": {"properties": {"status": {"enum": ["applied", "not_needed", "blocked"]}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "applied"}}},
+      "then": {"properties": {"mutated": {"const": true}}},
+      "else": {"properties": {"mutated": {"const": false}}}
+    },
+    {
+      "if": {"properties": {"status": {"enum": ["ready", "applied", "not_needed"]}}},
+      "then": {"properties": {"suite": {"type": "object"}, "limitations": {"maxItems": 0}}},
+      "else": {"properties": {"suite": {"type": "null"}}}
+    },
+    {
+      "if": {"properties": {"status": {"enum": ["incomplete", "invalid", "unsafe", "blocked"]}}},
+      "then": {"properties": {"limitations": {"minItems": 1}}},
+      "else": {"properties": {"limitations": {"maxItems": 0}}}
+    },
+    {
+      "if": {"properties": {"status": {"enum": ["not_configured", "preview", "applied"]}}},
+      "then": {"properties": {"starter": {"properties": {"files": {"minItems": 1}}}}},
+      "else": {"properties": {"starter": {"properties": {"files": {"maxItems": 0}}}}}
+    }
+  ],
+  "$defs": {
+    "path": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)(?!.*[\\u0000-\\u001f\\u007f]).+(?<!/)$"},
+    "text8192": {"type": "string", "minLength": 1, "maxLength": 8192, "pattern": "^[^\\u0000-\\u001f\\u007f]+$"},
+    "text20000": {"type": "string", "minLength": 1, "maxLength": 20000, "pattern": "^[^\\u0000-\\u001f\\u007f]+$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

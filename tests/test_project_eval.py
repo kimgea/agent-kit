@@ -392,6 +392,351 @@ class ProtocolTests(unittest.TestCase):
             project_eval._validate_suite_recommendation(recommendation, "recommendation")
 
 
+class SetupTests(unittest.TestCase):
+    def test_readiness_and_preview_are_deterministic_and_non_mutating(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            before = sorted(repository.rglob("*"))
+            readiness = project_eval.project_eval_readiness(repository)
+            preview = project_eval.project_eval_bootstrap(repository)
+            self.assertEqual(readiness["status"], "not_configured")
+            self.assertEqual(readiness["operation"], "readiness")
+            self.assertEqual(preview["status"], "preview")
+            self.assertEqual(preview["operation"], "preview")
+            self.assertFalse(readiness["mutated"])
+            self.assertFalse(preview["mutated"])
+            self.assertEqual(readiness["starter"], preview["starter"])
+            self.assertEqual(before, sorted(repository.rglob("*")))
+            self.assertIn("project coverage is not established", project_eval.render_readiness(preview))
+
+    def test_apply_creates_and_grades_complete_starter(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = root / "repo"
+            repository.mkdir()
+            applied = project_eval.project_eval_bootstrap(
+                repository, apply=True, yes=True
+            )
+            self.assertEqual(applied["status"], "applied")
+            self.assertTrue(applied["mutated"])
+            ready = project_eval.project_eval_readiness(repository)
+            self.assertEqual(ready["status"], "ready")
+            suite_value, case, _, fixture = project_eval._case_components(
+                repository, "evals/project", "suite.json", "explain-starter"
+            )
+            self.assertEqual(suite_value["suite_id"], "starter-project-eval")
+            prepared = project_eval._CASE_ENGINE.materialize_case(
+                fixture, case, root / "workspaces"
+            )
+            workspace = Path(prepared["workspace"])
+            (workspace / "answer.json").write_text(
+                json.dumps(
+                    {
+                        "source": "README.md",
+                        "purpose": "prove_eval_mechanics",
+                        "project_coverage": "not_established",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            grade = project_eval._CASE_ENGINE.grade_case(fixture, case, prepared)
+            self.assertEqual(grade["status"], "passed")
+
+    def test_custom_suite_path_is_reflected_in_preview_and_apply(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            preview = project_eval.project_eval_bootstrap(
+                repository, suite_value="manifests/starter.json"
+            )
+            paths = [item["path"] for item in preview["starter"]["files"]]
+            self.assertIn("evals/project/manifests/starter.json", paths)
+            self.assertNotIn("evals/project/suite.json", paths)
+            applied = project_eval.project_eval_bootstrap(
+                repository,
+                suite_value="manifests/starter.json",
+                apply=True,
+                yes=True,
+            )
+            self.assertEqual(applied["status"], "applied")
+            self.assertTrue(
+                (repository / "evals" / "project" / "manifests" / "starter.json").is_file()
+            )
+
+    def test_custom_suite_path_cannot_collide_with_fixture_content(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            for suite_path in (
+                "fixtures/explain-starter/control.json",
+                "FIXTURES/EXPLAIN-STARTER/CONTROL.JSON",
+                "fixtures/explain-starter/visible/answer.json/nested.json",
+            ):
+                with self.subTest(suite_path=suite_path), self.assertRaisesRegex(
+                    project_eval.EvalError, "collides"
+                ):
+                    project_eval.project_eval_bootstrap(
+                        repository, suite_value=suite_path
+                    )
+            self.assertEqual(list(repository.iterdir()), [])
+
+    def test_bootstrap_requires_both_flags_and_refuses_existing_content(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            for apply, yes in ((True, False), (False, True)):
+                with self.subTest(apply=apply, yes=yes), self.assertRaisesRegex(
+                    project_eval.EvalError, "--apply and --yes"
+                ):
+                    project_eval.project_eval_bootstrap(
+                        repository, apply=apply, yes=yes
+                    )
+            project_eval.project_eval_bootstrap(repository, apply=True, yes=True)
+            replay = project_eval.project_eval_bootstrap(
+                repository, apply=True, yes=True
+            )
+            self.assertEqual(replay["status"], "not_needed")
+            self.assertFalse(replay["mutated"])
+
+            partial = Path(temporary) / "partial"
+            destination = partial / "evals" / "project"
+            destination.mkdir(parents=True)
+            marker = destination / "owner.txt"
+            marker.write_text("keep\n", encoding="utf-8")
+            blocked = project_eval.project_eval_bootstrap(
+                partial, apply=True, yes=True
+            )
+            self.assertEqual(blocked["status"], "blocked")
+            self.assertEqual(marker.read_text(encoding="utf-8"), "keep\n")
+            self.assertEqual(sorted(destination.iterdir()), [marker])
+
+    def test_readiness_reports_invalid_and_unsafe_states(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = root / "repo"
+            eval_root = repository / "evals" / "project"
+            eval_root.mkdir(parents=True)
+            (eval_root / "suite.json").write_text("{}", encoding="utf-8")
+            invalid = project_eval.project_eval_readiness(repository)
+            self.assertEqual(invalid["status"], "invalid")
+            self.assertEqual(invalid["limitations"][0]["code"], "suite-invalid")
+            if os.name != "nt":
+                unsafe_repository = root / "unsafe-repo"
+                unsafe_repository.symlink_to(repository, target_is_directory=True)
+                unsafe = project_eval.project_eval_readiness(unsafe_repository)
+                self.assertEqual(unsafe["status"], "unsafe")
+                self.assertEqual(unsafe["limitations"][0]["code"], "unsafe-repository")
+
+    def test_starter_bytes_are_lf_stable_and_setup_schema_accepts_output(self):
+        files = project_eval._starter_files()
+        self.assertEqual(sorted(files), list(project_eval.STARTER_FILES))
+        for raw in files.values():
+            self.assertNotIn(b"\r", raw)
+        try:
+            import jsonschema
+        except ImportError:
+            return
+        schema = json.loads(
+            (SKILL / "references" / "project-eval-setup-result.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            value = project_eval.project_eval_bootstrap(repository)
+            self.assertTrue(jsonschema.Draft202012Validator(schema).is_valid(value))
+
+    def test_setup_schema_and_runtime_reject_direct_text_and_path_drift(self):
+        try:
+            import jsonschema
+        except ImportError:
+            jsonschema = None
+        schema = json.loads(
+            (SKILL / "references" / "project-eval-setup-result.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        validator = (
+            jsonschema.Draft202012Validator(schema) if jsonschema is not None else None
+        )
+
+        def direct_string_accepts(rule, value):
+            return (
+                rule["minLength"] <= len(value) <= rule["maxLength"]
+                and project_eval.re.search(rule["pattern"], value) is not None
+            )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            preview = project_eval.project_eval_bootstrap(repository)
+            invalid_results = []
+
+            oversized_path = copy.deepcopy(preview)
+            oversized_path["target"]["eval_root"] = "a" * 4097
+            invalid_results.append(
+                (oversized_path, schema["$defs"]["path"], "a" * 4097)
+            )
+
+            controlled_repository = copy.deepcopy(preview)
+            controlled_repository["target"]["repository"] += "\nredirected"
+            invalid_results.append(
+                (
+                    controlled_repository,
+                    schema["$defs"]["text8192"],
+                    controlled_repository["target"]["repository"],
+                )
+            )
+
+            controlled_limitation = copy.deepcopy(preview)
+            controlled_limitation["operation"] = "readiness"
+            controlled_limitation["status"] = "unsafe"
+            controlled_limitation["starter"]["files"] = []
+            controlled_limitation["next_action"] = "inspect_repository"
+            controlled_limitation["limitations"] = [
+                {"code": "unsafe-repository", "message": "unsafe\npath", "material": True}
+            ]
+            invalid_results.append(
+                (
+                    controlled_limitation,
+                    schema["$defs"]["text20000"],
+                    "unsafe\npath",
+                )
+            )
+
+            for value, rule, direct_value in invalid_results:
+                with self.subTest(value=value):
+                    self.assertFalse(direct_string_accepts(rule, direct_value))
+                    if validator is not None:
+                        self.assertFalse(validator.is_valid(value))
+                    with self.assertRaises(project_eval.EvalError):
+                        project_eval.validate_setup_result(value)
+
+    def test_setup_human_output_makes_format_controls_visible(self):
+        with tempfile.TemporaryDirectory(prefix="repo-\u202e-") as temporary:
+            repository = Path(temporary)
+            value = project_eval.project_eval_readiness(repository)
+            rendered = project_eval.render_readiness(value)
+            self.assertIn("\\u202e", rendered)
+            self.assertNotIn("\u202e", rendered)
+
+    def test_setup_artifact_cli_validates_canonical_json(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = root / "repo"
+            repository.mkdir()
+            result_path = root / "setup.json"
+            result_path.write_bytes(
+                project_eval._canonical_bytes(
+                    project_eval.project_eval_bootstrap(repository)
+                )
+            )
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPTS / "project_eval.py"),
+                    "validate-artifact",
+                    "--kind",
+                    "setup",
+                    "--input",
+                    str(result_path),
+                ],
+                cwd=ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(
+                json.loads(completed.stdout),
+                {"schema_version": "project-eval-setup-result/v1", "valid": True},
+            )
+
+    def test_creation_failure_uses_platform_safe_recovery(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            original = project_eval._PATH_SAFETY._write_descriptor
+            calls = 0
+
+            def fail_second(descriptor, data):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise OSError("forced write failure")
+                return original(descriptor, data)
+
+            with mock.patch.object(
+                project_eval._PATH_SAFETY, "_write_descriptor", side_effect=fail_second
+            ):
+                expected = (
+                    "cannot create starter evaluation tree"
+                    if os.name == "nt"
+                    else "partial created content was preserved"
+                )
+                with self.assertRaisesRegex(project_eval.EvalError, expected):
+                    project_eval.project_eval_bootstrap(
+                        repository, apply=True, yes=True
+                    )
+            if os.name == "nt":
+                self.assertEqual(list(repository.iterdir()), [])
+            else:
+                self.assertTrue((repository / "evals" / "project").is_dir())
+                readiness = project_eval.project_eval_readiness(repository)
+                self.assertEqual(readiness["status"], "incomplete")
+
+    def test_creation_failure_preserves_raced_replacement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            original = project_eval._PATH_SAFETY._write_descriptor
+            calls = 0
+
+            def replace_then_fail(descriptor, data):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    control = (
+                        repository
+                        / "evals"
+                        / "project"
+                        / "fixtures"
+                        / "explain-starter"
+                        / "control.json"
+                    )
+                    control.rename(control.with_name("owned-control.json"))
+                    control.write_text("replacement\n", encoding="utf-8")
+                    raise OSError("forced write failure after replacement")
+                return original(descriptor, data)
+
+            with mock.patch.object(
+                project_eval._PATH_SAFETY,
+                "_write_descriptor",
+                side_effect=replace_then_fail,
+            ):
+                expected = (
+                    "rollback was incomplete"
+                    if os.name == "nt"
+                    else "partial created content was preserved"
+                )
+                with self.assertRaisesRegex(project_eval.EvalError, expected):
+                    project_eval.project_eval_bootstrap(
+                        repository, apply=True, yes=True
+                    )
+            control = (
+                repository
+                / "evals"
+                / "project"
+                / "fixtures"
+                / "explain-starter"
+                / "control.json"
+            )
+            self.assertEqual(control.read_text(encoding="utf-8"), "replacement\n")
+
+
 class BundleTests(unittest.TestCase):
     def write_result(self, root):
         path = root / "result.json"

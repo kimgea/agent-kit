@@ -1,0 +1,5 @@
+{
+  "source": ["README.md", "project source"],
+  "purpose": ["prove_eval_mechanics", "prove_project_behavior"],
+  "project_coverage": ["not_established", "established"]
+}

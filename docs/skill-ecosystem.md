@@ -398,7 +398,11 @@ metadata or workflow observations are not implemented.
 | `agent-context` | Context provider | Provenance resolver | Human or JSON context; reads explicitly registered private sources | No | `agent-context` | Aligned composable |
 | `build-interactive-diagram` | Presenter | Artifact producer | Writes a selected self-contained web directory; can hand the directory to the host | No | `artifacts` | Aligned composable |
 | `change-impact` | Analyzer | Impact and scope-evidence producer | Canonical impact records; reads exact targets, bounded related context, and optional guidance; no commands or target edits | Yes, as evidence | `project-review` | Aligned composable |
+| `eval-candidate-audit` | Reviewer | Eval-case discovery | Canonical candidate recommendations from selected sanitized evidence; optional explicit result output; no definition edits | No | `project-eval` | Aligned composable |
+| `eval-harness-experiment` | Analyzer | Paired experiment comparer | Canonical ranked evidence and exact candidate patches from bound paired receipts; no active-checkout edits or patch application | No | `project-eval` | Aligned composable |
+| `eval-suite-audit` | Reviewer | Coverage lifecycle curator | Canonical keep, refresh, merge, simplify, demote, or retire recommendations; optional explicit result output; no definition edits | No | `project-eval` | Aligned composable |
 | `grill-me` | Decision support | Plan and artifact pressure-testing | Prose questioning and synthesis; no runtime data or mutation | No | `grill-me` | Aligned standalone |
+| `project-eval` | Verifier | Eval runner, grader, comparer, and evidence manager | Canonical setup/run/comparison evidence; explicit bootstrap may create an absent eval root, explicit runs use disposable workspaces, optional explicit private state | No | `project-eval` | Aligned composable |
 | `project-review` | Reviewer | Finding producer | Canonical findings; may run separately authorized local diagnostics and write an explicitly selected result file; no target edits | Yes | `project-review` | Aligned composable |
 | `review-and-fix` | Orchestrator | Planner and remediator | Consumes reviews, normalizes, plans, edits bounded local files, gates fresh review on validated `verify-project` evidence or an explicit weaker fallback, and can write an explicitly selected result file | Through selected reviewers | `project-review` | Aligned composable |
 | `review-guidance-audit` | Reviewer | Policy auditor | Canonical recommendations; may run separately authorized local diagnostics and write an explicitly selected result file; no target edits | Yes | `project-review` | Aligned composable |
@@ -415,7 +419,7 @@ skill.
 
 | Layer | Current resources | Purpose |
 |---|---|---|
-| Instructions | `global-agent-safety`, `context-resolution-instruction` | Human-adopted operating and routing guidance |
+| Instructions | `global-agent-safety`, `context-resolution-instruction`, `project-eval-lifecycle-instruction` | Human-adopted operating and routing guidance |
 | Policies | `permission-boundary` | Review criteria for safe automatic permissions |
 | Templates | `project-agent-contract`, `context-repository-template` | Starting points for project governance and private context |
 | Tools | `gh-api-get` | Narrow reusable executable boundary |

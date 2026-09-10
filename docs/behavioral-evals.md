@@ -198,7 +198,9 @@ The executable suites currently cover:
 `project-eval` also has a committed deterministic suite under `evals/project/`.
 It uses the installed skill's own validator and explicit local runner rather than
 the repository behavioral adapter; model-backed profile runs remain opt-in and
-outside CI.
+outside CI. Its one-case `operator-smoke` profile checks the readiness,
+preview-first bootstrap, separate instruction-adoption, explicit model-run, and
+private-root decisions without launching a nested model.
 
 `review-and-fix` selects one reviewer per case from a code-owned allowlist:
 `project-review` v1, `review-guidance-audit` v1, or

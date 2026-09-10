@@ -46,8 +46,8 @@ taxonomy.
 
 The selected next delivery is a coordinated local evaluation family:
 
-- `project-eval` defines, runs, grades, compares, imports, and exports repository
-  evaluations;
+- `project-eval` inspects readiness, previews or explicitly bootstraps, defines,
+  runs, grades, compares, imports, and exports repository evaluations;
 - `eval-candidate-audit` proposes cases from explicitly selected session
   evidence;
 - `eval-suite-audit` recommends evidence-preserving suite maintenance; and

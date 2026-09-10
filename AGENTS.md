@@ -50,6 +50,16 @@ repository. `CLAUDE.md` points Claude Code to the same contract.
   supplement skills, but installed skills must work safely without private
   profiles or repository mappings.
 
+## Evaluation lifecycle
+
+For substantial changes to skill behavior, agent instructions, evaluation
+harnesses, or public contracts, follow
+`instructions/project-eval-lifecycle.md`. Keep the work proportional: update or
+validate relevant committed cases, use the focused audit or experiment skill
+when its trigger is actually present, and skip evaluation work for small
+unrelated changes. Model-backed eval execution always requires an explicit
+caller request; deterministic definition and recorded-evidence checks do not.
+
 ## Change and pull-request scope
 
 - Prefer the smallest coherent change that delivers one independently testable
