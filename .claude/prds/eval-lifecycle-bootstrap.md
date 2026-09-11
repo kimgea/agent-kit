@@ -77,10 +77,10 @@ changes and keeping all model execution explicit.
 
 - A fresh temporary repository can preview, apply, validate, and grade the
   starter case without a model call.
-- A second apply, partial destination, or link-like path fails without modifying
-  existing content.
-- An already configured valid suite reports ready and an invalid suite reports
-  incomplete with an actionable reason.
+- A second apply reports non-mutating `not_needed`; a partial destination or
+  link-like path is blocked without modifying existing content.
+- An already configured valid suite reports `ready` and a malformed suite
+  reports `invalid` with an actionable reason.
 - The optional instruction fragment expresses the agreed lifecycle triggers and
   authority boundaries in compact form.
 - Canonical repository validation and an independent trusted-base review pass.

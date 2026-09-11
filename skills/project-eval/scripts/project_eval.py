@@ -463,6 +463,40 @@ def _starter_listing(eval_root: str, files: dict[str, bytes]) -> list[dict[str, 
     ]
 
 
+def _starter_suite_evidence(
+    repository: Path,
+    eval_root: str,
+    suite_path: str,
+    verified: dict[str, bytes],
+) -> dict[str, Any]:
+    raw = verified.get(suite_path)
+    if raw is None:
+        raise EvalError("created starter receipt omits the selected suite")
+    suite = validate_suite(_decode_json(raw, "created starter suite"))
+    return {
+        "schema_version": suite["schema_version"],
+        "suite_id": suite["suite_id"],
+        "suite_sha256": _sha(_canonical_bytes(suite)),
+        "source_sha256": _sha(raw),
+        "path": str(
+            repository.joinpath(
+                *PurePosixPath(eval_root).parts,
+                *PurePosixPath(suite_path).parts,
+            )
+        ),
+        "case_count": len(suite["cases"]),
+        "profile_count": len(suite["profiles"]),
+    }
+
+
+def _absolute_setup_path(value: Any, label: str) -> Path:
+    value = _text(value, label, maximum=8192)
+    candidate = Path(value)
+    if not candidate.is_absolute() or str(candidate.absolute()) != value:
+        raise EvalError(f"{label} must be an absolute canonical path")
+    return candidate
+
+
 def validate_setup_result(value: Any) -> dict[str, Any]:
     result = _mapping(value, "setup result")
     _exact(
@@ -491,9 +525,13 @@ def validate_setup_result(value: Any) -> dict[str, Any]:
         raise EvalError("setup result.mutated must be boolean")
     target = _mapping(result["target"], "setup result.target")
     _exact(target, "setup result.target", ("repository", "eval_root", "suite"))
-    _text(target["repository"], "setup result.target.repository", maximum=8192)
-    _relative(target["eval_root"], "setup result.target.eval_root")
-    _relative(target["suite"], "setup result.target.suite")
+    repository = _absolute_setup_path(
+        target["repository"], "setup result.target.repository"
+    )
+    eval_root = _relative(target["eval_root"], "setup result.target.eval_root")
+    suite_path = _relative(target["suite"], "setup result.target.suite")
+    if not suite_path.casefold().endswith(".json"):
+        raise EvalError("setup result.target.suite must name a JSON file")
     status = _enum(
         result["status"],
         "setup result.status",
@@ -511,7 +549,15 @@ def validate_setup_result(value: Any) -> dict[str, Any]:
         _identifier(suite["suite_id"], "setup result.suite.suite_id")
         _digest(suite["suite_sha256"], "setup result.suite.suite_sha256")
         _digest(suite["source_sha256"], "setup result.suite.source_sha256")
-        _text(suite["path"], "setup result.suite.path", maximum=8192)
+        evidence_path = _absolute_setup_path(
+            suite["path"], "setup result.suite.path"
+        )
+        expected_path = repository.joinpath(
+            *PurePosixPath(eval_root).parts,
+            *PurePosixPath(suite_path).parts,
+        )
+        if evidence_path != expected_path:
+            raise EvalError("setup result suite path does not match the selected target")
         _integer(suite["case_count"], "setup result.suite.case_count", 1, 500)
         _integer(suite["profile_count"], "setup result.suite.profile_count", 1, 32)
     starter = _mapping(result["starter"], "setup result.starter")
@@ -708,17 +754,18 @@ def project_eval_bootstrap(
     )
     files = _starter_files(suite_path)
     try:
-        create_repository_tree(repository_path, eval_root, files)
+        verified = create_repository_tree(repository_path, eval_root, files)
     except (SafetyError, OSError) as exc:
         raise EvalError(f"cannot create starter evaluation tree: {exc}") from exc
-    refreshed = project_eval_readiness(repository_path, eval_root, suite_path)
-    if refreshed["status"] != "ready":
-        raise EvalError("starter files were created but did not pass readiness validation")
-    result = copy.deepcopy(refreshed)
+    if verified != files:
+        raise EvalError("created starter receipt does not match the bundled bytes")
     result["operation"] = "apply"
     result["mutated"] = True
     result["status"] = "applied"
-    result["starter"]["files"] = _starter_listing(eval_root, files)
+    result["suite"] = _starter_suite_evidence(
+        repository_path, eval_root, suite_path, verified
+    )
+    result["starter"]["files"] = _starter_listing(eval_root, verified)
     result["next_action"] = "replace_or_extend_starter_cases"
     return validate_setup_result(result)
 
