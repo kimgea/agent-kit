@@ -400,6 +400,9 @@ class SetupTests(unittest.TestCase):
             before = sorted(repository.rglob("*"))
             readiness = project_eval.project_eval_readiness(repository)
             preview = project_eval.project_eval_bootstrap(repository)
+            aliased_preview = project_eval.project_eval_bootstrap(
+                repository / "nested" / ".."
+            )
             self.assertEqual(readiness["status"], "not_configured")
             self.assertEqual(readiness["operation"], "readiness")
             self.assertEqual(preview["status"], "preview")
@@ -407,6 +410,7 @@ class SetupTests(unittest.TestCase):
             self.assertFalse(readiness["mutated"])
             self.assertFalse(preview["mutated"])
             self.assertEqual(readiness["starter"], preview["starter"])
+            self.assertEqual(aliased_preview["target"], preview["target"])
             self.assertEqual(before, sorted(repository.rglob("*")))
             self.assertIn("project coverage is not established", project_eval.render_readiness(preview))
 
@@ -745,6 +749,13 @@ class SetupTests(unittest.TestCase):
             with self.assertRaisesRegex(project_eval.EvalError, "absolute canonical"):
                 project_eval.validate_setup_result(noncanonical_repository)
 
+            parent_repository = copy.deepcopy(preview)
+            parent_repository["target"]["repository"] = str(
+                repository / "nested" / ".."
+            )
+            with self.assertRaisesRegex(project_eval.EvalError, "absolute canonical"):
+                project_eval.validate_setup_result(parent_repository)
+
             non_json_suite = copy.deepcopy(preview)
             non_json_suite["target"]["suite"] = "suite.txt"
             with self.assertRaisesRegex(project_eval.EvalError, "JSON file"):
@@ -759,6 +770,18 @@ class SetupTests(unittest.TestCase):
             relative_evidence["suite"]["path"] = "evals/project/suite.json"
             with self.assertRaisesRegex(project_eval.EvalError, "absolute canonical"):
                 project_eval.validate_setup_result(relative_evidence)
+
+            parent_evidence = copy.deepcopy(applied)
+            parent_evidence["suite"]["path"] = str(
+                repository
+                / "evals"
+                / "project"
+                / "nested"
+                / ".."
+                / "suite.json"
+            )
+            with self.assertRaisesRegex(project_eval.EvalError, "absolute canonical"):
+                project_eval.validate_setup_result(parent_evidence)
 
             sibling_evidence = copy.deepcopy(applied)
             sibling_evidence["suite"]["path"] = str(

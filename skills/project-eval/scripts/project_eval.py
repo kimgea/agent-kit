@@ -444,7 +444,7 @@ def _starter_files(suite_path: str = "suite.json") -> dict[str, bytes]:
 def _readiness_target(
     repository: Path, eval_root_value: str, suite_value: str
 ) -> tuple[Path, str, str]:
-    repository = repository.absolute()
+    repository = Path(os.path.abspath(repository))
     eval_root = _relative(eval_root_value, "evaluation root")
     suite_path = _relative(suite_value, "suite path")
     if not suite_path.casefold().endswith(".json"):
@@ -492,7 +492,7 @@ def _starter_suite_evidence(
 def _absolute_setup_path(value: Any, label: str) -> Path:
     value = _text(value, label, maximum=8192)
     candidate = Path(value)
-    if not candidate.is_absolute() or str(candidate.absolute()) != value:
+    if not candidate.is_absolute() or os.path.abspath(value) != value:
         raise EvalError(f"{label} must be an absolute canonical path")
     return candidate
 

@@ -1400,6 +1400,7 @@ def _create_repository_tree_windows(
                     creation=3,
                     display_path=display,
                     directory=True,
+                    share_delete=True,
                 )
                 try:
                     current = _windows_handle_attributes(current_handle)
@@ -1428,6 +1429,7 @@ def _create_repository_tree_windows(
                     access=0x00000080,
                     creation=3,
                     display_path=display,
+                    share_delete=True,
                 )
                 try:
                     current = _windows_handle_attributes(current_handle)
@@ -1462,6 +1464,7 @@ def _create_repository_tree_windows(
                     access=0x00000080,
                     creation=3,
                     display_path=display,
+                    share_delete=True,
                 )
                 try:
                     final_entry = _windows_handle_attributes(final_handle)
