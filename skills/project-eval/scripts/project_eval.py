@@ -556,7 +556,7 @@ def validate_setup_result(value: Any) -> dict[str, Any]:
             *PurePosixPath(eval_root).parts,
             *PurePosixPath(suite_path).parts,
         )
-        if evidence_path != expected_path:
+        if str(evidence_path) != str(expected_path):
             raise EvalError("setup result suite path does not match the selected target")
         _integer(suite["case_count"], "setup result.suite.case_count", 1, 500)
         _integer(suite["profile_count"], "setup result.suite.profile_count", 1, 32)

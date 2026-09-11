@@ -767,6 +767,13 @@ class SetupTests(unittest.TestCase):
             with self.assertRaisesRegex(project_eval.EvalError, "selected target"):
                 project_eval.validate_setup_result(sibling_evidence)
 
+            case_drift = copy.deepcopy(applied)
+            case_drift["suite"]["path"] = str(
+                repository / "evals" / "project" / "SUITE.json"
+            )
+            with self.assertRaisesRegex(project_eval.EvalError, "selected target"):
+                project_eval.validate_setup_result(case_drift)
+
     def test_setup_human_output_makes_format_controls_visible(self):
         with tempfile.TemporaryDirectory(prefix="repo-\u202e-") as temporary:
             repository = Path(temporary)
