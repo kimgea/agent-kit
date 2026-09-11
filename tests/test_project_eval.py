@@ -973,9 +973,10 @@ class SetupTests(unittest.TestCase):
             repository.mkdir()
             original = project_eval._PATH_SAFETY._write_descriptor
             calls = 0
+            replacement_denied = False
 
             def replace_after_final_write(descriptor, data):
-                nonlocal calls
+                nonlocal calls, replacement_denied
                 calls += 1
                 result = original(descriptor, data)
                 if calls == len(project_eval.STARTER_FILES):
@@ -987,7 +988,13 @@ class SetupTests(unittest.TestCase):
                         / "explain-starter"
                         / "visible"
                     )
-                    visible.rename(visible.with_name("owned-visible"))
+                    try:
+                        visible.rename(visible.with_name("owned-visible"))
+                    except PermissionError:
+                        if os.name != "nt":
+                            raise
+                        replacement_denied = True
+                        raise
                     visible.mkdir()
                     (visible / "foreign.txt").write_text(
                         "replacement\n", encoding="utf-8"
@@ -1000,7 +1007,7 @@ class SetupTests(unittest.TestCase):
                 side_effect=replace_after_final_write,
             ):
                 expected = (
-                    "rollback was incomplete"
+                    "cannot create starter evaluation tree"
                     if os.name == "nt"
                     else "partial created content was preserved"
                 )
@@ -1008,6 +1015,10 @@ class SetupTests(unittest.TestCase):
                     project_eval.project_eval_bootstrap(
                         repository, apply=True, yes=True
                     )
+            if os.name == "nt":
+                self.assertTrue(replacement_denied)
+                self.assertEqual(list(repository.iterdir()), [])
+                return
             marker = (
                 repository
                 / "evals"
