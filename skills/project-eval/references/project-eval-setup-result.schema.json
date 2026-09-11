@@ -13,7 +13,7 @@
       "required": ["name", "version"],
       "properties": {
         "name": {"const": "project-eval"},
-        "version": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:+/@-]{0,127}$"}
+        "version": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:+/@-]{0,127}(?![\\s\\S])"}
       }
     },
     "operation": {"enum": ["readiness", "preview", "apply"]},
@@ -38,7 +38,7 @@
           "required": ["schema_version", "suite_id", "suite_sha256", "source_sha256", "path", "case_count", "profile_count"],
           "properties": {
             "schema_version": {"const": "project-eval-suite/v1"},
-            "suite_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+            "suite_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}(?![\\s\\S])"},
             "suite_sha256": {"$ref": "#/$defs/sha256"},
             "source_sha256": {"$ref": "#/$defs/sha256"},
             "path": {"$ref": "#/$defs/text8192"},
@@ -80,7 +80,7 @@
         "additionalProperties": false,
         "required": ["code", "message", "material"],
         "properties": {
-          "code": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+          "code": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}(?![\\s\\S])"},
           "message": {"$ref": "#/$defs/text20000"},
           "material": {"type": "boolean"}
         }
@@ -122,9 +122,9 @@
     }
   ],
   "$defs": {
-    "path": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)(?!.*[\\u0000-\\u001f\\u007f]).+(?<!/)$"},
-    "text8192": {"type": "string", "minLength": 1, "maxLength": 8192, "pattern": "^[^\\u0000-\\u001f\\u007f]+$"},
-    "text20000": {"type": "string", "minLength": 1, "maxLength": 20000, "pattern": "^[^\\u0000-\\u001f\\u007f]+$"},
-    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    "path": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!/)(?![A-Za-z]:)(?![\\s\\S]*\\\\)(?!\\.\\.?(?:/|(?![\\s\\S])))(?![\\s\\S]*/\\.\\.?(?:/|(?![\\s\\S])))(?![\\s\\S]*//)(?![\\s\\S]*[\\u0000-\\u001f\\u007f])[\\s\\S]+(?<!/)(?![\\s\\S])"},
+    "text8192": {"type": "string", "minLength": 1, "maxLength": 8192, "pattern": "^[^\\u0000-\\u001f\\u007f]+(?![\\s\\S])"},
+    "text20000": {"type": "string", "minLength": 1, "maxLength": 20000, "pattern": "^[^\\u0000-\\u001f\\u007f]+(?![\\s\\S])"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}(?![\\s\\S])"}
   }
 }

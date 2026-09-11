@@ -400,6 +400,9 @@ class SetupTests(unittest.TestCase):
             before = sorted(repository.rglob("*"))
             readiness = project_eval.project_eval_readiness(repository)
             preview = project_eval.project_eval_bootstrap(repository)
+            aliased_preview = project_eval.project_eval_bootstrap(
+                repository / "nested" / ".."
+            )
             self.assertEqual(readiness["status"], "not_configured")
             self.assertEqual(readiness["operation"], "readiness")
             self.assertEqual(preview["status"], "preview")
@@ -407,6 +410,7 @@ class SetupTests(unittest.TestCase):
             self.assertFalse(readiness["mutated"])
             self.assertFalse(preview["mutated"])
             self.assertEqual(readiness["starter"], preview["starter"])
+            self.assertEqual(aliased_preview["target"], preview["target"])
             self.assertEqual(before, sorted(repository.rglob("*")))
             self.assertIn("project coverage is not established", project_eval.render_readiness(preview))
 
@@ -415,11 +419,26 @@ class SetupTests(unittest.TestCase):
             root = Path(temporary)
             repository = root / "repo"
             repository.mkdir()
-            applied = project_eval.project_eval_bootstrap(
-                repository, apply=True, yes=True
-            )
+            with mock.patch.object(
+                project_eval,
+                "project_eval_readiness",
+                wraps=project_eval.project_eval_readiness,
+            ) as readiness:
+                applied = project_eval.project_eval_bootstrap(
+                    repository, apply=True, yes=True
+                )
+            self.assertEqual(readiness.call_count, 1)
             self.assertEqual(applied["status"], "applied")
             self.assertTrue(applied["mutated"])
+            files = project_eval._starter_files()
+            self.assertEqual(
+                applied["starter"]["files"],
+                project_eval._starter_listing("evals/project", files),
+            )
+            self.assertEqual(
+                applied["suite"]["source_sha256"],
+                project_eval._sha(files["suite.json"]),
+            )
             ready = project_eval.project_eval_readiness(repository)
             self.assertEqual(ready["status"], "ready")
             suite_value, case, _, fixture = project_eval._case_components(
@@ -564,7 +583,9 @@ class SetupTests(unittest.TestCase):
 
         def direct_string_accepts(rule, value):
             return (
-                rule["minLength"] <= len(value) <= rule["maxLength"]
+                rule.get("minLength", 0)
+                <= len(value)
+                <= rule.get("maxLength", sys.maxsize)
                 and project_eval.re.search(rule["pattern"], value) is not None
             )
 
@@ -572,6 +593,9 @@ class SetupTests(unittest.TestCase):
             repository = Path(temporary) / "repo"
             repository.mkdir()
             preview = project_eval.project_eval_bootstrap(repository)
+            applied = project_eval.project_eval_bootstrap(
+                repository, apply=True, yes=True
+            )
             invalid_results = []
 
             oversized_path = copy.deepcopy(preview)
@@ -606,6 +630,67 @@ class SetupTests(unittest.TestCase):
                 )
             )
 
+            trailing_path = copy.deepcopy(preview)
+            trailing_path["target"]["eval_root"] += "\n"
+            invalid_results.append(
+                (trailing_path, schema["$defs"]["path"], "evals/project\n")
+            )
+
+            trailing_repository = copy.deepcopy(preview)
+            trailing_repository["target"]["repository"] += "\n"
+            invalid_results.append(
+                (
+                    trailing_repository,
+                    schema["$defs"]["text8192"],
+                    trailing_repository["target"]["repository"],
+                )
+            )
+
+            trailing_version = copy.deepcopy(preview)
+            trailing_version["producer"]["version"] += "\n"
+            invalid_results.append(
+                (
+                    trailing_version,
+                    schema["properties"]["producer"]["properties"]["version"],
+                    trailing_version["producer"]["version"],
+                )
+            )
+
+            trailing_suite_id = copy.deepcopy(applied)
+            trailing_suite_id["suite"]["suite_id"] += "\n"
+            invalid_results.append(
+                (
+                    trailing_suite_id,
+                    schema["properties"]["suite"]["oneOf"][1]["properties"][
+                        "suite_id"
+                    ],
+                    trailing_suite_id["suite"]["suite_id"],
+                )
+            )
+
+            trailing_digest = copy.deepcopy(applied)
+            trailing_digest["suite"]["source_sha256"] += "\n"
+            invalid_results.append(
+                (
+                    trailing_digest,
+                    schema["$defs"]["sha256"],
+                    trailing_digest["suite"]["source_sha256"],
+                )
+            )
+
+            trailing_code = copy.deepcopy(controlled_limitation)
+            trailing_code["limitations"][0]["message"] = "unsafe path"
+            trailing_code["limitations"][0]["code"] += "\n"
+            invalid_results.append(
+                (
+                    trailing_code,
+                    schema["properties"]["limitations"]["items"]["properties"][
+                        "code"
+                    ],
+                    trailing_code["limitations"][0]["code"],
+                )
+            )
+
             for value, rule, direct_value in invalid_results:
                 with self.subTest(value=value):
                     self.assertFalse(direct_string_accepts(rule, direct_value))
@@ -613,6 +698,104 @@ class SetupTests(unittest.TestCase):
                         self.assertFalse(validator.is_valid(value))
                     with self.assertRaises(project_eval.EvalError):
                         project_eval.validate_setup_result(value)
+
+            boundary_values = (
+                (
+                    schema["properties"]["producer"]["properties"]["version"],
+                    "a",
+                    "a" * 128,
+                ),
+                (
+                    schema["properties"]["suite"]["oneOf"][1]["properties"][
+                        "suite_id"
+                    ],
+                    "a",
+                    "a" * 64,
+                ),
+                (
+                    schema["properties"]["limitations"]["items"]["properties"][
+                        "code"
+                    ],
+                    "a",
+                    "a" * 64,
+                ),
+                (schema["$defs"]["sha256"], "a" * 64, "f" * 64),
+                (schema["$defs"]["path"], "a", "a" * 4096),
+                (schema["$defs"]["text8192"], "a", "a" * 8192),
+                (schema["$defs"]["text20000"], "a", "a" * 20000),
+            )
+            for rule, minimum, maximum in boundary_values:
+                with self.subTest(rule=rule, boundary="minimum"):
+                    self.assertTrue(direct_string_accepts(rule, minimum))
+                with self.subTest(rule=rule, boundary="maximum"):
+                    self.assertTrue(direct_string_accepts(rule, maximum))
+
+    def test_setup_validator_binds_suite_evidence_to_the_selected_target(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            preview = project_eval.project_eval_bootstrap(repository)
+            self.assertIs(project_eval.validate_setup_result(preview), preview)
+
+            relative_repository = copy.deepcopy(preview)
+            relative_repository["target"]["repository"] = "repo"
+            with self.assertRaisesRegex(project_eval.EvalError, "absolute canonical"):
+                project_eval.validate_setup_result(relative_repository)
+
+            noncanonical_repository = copy.deepcopy(preview)
+            noncanonical_repository["target"]["repository"] = (
+                str(repository) + os.sep + "."
+            )
+            with self.assertRaisesRegex(project_eval.EvalError, "absolute canonical"):
+                project_eval.validate_setup_result(noncanonical_repository)
+
+            parent_repository = copy.deepcopy(preview)
+            parent_repository["target"]["repository"] = str(
+                repository / "nested" / ".."
+            )
+            with self.assertRaisesRegex(project_eval.EvalError, "absolute canonical"):
+                project_eval.validate_setup_result(parent_repository)
+
+            non_json_suite = copy.deepcopy(preview)
+            non_json_suite["target"]["suite"] = "suite.txt"
+            with self.assertRaisesRegex(project_eval.EvalError, "JSON file"):
+                project_eval.validate_setup_result(non_json_suite)
+
+            applied = project_eval.project_eval_bootstrap(
+                repository, apply=True, yes=True
+            )
+            self.assertIs(project_eval.validate_setup_result(applied), applied)
+
+            relative_evidence = copy.deepcopy(applied)
+            relative_evidence["suite"]["path"] = "evals/project/suite.json"
+            with self.assertRaisesRegex(project_eval.EvalError, "absolute canonical"):
+                project_eval.validate_setup_result(relative_evidence)
+
+            parent_evidence = copy.deepcopy(applied)
+            parent_evidence["suite"]["path"] = str(
+                repository
+                / "evals"
+                / "project"
+                / "nested"
+                / ".."
+                / "suite.json"
+            )
+            with self.assertRaisesRegex(project_eval.EvalError, "absolute canonical"):
+                project_eval.validate_setup_result(parent_evidence)
+
+            sibling_evidence = copy.deepcopy(applied)
+            sibling_evidence["suite"]["path"] = str(
+                repository / "evals" / "other" / "suite.json"
+            )
+            with self.assertRaisesRegex(project_eval.EvalError, "selected target"):
+                project_eval.validate_setup_result(sibling_evidence)
+
+            case_drift = copy.deepcopy(applied)
+            case_drift["suite"]["path"] = str(
+                repository / "evals" / "project" / "SUITE.json"
+            )
+            with self.assertRaisesRegex(project_eval.EvalError, "selected target"):
+                project_eval.validate_setup_result(case_drift)
 
     def test_setup_human_output_makes_format_controls_visible(self):
         with tempfile.TemporaryDirectory(prefix="repo-\u202e-") as temporary:
@@ -735,6 +918,117 @@ class SetupTests(unittest.TestCase):
                 / "control.json"
             )
             self.assertEqual(control.read_text(encoding="utf-8"), "replacement\n")
+
+    def test_creation_success_rejects_raced_file_replacement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            original = project_eval._PATH_SAFETY._write_descriptor
+            calls = 0
+
+            def replace_after_final_write(descriptor, data):
+                nonlocal calls
+                calls += 1
+                result = original(descriptor, data)
+                if calls == len(project_eval.STARTER_FILES):
+                    control = (
+                        repository
+                        / "evals"
+                        / "project"
+                        / "fixtures"
+                        / "explain-starter"
+                        / "control.json"
+                    )
+                    control.rename(control.with_name("owned-control.json"))
+                    control.write_text("replacement\n", encoding="utf-8")
+                return result
+
+            with mock.patch.object(
+                project_eval._PATH_SAFETY,
+                "_write_descriptor",
+                side_effect=replace_after_final_write,
+            ):
+                expected = (
+                    "rollback was incomplete"
+                    if os.name == "nt"
+                    else "partial created content was preserved"
+                )
+                with self.assertRaisesRegex(project_eval.EvalError, expected):
+                    project_eval.project_eval_bootstrap(
+                        repository, apply=True, yes=True
+                    )
+            control = (
+                repository
+                / "evals"
+                / "project"
+                / "fixtures"
+                / "explain-starter"
+                / "control.json"
+            )
+            self.assertEqual(control.read_text(encoding="utf-8"), "replacement\n")
+
+    def test_creation_success_rejects_raced_directory_replacement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            original = project_eval._PATH_SAFETY._write_descriptor
+            calls = 0
+            replacement_denied = False
+
+            def replace_after_final_write(descriptor, data):
+                nonlocal calls, replacement_denied
+                calls += 1
+                result = original(descriptor, data)
+                if calls == len(project_eval.STARTER_FILES):
+                    visible = (
+                        repository
+                        / "evals"
+                        / "project"
+                        / "fixtures"
+                        / "explain-starter"
+                        / "visible"
+                    )
+                    try:
+                        visible.rename(visible.with_name("owned-visible"))
+                    except PermissionError:
+                        if os.name != "nt":
+                            raise
+                        replacement_denied = True
+                        raise
+                    visible.mkdir()
+                    (visible / "foreign.txt").write_text(
+                        "replacement\n", encoding="utf-8"
+                    )
+                return result
+
+            with mock.patch.object(
+                project_eval._PATH_SAFETY,
+                "_write_descriptor",
+                side_effect=replace_after_final_write,
+            ):
+                expected = (
+                    "cannot create starter evaluation tree"
+                    if os.name == "nt"
+                    else "partial created content was preserved"
+                )
+                with self.assertRaisesRegex(project_eval.EvalError, expected):
+                    project_eval.project_eval_bootstrap(
+                        repository, apply=True, yes=True
+                    )
+            if os.name == "nt":
+                self.assertTrue(replacement_denied)
+                self.assertEqual(list(repository.iterdir()), [])
+                return
+            marker = (
+                repository
+                / "evals"
+                / "project"
+                / "fixtures"
+                / "explain-starter"
+                / "visible"
+                / "foreign.txt"
+            )
+            self.assertEqual(marker.read_text(encoding="utf-8"), "replacement\n")
 
 
 class BundleTests(unittest.TestCase):

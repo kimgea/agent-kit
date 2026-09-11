@@ -296,6 +296,7 @@ def _windows_relative_handle(
     creation: int,
     display_path: Path,
     directory: bool = False,
+    share_delete: bool = False,
 ) -> int:
     import ctypes
     from ctypes import wintypes
@@ -363,7 +364,7 @@ def _windows_relative_handle(
         ctypes.byref(status_block),
         None,
         0x00000080,
-        0x00000001 | 0x00000002,
+        0x00000001 | 0x00000002 | (0x00000004 if share_delete else 0),
         disposition,
         0x00000020 | (0x00000001 if directory else 0x00000040) | 0x00200000,
         None,
@@ -478,6 +479,7 @@ def _windows_file_descriptor(
     access: int = 0x80000000,
     creation: int = 3,
     descriptor_flags: int | None = None,
+    share_delete: bool = False,
 ) -> int:
     import msvcrt
 
@@ -487,6 +489,7 @@ def _windows_file_descriptor(
         access=access,
         creation=creation,
         display_path=path,
+        share_delete=share_delete,
     )
     try:
         attributes, _, _, _ = _windows_handle_attributes(handle)
@@ -1084,14 +1087,16 @@ def create_repository_tree(
     repository: Path,
     root_relative: str,
     files: dict[str, bytes],
-) -> None:
+) -> dict[str, bytes]:
     """Create one absent repository subtree without following path components.
 
     Parent directories between the repository and the selected subtree may be
     created. Every supplied file is create-only. Windows can remove created
     entries through retained handles if publication fails. POSIX preserves a
     partial tree instead: pathname deletion cannot be made identity-bound, so
-    fail-closed recovery is safer than a racy rollback.
+    fail-closed recovery is safer than a racy rollback. Success returns bytes
+    reread through the retained file handles after every path identity has been
+    checked.
     """
     repository = repository.absolute()
     root_path = canonical_path(root_relative)
@@ -1118,13 +1123,12 @@ def create_repository_tree(
         key=lambda item: (len(item), item),
     )
     if os.name == "nt":
-        _create_repository_tree_windows(
+        return _create_repository_tree_windows(
             repository, root_parts, directory_parts, file_parts, normalized
         )
-        return
     if not SAFE_POSIX_DIR_FD:
         raise SafetyError("safe repository tree creation is unavailable")
-    _create_repository_tree_posix(
+    return _create_repository_tree_posix(
         repository, root_parts, directory_parts, file_parts, normalized
     )
 
@@ -1135,9 +1139,11 @@ def _create_repository_tree_posix(
     directory_parts: list[tuple[str, ...]],
     file_parts: dict[str, tuple[str, ...]],
     files: dict[str, bytes],
-) -> None:
+) -> dict[str, bytes]:
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
     descriptors: dict[tuple[str, ...], int] = {}
+    file_descriptors: dict[str, int] = {}
+    verified: dict[str, bytes] = {}
     error: BaseException | None = None
     with _posix_bound_parent(repository) as (repository_parent, name, absolute):
         try:
@@ -1169,7 +1175,7 @@ def _create_repository_tree_posix(
                 parent = tree_root + parts[:-1]
                 descriptor = os.open(
                     parts[-1],
-                    os.O_WRONLY
+                    os.O_RDWR
                     | os.O_CREAT
                     | os.O_EXCL
                     | os.O_NOFOLLOW
@@ -1178,24 +1184,95 @@ def _create_repository_tree_posix(
                     0o644,
                     dir_fd=descriptors[parent],
                 )
-                try:
-                    metadata = os.fstat(descriptor)
-                    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
-                        raise SafetyError(f"refusing unsafe new repository file: {relative}")
-                    _write_descriptor(descriptor, files[relative])
-                finally:
-                    os.close(descriptor)
+                file_descriptors[relative] = descriptor
+                metadata = os.fstat(descriptor)
+                if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                    raise SafetyError(f"refusing unsafe new repository file: {relative}")
+                _write_descriptor(descriptor, files[relative])
+
+            for key in sorted(descriptors, key=lambda item: (len(item), item)):
+                if key:
+                    parent_descriptor = descriptors[key[:-1]]
+                    entry_name = key[-1]
+                    display = absolute.joinpath(*key)
+                else:
+                    parent_descriptor = repository_parent
+                    entry_name = name
+                    display = absolute
+                entry_metadata = os.stat(
+                    entry_name, dir_fd=parent_descriptor, follow_symlinks=False
+                )
+                held_metadata = os.fstat(descriptors[key])
+                if (
+                    not stat.S_ISDIR(entry_metadata.st_mode)
+                    or not stat.S_ISDIR(held_metadata.st_mode)
+                    or filesystem_identity(display, entry_metadata)
+                    != filesystem_identity(display, held_metadata)
+                ):
+                    raise SafetyError(
+                        f"repository directory changed during creation: {display}"
+                    )
+
+            for relative in sorted(files):
+                parts = file_parts[relative]
+                parent = tree_root + parts[:-1]
+                display = absolute.joinpath(*(tree_root + parts))
+                descriptor = file_descriptors[relative]
+                entry_metadata = os.stat(
+                    parts[-1],
+                    dir_fd=descriptors[parent],
+                    follow_symlinks=False,
+                )
+                held_metadata = os.fstat(descriptor)
+                held_snapshot = filesystem_snapshot(display, held_metadata)
+                if (
+                    not stat.S_ISREG(entry_metadata.st_mode)
+                    or not stat.S_ISREG(held_metadata.st_mode)
+                    or entry_metadata.st_nlink != 1
+                    or held_metadata.st_nlink != 1
+                    or filesystem_identity(display, entry_metadata)
+                    != filesystem_identity(display, held_metadata)
+                ):
+                    raise SafetyError(
+                        f"repository file changed during creation: {display}"
+                    )
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                raw = _read_descriptor(descriptor, len(files[relative]))
+                final_metadata = os.fstat(descriptor)
+                final_entry = os.stat(
+                    parts[-1],
+                    dir_fd=descriptors[parent],
+                    follow_symlinks=False,
+                )
+                if (
+                    raw != files[relative]
+                    or not stat.S_ISREG(final_metadata.st_mode)
+                    or not stat.S_ISREG(final_entry.st_mode)
+                    or final_metadata.st_nlink != 1
+                    or final_entry.st_nlink != 1
+                    or held_snapshot != filesystem_snapshot(display, final_metadata)
+                    or held_snapshot != filesystem_snapshot(display, final_entry)
+                ):
+                    raise SafetyError(
+                        f"repository file changed during verification: {display}"
+                    )
+                verified[relative] = raw
         except BaseException as exc:
             error = exc
         if error is not None:
+            for relative in sorted(file_descriptors, reverse=True):
+                os.close(file_descriptors[relative])
             for key in sorted(descriptors, key=len, reverse=True):
                 os.close(descriptors[key])
             raise SafetyError(
                 "repository tree creation failed; partial created content was "
                 "preserved for safe recovery"
             ) from error
+        for relative in sorted(file_descriptors, reverse=True):
+            os.close(file_descriptors[relative])
         for key in sorted(descriptors, key=len, reverse=True):
             os.close(descriptors[key])
+    return verified
 
 
 def _create_repository_tree_windows(
@@ -1204,12 +1281,14 @@ def _create_repository_tree_windows(
     directory_parts: list[tuple[str, ...]],
     file_parts: dict[str, tuple[str, ...]],
     files: dict[str, bytes],
-) -> None:
+) -> dict[str, bytes]:
     directory_access = 0x00000001 | 0x00000002 | 0x00000004 | 0x00000080
     created_access = directory_access | 0x00010000
     descriptors: dict[tuple[str, ...], int] = {}
+    file_descriptors: dict[str, int] = {}
     created_directories: list[tuple[tuple[str, ...], str, tuple[str, ...]]] = []
     created_files: list[tuple[tuple[str, ...], str, tuple[int, int]]] = []
+    verified: dict[str, bytes] = {}
     error: BaseException | None = None
     with _windows_locked_parent(repository) as (absolute, repository_parent):
         descriptors[()] = _windows_relative_handle(
@@ -1236,6 +1315,7 @@ def _create_repository_tree_windows(
                         creation=1,
                         display_path=display,
                         directory=True,
+                        share_delete=True,
                     )
                     created_directories.append((current, part, child))
                 else:
@@ -1258,6 +1338,7 @@ def _create_repository_tree_windows(
                             creation=1,
                             display_path=display,
                             directory=True,
+                            share_delete=True,
                         )
                         created_directories.append((current, part, child))
                 attributes, _, _, _ = _windows_handle_attributes(descriptors[child])
@@ -1276,6 +1357,7 @@ def _create_repository_tree_windows(
                     creation=1,
                     display_path=display,
                     directory=True,
+                    share_delete=True,
                 )
                 created_directories.append((parent, parts[-1], key))
             for relative in sorted(files):
@@ -1285,26 +1367,137 @@ def _create_repository_tree_windows(
                 descriptor = _windows_file_descriptor(
                     display,
                     parent_handle=descriptors[parent],
-                    access=0x40000000 | 0x00010000 | 0x00000080,
+                    access=0x80000000 | 0x40000000 | 0x00010000 | 0x00000080,
                     creation=1,
-                    descriptor_flags=os.O_WRONLY | getattr(os, "O_BINARY", 0),
+                    descriptor_flags=os.O_RDWR | getattr(os, "O_BINARY", 0),
+                    share_delete=True,
+                )
+                file_descriptors[relative] = descriptor
+                metadata = os.fstat(descriptor)
+                if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                    raise SafetyError(f"refusing unsafe new repository file: {relative}")
+                import msvcrt
+
+                _, _, volume, file_index = _windows_handle_attributes(
+                    msvcrt.get_osfhandle(descriptor)
+                )
+                created_files.append((parent, parts[-1], (volume, file_index)))
+                _write_descriptor(descriptor, files[relative])
+
+            for key in sorted(descriptors, key=lambda item: (len(item), item)):
+                if key:
+                    parent_handle = descriptors[key[:-1]]
+                    entry_name = key[-1]
+                    display = absolute.joinpath(*key)
+                else:
+                    parent_handle = repository_parent
+                    entry_name = absolute.name
+                    display = absolute
+                current_handle = _windows_relative_handle(
+                    parent_handle,
+                    entry_name,
+                    access=directory_access,
+                    creation=3,
+                    display_path=display,
+                    directory=True,
+                    share_delete=True,
                 )
                 try:
-                    metadata = os.fstat(descriptor)
-                    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
-                        raise SafetyError(f"refusing unsafe new repository file: {relative}")
-                    import msvcrt
+                    current = _windows_handle_attributes(current_handle)
+                    held = _windows_handle_attributes(descriptors[key])
+                finally:
+                    _windows_close_handle(current_handle)
+                if (
+                    current[0] & 0x00000400
+                    or not current[0] & 0x00000010
+                    or held[0] & 0x00000400
+                    or not held[0] & 0x00000010
+                    or current[2:] != held[2:]
+                ):
+                    raise SafetyError(
+                        f"repository directory changed during creation: {display}"
+                    )
 
-                    _, _, volume, file_index = _windows_handle_attributes(
+            for relative in sorted(files):
+                parts = file_parts[relative]
+                parent = tree_root + parts[:-1]
+                display = absolute.joinpath(*(tree_root + parts))
+                descriptor = file_descriptors[relative]
+                current_handle = _windows_relative_handle(
+                    descriptors[parent],
+                    parts[-1],
+                    access=0x00000080,
+                    creation=3,
+                    display_path=display,
+                    share_delete=True,
+                )
+                try:
+                    current = _windows_handle_attributes(current_handle)
+                    held = _windows_handle_attributes(msvcrt.get_osfhandle(descriptor))
+                finally:
+                    _windows_close_handle(current_handle)
+                metadata = os.fstat(descriptor)
+                metadata_signature = (
+                    metadata.st_dev,
+                    metadata.st_ino,
+                    metadata.st_size,
+                    getattr(metadata, "st_mtime_ns", metadata.st_mtime),
+                    getattr(metadata, "st_ctime_ns", metadata.st_ctime),
+                )
+                if (
+                    current[0] & (0x00000400 | 0x00000010)
+                    or held[0] & (0x00000400 | 0x00000010)
+                    or current[2:] != held[2:]
+                    or current[1] != 1
+                    or held[1] != 1
+                    or not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_nlink != 1
+                ):
+                    raise SafetyError(
+                        f"repository file changed during creation: {display}"
+                    )
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                raw = _read_descriptor(descriptor, len(files[relative]))
+                final_handle = _windows_relative_handle(
+                    descriptors[parent],
+                    parts[-1],
+                    access=0x00000080,
+                    creation=3,
+                    display_path=display,
+                    share_delete=True,
+                )
+                try:
+                    final_entry = _windows_handle_attributes(final_handle)
+                    final_held = _windows_handle_attributes(
                         msvcrt.get_osfhandle(descriptor)
                     )
-                    created_files.append((parent, parts[-1], (volume, file_index)))
-                    _write_descriptor(descriptor, files[relative])
+                    final_metadata = os.fstat(descriptor)
                 finally:
-                    os.close(descriptor)
+                    _windows_close_handle(final_handle)
+                final_signature = (
+                    final_metadata.st_dev,
+                    final_metadata.st_ino,
+                    final_metadata.st_size,
+                    getattr(final_metadata, "st_mtime_ns", final_metadata.st_mtime),
+                    getattr(final_metadata, "st_ctime_ns", final_metadata.st_ctime),
+                )
+                if (
+                    raw != files[relative]
+                    or final_entry != held
+                    or final_held != held
+                    or final_signature != metadata_signature
+                    or not stat.S_ISREG(final_metadata.st_mode)
+                    or final_metadata.st_nlink != 1
+                ):
+                    raise SafetyError(
+                        f"repository file changed during verification: {display}"
+                    )
+                verified[relative] = raw
         except BaseException as exc:
             error = exc
         if error is not None:
+            for relative in sorted(file_descriptors, reverse=True):
+                os.close(file_descriptors[relative])
             rollback_errors: list[str] = []
             for parent, child, identity in reversed(created_files):
                 handle = None
@@ -1344,5 +1537,8 @@ def _create_repository_tree_windows(
                     f"repository tree creation failed and rollback was incomplete: {rollback_errors[0]}"
                 ) from error
             raise error
+        for relative in sorted(file_descriptors, reverse=True):
+            os.close(file_descriptors[relative])
         for key in sorted(descriptors, key=len, reverse=True):
             _windows_close_handle(descriptors[key])
+    return verified
