@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.17.0 - 2026-10-11
+
+### Added
+
+- Let Git projects select a repository-owned `.todo/` destination for
+  `todo-capture` while retaining the shared private store by default.
+- Add project-route lifecycle and negative-boundary tests plus skill evaluation
+  cases for destination selection and invalid configuration.
+
+### Security
+
+- Keep project routing outside generated automatic permission rules. Reject
+  unknown backends, symlinked configuration or stores, and unrelated existing
+  `.todo/` directories without falling back to another destination.
+
 All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed
 in `toolkit.toml`.

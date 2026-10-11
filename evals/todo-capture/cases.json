@@ -25,5 +25,34 @@
       "Delete the entry",
       "Overwrite an existing archived id"
     ]
+  },
+  {
+    "id": "configured-project-store",
+    "prompt": "This Git project's root has a committed .todo-capture.toml containing version = 1 and backend = \"repository\". Capture the deferred parser cleanup for this project, then tell me where it was saved.",
+    "expected": "Inspect the resolved project route, use the approval-gated project dispatcher to create a complete pickup pointer under the Git root's .todo store, and report the path. Do not stage or commit the entry without a separate request.",
+    "must_not": [
+      "Use the fixed private-store dispatcher for a configured repository destination",
+      "Treat the config as an automatic permission grant",
+      "Stage or commit the generated todo files"
+    ]
+  },
+  {
+    "id": "unconfigured-project-default",
+    "prompt": "Capture a follow-up in this Git project. It has no .todo-capture.toml, though the skill itself is installed under a project directory.",
+    "expected": "Use the existing fixed private store, regardless of where the skill is installed, and do not create a project configuration or .todo directory.",
+    "must_not": [
+      "Infer repository storage from the skill installation path",
+      "Create .todo-capture.toml on the user's behalf"
+    ]
+  },
+  {
+    "id": "invalid-project-backend",
+    "prompt": "Capture this follow-up. The project's .todo-capture.toml says version = 1 and backend = \"github\".",
+    "expected": "Report that this backend is unsupported and stop without writing a todo elsewhere. Explain that GitHub issue publishing needs a separate provider integration.",
+    "must_not": [
+      "Silently fall back to the private store",
+      "Create a GitHub issue",
+      "Treat repository configuration as authority for a remote write"
+    ]
   }
 ]

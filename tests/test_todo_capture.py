@@ -14,6 +14,7 @@ SKILL = ROOT / "skills" / "todo-capture"
 SCRIPTS = SKILL / "scripts"
 SAFE = SCRIPTS / "todo_safe.py"
 DIRECT = SCRIPTS / "todo.py"
+PROJECT = SCRIPTS / "todo_project.py"
 
 
 def load_module(name, path):
@@ -262,6 +263,170 @@ class TodoCliTests(unittest.TestCase):
         self.assertFalse((target / "_general").exists())
 
 
+class TodoProjectRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.base = Path(self.temporary.name)
+        self.project = self.base / "sample project"
+        self.project.mkdir()
+        subprocess.run(["git", "init", "-q", str(self.project)], check=True)
+        self.private_base = self.base / "private"
+        self.environment = os.environ.copy()
+        self.environment["TODO_CAPTURE_DATA_DIR"] = str(self.private_base)
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def run_project(self, *args, cwd=None):
+        return subprocess.run(
+            [sys.executable, str(PROJECT), *args],
+            cwd=cwd or self.project,
+            env=self.environment,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    def configure(self, backend="repository"):
+        (self.project / ".todo-capture.toml").write_text(
+            f'version = 1\nbackend = "{backend}"\n', encoding="utf-8"
+        )
+
+    def test_unconfigured_project_uses_private_store(self):
+        route = self.run_project("route")
+        self.assertEqual(route.returncode, 0, route.stderr)
+        self.assertEqual(json.loads(route.stdout)["backend"], "private")
+        created = self.run_project(
+            "new", "--repo", "_general", "--domain", "tooling",
+            "--slug", "private-default", "--title", "Private default",
+            "--why", "Keep this private", "--where", "src/example.py",
+            "--what", "Follow up", "--out-of-scope", "No other work",
+        )
+        self.assertEqual(created.returncode, 0, created.stderr)
+        self.assertTrue((self.private_base / "todo-capture" / "_general" /
+                         "tooling-private-default.md").is_file())
+        self.assertFalse((self.project / ".todo").exists())
+
+    def test_explicit_private_backend_keeps_fixed_store(self):
+        self.configure("private")
+        route = self.run_project("route")
+        self.assertEqual(route.returncode, 0, route.stderr)
+        selected = json.loads(route.stdout)
+        self.assertEqual(selected["backend"], "private")
+        self.assertEqual(selected["store"], str(self.private_base / "todo-capture"))
+        self.assertFalse((self.project / ".todo").exists())
+
+    def test_repository_store_lifecycle_from_nested_directory(self):
+        self.configure()
+        nested = self.project / "src" / "module"
+        nested.mkdir(parents=True)
+        route = self.run_project("route", cwd=nested)
+        self.assertEqual(route.returncode, 0, route.stderr)
+        self.assertEqual(json.loads(route.stdout)["store"], str(self.project / ".todo"))
+        added = self.run_project(
+            "domain-add", "--repo", "sample", "--domain", "api",
+            "--note", "API follow-ups", cwd=nested,
+        )
+        self.assertEqual(added.returncode, 0, added.stderr)
+        created = self.run_project(
+            "new", "--repo", "sample", "--domain", "api",
+            "--slug", "route-check", "--title", "Check route",
+            "--why", "A concrete project issue", "--where", "src/module/client.py",
+            "--what", "Fix the route", "--out-of-scope", "No API redesign",
+            cwd=nested,
+        )
+        self.assertEqual(created.returncode, 0, created.stderr)
+        store = self.project / ".todo"
+        entry = store / "sample" / "api-route-check.md"
+        self.assertTrue(entry.is_file())
+        self.assertFalse((self.private_base / "todo-capture").exists())
+        self.assertEqual(self.run_project("check", cwd=nested).returncode, 0)
+        self.assertIn("api-route-check", self.run_project("list", cwd=nested).stdout)
+        self.assertIn("# Check route", self.run_project(
+            "show", "api-route-check", cwd=nested).stdout)
+        finished = self.run_project(
+            "done", "api-route-check", "--note", "Fixed in PR 42", cwd=nested,
+        )
+        self.assertEqual(finished.returncode, 0, finished.stderr)
+        self.assertTrue((store / "sample" / "archive" / entry.name).is_file())
+        self.assertEqual(self.run_project("check", cwd=nested).returncode, 0)
+        status = subprocess.run(
+            ["git", "status", "--short", "--untracked-files=all"],
+            cwd=self.project, text=True, capture_output=True, check=True,
+        ).stdout
+        self.assertNotIn(".todo-capture.lock", status)
+        self.assertIn(".todo/.gitignore", status)
+        self.assertIn(".todo/.todo-capture-store", status)
+
+    def test_unsafe_config_and_store_fail_without_private_fallback(self):
+        config = self.project / ".todo-capture.toml"
+        config.write_text('version = 1\nbackend = "github"\n', encoding="utf-8")
+        unknown = self.run_project("list")
+        self.assertEqual(unknown.returncode, 2)
+        self.assertIn("unsupported", unknown.stderr)
+        self.assertFalse((self.private_base / "todo-capture").exists())
+        config.write_text('version = 1\nbackend = "repository"\npath = "../elsewhere"\n',
+                          encoding="utf-8")
+        self.assertEqual(self.run_project("list").returncode, 2)
+        config.write_text('version = true\nbackend = "repository"\n', encoding="utf-8")
+        self.assertEqual(self.run_project("list").returncode, 2)
+        config.unlink()
+        external = self.base / "outside"
+        external.mkdir()
+        try:
+            config.symlink_to(external / "config.toml")
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unavailable")
+        self.assertIn("symlinked project configuration", self.run_project("list").stderr)
+        config.unlink()
+        self.configure()
+        (self.project / ".todo").symlink_to(external, target_is_directory=True)
+        blocked = self.run_project("domain-add", "--repo", "sample", "--domain", "api")
+        self.assertEqual(blocked.returncode, 2)
+        self.assertIn("symlinked project todo store", blocked.stderr)
+        self.assertEqual(list(external.iterdir()), [])
+
+    def test_existing_foreign_store_and_custom_path_are_rejected(self):
+        self.configure()
+        store = self.project / ".todo"
+        store.mkdir()
+        (store / "INDEX.md").write_text("foreign content", encoding="utf-8")
+        blocked = self.run_project("domain-add", "--repo", "sample", "--domain", "api")
+        self.assertEqual(blocked.returncode, 2)
+        self.assertEqual((store / "INDEX.md").read_text(encoding="utf-8"),
+                         "foreign content")
+        self.assertEqual(self.run_project("list", "--dir", str(self.base)).returncode, 2)
+        self.assertEqual(self.run_project("list", "--di", str(self.base)).returncode, 2)
+        self.assertEqual((store / "INDEX.md").read_text(encoding="utf-8"),
+                         "foreign content")
+
+    def test_empty_store_is_adopted_only_after_valid_command(self):
+        self.configure()
+        store = self.project / ".todo"
+        store.mkdir()
+        invalid = self.run_project("new", "--repo", "sample")
+        self.assertEqual(invalid.returncode, 2)
+        self.assertEqual(list(store.iterdir()), [])
+        added = self.run_project(
+            "domain-add", "--repo", "sample", "--domain", "api")
+        self.assertEqual(added.returncode, 0, added.stderr)
+        self.assertTrue((store / ".todo-capture-store").is_file())
+
+    def test_modified_project_ignore_file_is_not_accepted(self):
+        self.configure()
+        self.assertEqual(self.run_project(
+            "domain-add", "--repo", "sample", "--domain", "api").returncode, 0)
+        override = self.base / "external-store"
+        abbreviated = self.run_project("list", "--di", str(override))
+        self.assertEqual(abbreviated.returncode, 2)
+        self.assertFalse(override.exists())
+        ignore = self.project / ".todo" / ".gitignore"
+        ignore.write_text(".todo-capture.lock\n!.todo-capture.lock\n", encoding="utf-8")
+        rejected = self.run_project("route")
+        self.assertEqual(rejected.returncode, 2)
+        self.assertIn("must contain only", rejected.stderr)
+
+
 class TodoPermissionTests(unittest.TestCase):
     def test_generated_rules_pin_only_the_fixed_store_dispatcher(self):
         with mock.patch.object(TODO_SETUP, "interpreter_forms", return_value=[("python",)]):
@@ -269,12 +434,15 @@ class TodoPermissionTests(unittest.TestCase):
             claude = TODO_SETUP.claude_rules()
         self.assertIn(TODO_SETUP.starlark(str(SAFE)), codex)
         self.assertNotIn(TODO_SETUP.starlark(str(DIRECT)), codex)
+        self.assertNotIn(TODO_SETUP.starlark(str(PROJECT)), codex)
         self.assertNotIn("--dir", codex)
         self.assertTrue(claude)
         safe_forms = set(TODO_SETUP.script_forms(None, str(SAFE)))
         direct_forms = set(TODO_SETUP.script_forms(None, str(DIRECT)))
+        project_forms = set(TODO_SETUP.script_forms(None, str(PROJECT)))
         self.assertTrue(all(any(form in rule for form in safe_forms) for rule in claude))
         self.assertTrue(all(not any(form in rule for form in direct_forms) for rule in claude))
+        self.assertTrue(all(not any(form in rule for form in project_forms) for rule in claude))
         self.assertTrue(all("--dir" not in rule for rule in claude))
         for subcommand in TODO_COMMON.SAFE_SUBCOMMANDS:
             self.assertIn(f'"{subcommand}"', codex)

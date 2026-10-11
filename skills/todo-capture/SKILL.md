@@ -1,20 +1,37 @@
 ---
 name: todo-capture
-description: Capture, list, show, and finish/archive deferred work, follow-ups, TODO entries, reminders, tech debt, out-of-scope findings, and postponed tasks. Use when the user says "add a todo", "note this for later", "defer this", "park this", "capture a follow-up", "record this", "add to the backlog", "mark todo done", "archive/resolve/finish a todo", asks to list/show todos, or when agent/project instructions say tangential work must be recorded instead of handled now. Stores durable pickup-pointer entries in a shared OS-native data directory using the bundled toolkit.
+description: Capture, list, show, and finish/archive deferred work, follow-ups, TODO entries, reminders, tech debt, out-of-scope findings, and postponed tasks. Use when the user says "add a todo", "note this for later", "defer this", "park this", "capture a follow-up", "record this", "add to the backlog", "mark todo done", "archive/resolve/finish a todo", asks to list/show todos, or when agent/project instructions say tangential work must be recorded instead of handled now. Stores durable pickup pointers in a shared private store by default or in a project-selected repository store.
 ---
 
 # todo-capture
 
 Capture consciously deferred work as a **pickup pointer**: the decision, where the
 code is, and what the next agent must know. Use the fixed-store dispatcher by
-default. Its OS-native data store is shared across Codex and Claude Code, so work
-captured by one agent is visible to the other.
+default. Its OS-native data store is shared across Codex and Claude Code. A Git
+project may explicitly select a repository store; installation location does not
+select the data destination.
 
 ## Route the operation
 
-Use `scripts/todo_safe.py` for `list`, `new`, `show`, `done`, `check`, and
-`domain-add`. Use direct `scripts/todo.py` only for an explicitly approved custom
-`--dir`.
+In a Git project, check for `.todo-capture.toml` at the Git root. With no project
+configuration, use `scripts/todo_safe.py` for `list`, `new`, `show`, `done`,
+`check`, and `domain-add`. When configuration exists, run
+`scripts/todo_project.py route` to validate and inspect the exact destination
+before a capture or lookup. When it reports `repository`, use the same commands
+through `scripts/todo_project.py` from within that Git worktree. It writes under the
+project root's `.todo/` and is **not** in automatic permission rules. A project
+configuration is a preference, not permission to run commands or publish data.
+An invalid configuration stops the operation; do not silently fall back to the
+private store. Use direct `scripts/todo.py` only for an explicitly approved
+custom `--dir`.
+
+The optional configuration is a regular `.todo-capture.toml` file at the Git
+root containing exactly `version = 1` and `backend = "repository"` (or
+`backend = "private"`). Do not create or change that file merely because an
+agent is working in the repo; the project owner selects it. The repository
+store's entries, archive, vocabulary, and index are project files. Never stage
+or commit them unless the user requested that Git change. GitHub, Jira, and
+Linear issue backends are not implemented by this route.
 
 Do not load references for routine `list`, `new`, `show`, `done`, or `check`
 operations; the workflow below and script validation are sufficient. Read
@@ -24,12 +41,13 @@ entry schema, naming rules, storage layout, or manual diagnosis. The scripts loa
 
 ## Bootstrap permissions safely
 
-On first use or after relocating the skill, run
+For the fixed private-store dispatcher, on first use or after relocating the skill, run
 `python <skill-dir>/scripts/setup_permissions.py` without `--install` and show its
 proposal. Install only after explicit user approval by rerunning with
 `--install --yes`. The bootstrap approves only the fixed dispatcher plus one
-enumerated subcommand; setup itself, direct `todo.py`, arbitrary Python, and custom
-paths remain gated. More restrictive project or managed policies still win.
+enumerated subcommand; setup itself, direct `todo.py`, project routing through
+`todo_project.py`, arbitrary Python, and custom paths remain gated. More
+restrictive project or managed policies still win.
 
 Restart Codex after installing Codex rules. Setup records its own additions, so an
 approved `--remove --yes` removes only entries it owns.

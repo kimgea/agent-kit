@@ -628,12 +628,16 @@ def build_parser(allow_custom_dir=True, description=None):
     return parser
 
 
-def main(argv=None, allow_custom_dir=True, description=None):
+def main(argv=None, allow_custom_dir=True, description=None, selected_dir=None):
     parser = build_parser(
         allow_custom_dir=allow_custom_dir,
         description=description,
     )
     args = parser.parse_args(argv)
+    if selected_dir is not None:
+        if allow_custom_dir:
+            raise ValueError("an internal selected directory requires the fixed-path parser")
+        args.dir = selected_dir
     try:
         return args.fn(args)
     except (OSError, TimeoutError, ValueError) as exc:
