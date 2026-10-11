@@ -337,12 +337,14 @@ class TodoProjectRouteTests(unittest.TestCase):
         nested.mkdir(parents=True)
         route = self.run_project("route", cwd=nested)
         self.assertEqual(route.returncode, 0, route.stderr)
-        self.assertEqual(json.loads(route.stdout)["store"], str(self.project / ".todo"))
+        selected = json.loads(route.stdout)
+        self.assertEqual(selected["backend"], "repository")
         added = self.run_project(
             "domain-add", "--repo", "sample", "--domain", "api",
             "--note", "API follow-ups", cwd=nested,
         )
         self.assertEqual(added.returncode, 0, added.stderr)
+        self.assertTrue(os.path.samefile(selected["store"], self.project / ".todo"))
         created = self.run_project(
             "new", "--repo", "sample", "--domain", "api",
             "--slug", "route-check", "--title", "Check route",
