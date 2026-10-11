@@ -8,6 +8,7 @@ never treated as permission to run this command.
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tomllib
@@ -97,6 +98,11 @@ def inspect_store(store):
     if ignore.exists() and (not ignore.is_file() or
                             ignore.read_text(encoding="utf-8") != IGNORE_LINE + "\n"):
         raise ValueError(f"{ignore} must contain only {IGNORE_LINE!r}")
+    lock = store / IGNORE_LINE
+    if os.path.lexists(lock):
+        lock_info = lock.lstat()
+        if not stat.S_ISREG(lock_info.st_mode) or lock_info.st_nlink != 1:
+            raise ValueError(f"refusing linked or invalid project todo lock: {lock}")
 
 
 def prepare_store(store, allow_create):

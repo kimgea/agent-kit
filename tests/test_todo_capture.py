@@ -262,6 +262,21 @@ class TodoCliTests(unittest.TestCase):
         self.assertIn("symlinked todo data store", attempted.stderr)
         self.assertFalse((target / "_general").exists())
 
+    def test_safe_dispatcher_refuses_linked_lock(self):
+        self.root.mkdir()
+        external = self.base / "external-lock"
+        external.write_bytes(b"")
+        lock = self.root / ".todo-capture.lock"
+        try:
+            os.link(external, lock)
+        except (OSError, NotImplementedError):
+            self.skipTest("hard links unavailable")
+        attempted = self.run_cli(*self.new_args("linked-lock"))
+        self.assertEqual(attempted.returncode, 2)
+        self.assertIn("linked or replaced todo lock", attempted.stderr)
+        self.assertEqual(external.read_bytes(), b"")
+        self.assertFalse((self.root / "_general").exists())
+
 
 class TodoProjectRouteTests(unittest.TestCase):
     def setUp(self):
@@ -425,6 +440,42 @@ class TodoProjectRouteTests(unittest.TestCase):
         rejected = self.run_project("route")
         self.assertEqual(rejected.returncode, 2)
         self.assertIn("must contain only", rejected.stderr)
+
+    def test_symlinked_project_lock_cannot_change_external_file(self):
+        self.configure()
+        self.assertEqual(self.run_project(
+            "domain-add", "--repo", "sample", "--domain", "api").returncode, 0)
+        lock = self.project / ".todo" / ".todo-capture.lock"
+        lock.unlink()
+        external = self.base / "external-lock"
+        external.write_bytes(b"")
+        try:
+            lock.symlink_to(external)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unavailable")
+        blocked = self.run_project("domain-add", "--repo", "sample", "--domain", "other")
+        self.assertEqual(blocked.returncode, 2)
+        self.assertIn("project todo lock", blocked.stderr)
+        self.assertEqual(external.read_bytes(), b"")
+        self.assertFalse((self.private_base / "todo-capture").exists())
+
+    def test_hardlinked_project_lock_cannot_change_external_file(self):
+        self.configure()
+        self.assertEqual(self.run_project(
+            "domain-add", "--repo", "sample", "--domain", "api").returncode, 0)
+        lock = self.project / ".todo" / ".todo-capture.lock"
+        lock.unlink()
+        external = self.base / "external-lock"
+        external.write_bytes(b"")
+        try:
+            os.link(external, lock)
+        except (OSError, NotImplementedError):
+            self.skipTest("hard links unavailable")
+        blocked = self.run_project("domain-add", "--repo", "sample", "--domain", "other")
+        self.assertEqual(blocked.returncode, 2)
+        self.assertIn("project todo lock", blocked.stderr)
+        self.assertEqual(external.read_bytes(), b"")
+        self.assertFalse((self.private_base / "todo-capture").exists())
 
 
 class TodoPermissionTests(unittest.TestCase):

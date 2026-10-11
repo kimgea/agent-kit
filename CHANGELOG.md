@@ -13,7 +13,8 @@
 
 - Keep project routing outside generated automatic permission rules. Reject
   unknown backends, symlinked configuration or stores, and unrelated existing
-  `.todo/` directories without falling back to another destination.
+  `.todo/` directories without falling back to another destination. Reject
+  linked or replaced lock files before changing them.
 
 All notable toolkit changes are recorded here. Versions follow Semantic
 Versioning for the repository release; individual resource versions are listed

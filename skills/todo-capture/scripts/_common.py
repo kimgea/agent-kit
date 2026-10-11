@@ -2,6 +2,7 @@
 from contextlib import contextmanager
 import os
 import re
+import stat
 import sys
 import tempfile
 import time
@@ -161,11 +162,20 @@ def mutation_lock(root, timeout=15.0):
     """Serialize store mutations; OS locks are released automatically on exit."""
     ensure_private_dir(root)
     path = contained_path(root, ".todo-capture.lock")
-    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
-    if os.name != "nt":
-        os.chmod(path, 0o600)
+    if os.path.islink(path):
+        raise ValueError(f"refusing linked todo lock: {path}")
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, 0o600)
     with os.fdopen(fd, "r+b", buffering=0) as fh:
-        if os.path.getsize(path) == 0:
+        opened = os.fstat(fh.fileno())
+        current = os.lstat(path)
+        if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1 or
+                not stat.S_ISREG(current.st_mode) or current.st_nlink != 1 or
+                (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino)):
+            raise ValueError(f"refusing linked or replaced todo lock: {path}")
+        if os.name != "nt":
+            os.fchmod(fh.fileno(), 0o600)
+        if opened.st_size == 0:
             fh.write(b"0")
             fh.flush()
         deadline = time.monotonic() + timeout
