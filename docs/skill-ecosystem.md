@@ -409,7 +409,7 @@ metadata or workflow observations are not implemented.
 | `verification-harness-audit` | Reviewer | Harness auditor and bounded executor | Canonical recommendations; may run exactly authorized local commands and write an explicitly selected result file; no target edits | Yes | `project-review` | Aligned composable |
 | `verify-project` | Verifier | Evidence planner and producer | Canonical plans/results; may run exact authorized local checks and create only frozen disposable outputs; no review, diagnosis, or target edits | Yes, through `VERIFY.md` | `project-review` | Aligned composable |
 | `serve-artifacts` | Delivery capability | Artifact lifecycle manager | JSON CLI and browser URLs; private copies, lifecycle state, and optional temporary service or adapter effects | No | `artifacts` | Aligned composable |
-| `todo-capture` | Work-state manager | Deferred-work archive | Validated private pickup-pointer store with JSON query support | No | `todo-capture` | Aligned standalone |
+| `todo-capture` | Work-state manager | Deferred-work archive | Validated private store or explicitly configured Git-project `.todo/` store; JSON query support | No | `todo-capture` | Aligned standalone |
 | `tool-audit` | Reviewer | Local inventory and usage analyzer | Reads private local transcripts and configuration to produce aggregate reports; the `snapshot` profile appends compact metrics to bounded private local state | No | `tool-audit` | Aligned standalone |
 
 ## Supporting infrastructure

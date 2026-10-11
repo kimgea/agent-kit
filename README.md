@@ -37,7 +37,7 @@ Current skills:
 | `verification-harness-audit` | Assess whether selected local checks provide meaningful, timely, reliable protection | Reads bounded harness, context, guidance, and authorized command summaries; writes output only when explicitly requested |
 | `verify-project` | Plan or perform evidence-driven verification of exact current local changes | Reads bounded project context; may run caller-authorized local checks and create only declared disposable outputs |
 | `serve-artifacts` | Host and revoke transient web artifacts locally or through a selected private-network adapter | Private OS-native artifact copies, lifecycle state, and optional adapter ownership |
-| `todo-capture` | Preserve deferred work as shared pickup pointers | Private OS-native state directory |
+| `todo-capture` | Preserve deferred work as pickup pointers | Private OS-native store by default; optional project-selected `.todo/` store |
 | `tool-audit` | Audit local tools, agent usage, friction, and permissions | Private OS-native state plus read-only transcript access |
 
 See [compatibility](docs/compatibility.md) for the tested support matrix. The

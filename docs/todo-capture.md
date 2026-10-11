@@ -4,7 +4,40 @@
 
 `todo-capture` stores consciously deferred work as pickup-pointer Markdown
 entries shared by Codex and Claude Code. Entry files are authoritative;
-`INDEX.md` is a deterministic derived view of active entries.
+`INDEX.md` is a deterministic derived view of active entries. The default
+destination is a private OS-native store. A Git project may opt into a
+repository-owned `.todo/` destination without installing a separate skill copy.
+
+## Project destination
+
+Add `.todo-capture.toml` at the Git root when the project owner wants todo files
+in the repository:
+
+```toml
+version = 1
+backend = "repository"
+```
+
+`backend = "private"` explicitly retains the default destination. An absent
+configuration also retains it. `todo_project.py route` is a read-only way to
+inspect the selected backend and exact store from any subdirectory of that Git
+worktree. With `repository` selected, use `todo_project.py` for the normal
+`list`, `new`, `show`, `done`, `check`, and `domain-add` commands. It has no
+caller-supplied path option. The project entry point is not granted automatic
+permissions; repository configuration describes a preference, not command
+authority. The fixed-store `todo_safe.py` dispatcher and its permission rules
+remain unchanged.
+
+The repository store uses the existing entry format under `.todo/<repo>/` and
+stores its project domain vocabulary in `.todo/domains.local.tsv`. On first
+mutation, the command creates a store marker and `.todo/.gitignore` so the lock
+file stays untracked. Entries, archive, vocabulary, marker, and derived index
+are project files; they are not staged or committed by the skill. A pre-existing
+non-empty unmarked `.todo/`, a symlinked config or store, extra config keys, and unknown
+backends fail closed. There is no silent fallback to private storage after an
+invalid project config. A selected GitHub, Jira, or Linear issue backend needs
+its own explicit provider adapter and authority rules; those are not implemented
+by this local destination change.
 
 ## Installation and setup
 
@@ -30,6 +63,8 @@ Generated Codex and Claude shell rules target only the absolute
 `scripts/todo_safe.py` path plus one known subcommand. The dispatcher accepts
 free-form todo data but has no `--dir`, command passthrough, or executable input.
 `scripts/todo.py` retains custom `--dir` support and remains approval-gated.
+`scripts/todo_project.py` is also approval-gated because its selected store is
+read from project data.
 
 Claude setup also grants the data directory as an additional working directory,
 allows reading the store, permits direct edits only to active entry bodies, and
@@ -96,8 +131,8 @@ agent should take.
 
 ## Maintainer checklist
 
-- Keep machine-specific domains in `<data-store>/domains.local.tsv`; do not
-  commit them.
+- Keep machine-specific domains in the private store's `domains.local.tsv`;
+  project-store vocabulary may be committed with project todos.
 - Change the entry shape in `references/TEMPLATE.md`; `new` consumes it directly.
 - Add broadly portable domains to `references/domains.tsv`; add machine-specific
   domains through the fixed `domain-add` command.

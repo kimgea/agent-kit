@@ -33,7 +33,7 @@ exact source-tree digest before and after validation instead.
 | `verification-harness-audit` | Supported | Supported | Standard-library progressive resolver and canonical result helper; local CI is project data and no provider service is required |
 | `verify-project` | Supported | Supported | Standard-library context, plan, snapshot, and result helpers; project commands remain visible agent tool calls |
 | `serve-artifacts` | Supported | Supported | Standard-library local-first host; network adapters are optional |
-| `todo-capture` | Supported | Supported | Native Windows and POSIX storage/permission fixtures |
+| `todo-capture` | Supported | Supported | Native Windows and POSIX storage/permission fixtures; project routing requires Git and Python 3.11+ |
 | `tool-audit` | Supported | Supported | Codex and Claude transcript parsers; wrapped Codex calls are conservative |
 | `gh-api-get` | Supported | Supported | Python module plus POSIX and Windows launchers |
 | GitHub API guard | Policy/wrapper preferred | Supported hook shape | Defense in depth only |

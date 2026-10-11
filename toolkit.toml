@@ -1,5 +1,5 @@
 schema_version = 2
-toolkit_version = "1.16.0"
+toolkit_version = "1.17.0"
 minimum_python = "3.11"
 
 [plugin_marketplace]
@@ -322,14 +322,14 @@ evals = "evals/serve-artifacts/cases.json"
 id = "todo-capture"
 kind = "skill"
 path = "skills/todo-capture"
-version = "1.0.2"
-summary = "Capture and archive shared deferred-work pickup pointers."
+version = "1.1.0"
+summary = "Capture and archive deferred-work pointers in a private or project-selected repository store."
 agents = ["codex", "claude"]
 platforms = ["linux", "windows", "macos"]
 maturity = "stable"
 installable = true
 setup_requires_approval = true
-data_sensitivity = "local deferred-work context"
+data_sensitivity = "private or project-owned deferred-work context"
 docs = "docs/todo-capture.md"
 tests = ["tests/test_todo_capture.py", "tests/test_agent_kit.py"]
 evals = "evals/todo-capture/cases.json"
