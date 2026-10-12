@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -660,6 +661,19 @@ class TodoPermissionTests(unittest.TestCase):
 
 
 class TodoEvalDefinitionTests(unittest.TestCase):
+    def test_eval_source_digest_matches_each_fixture(self):
+        fixtures = ROOT / "evals/todo-capture/fixtures"
+        for case in ("configured-project-store", "unconfigured-private-store",
+                     "unsupported-issue-backend"):
+            with self.subTest(case=case):
+                fixture = fixtures / case
+                control = json.loads((fixture / "control.json").read_text(encoding="utf-8"))
+                source = fixture / "history/initial/src/parser.py"
+                assertion = next(item for item in control["assertions"]
+                                 if item["assertion_id"] == "source-unchanged")
+                self.assertEqual(assertion["kind"], "file_sha256")
+                self.assertEqual(assertion["expected"], hashlib.sha256(source.read_bytes()).hexdigest())
+
     def test_project_eval_suite_is_ready(self):
         result = subprocess.run(
             [sys.executable, str(ROOT / "skills/project-eval/scripts/project_eval.py"),

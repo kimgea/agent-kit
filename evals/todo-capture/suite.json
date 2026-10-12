@@ -13,7 +13,7 @@
       "coverage": "regression",
       "platforms": ["linux"],
       "required_capabilities": ["sanitized-history"],
-      "assertion_ids": ["project-entry", "project-location", "project-index", "project-marker", "project-lock-ignore", "no-private-entry", "source-present", "project-report"]
+      "assertion_ids": ["project-entry", "project-location", "project-index", "project-marker", "project-lock-ignore", "no-private-entry", "source-unchanged", "project-report"]
     },
     {
       "case_id": "unconfigured-private-store",
@@ -25,7 +25,7 @@
       "coverage": "regression",
       "platforms": ["linux"],
       "required_capabilities": ["sanitized-history"],
-      "assertion_ids": ["private-entry", "private-location", "no-project-config", "no-project-entry", "source-present", "private-report"]
+      "assertion_ids": ["private-entry", "private-location", "no-project-config", "no-project-entry", "source-unchanged", "private-report"]
     },
     {
       "case_id": "unsupported-issue-backend",
@@ -37,7 +37,7 @@
       "coverage": "regression",
       "platforms": ["linux"],
       "required_capabilities": ["sanitized-history"],
-      "assertion_ids": ["no-project-entry", "no-project-store", "no-private-entry", "config-present", "source-present", "unsupported-report"]
+      "assertion_ids": ["no-project-entry", "no-project-store", "no-private-entry", "config-present", "source-unchanged", "unsupported-report"]
     }
   ],
   "profiles": {

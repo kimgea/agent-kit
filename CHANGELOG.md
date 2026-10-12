@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.17.1 - 2026-10-12
+## 1.18.0 - 2026-10-12
 
 ### Added
 
@@ -8,6 +8,8 @@
   default private, and unsupported issue-backend todo routing.
 - Raise the bounded Codex launcher binding limit to 512 MiB so the current
   standalone CLI can run project evaluations.
+- Add a fixed `file_sha256` project-eval assertion so deferred capture cases
+  fail if an agent changes the source file it was asked to leave untouched.
 
 ### Changed
 

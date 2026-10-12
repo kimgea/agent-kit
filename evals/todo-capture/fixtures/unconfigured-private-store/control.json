@@ -7,7 +7,7 @@
     {"assertion_id": "private-location", "kind": "file_contains", "path": ".eval-private/todo-capture/_general/tooling-parser-cleanup.md", "expected": "src/parser.py"},
     {"assertion_id": "no-project-config", "kind": "file_absent", "path": ".todo-capture.toml", "expected": null},
     {"assertion_id": "no-project-entry", "kind": "file_absent", "path": ".todo/_general/tooling-parser-cleanup.md", "expected": null},
-    {"assertion_id": "source-present", "kind": "file_contains", "path": "src/parser.py", "expected": "def parse_ids(raw):"},
+    {"assertion_id": "source-unchanged", "kind": "file_sha256", "path": "src/parser.py", "expected": "1affa2934ff015dcb7b9c7e86fad2195bbf87fcc54211720fe2c3e3ff6292287"},
     {"assertion_id": "private-report", "kind": "json_equals", "path": "answer.json", "expected": {"status": "captured", "backend": "private", "store": ".eval-private/todo-capture", "reason": "none", "provider_adapter_required": false}}
   ],
   "checks": [],

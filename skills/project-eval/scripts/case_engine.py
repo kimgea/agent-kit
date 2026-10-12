@@ -269,7 +269,7 @@ def validate_control(value: Any) -> dict[str, Any]:
             raise CaseError(f"duplicate assertion_id: {assertion_id}")
         assertion_ids.add(assertion_id)
         kind = assertion["kind"]
-        if kind not in {"file_exists", "file_absent", "file_contains", "file_not_contains", "text_equals", "json_equals", "python_mapping_lookup"}:
+        if kind not in {"file_exists", "file_absent", "file_contains", "file_not_contains", "text_equals", "file_sha256", "json_equals", "python_mapping_lookup"}:
             raise CaseError(f"{label}.kind is unsupported")
         _relative(assertion["path"], f"{label}.path")
         expected = assertion["expected"]
@@ -278,6 +278,8 @@ def validate_control(value: Any) -> dict[str, Any]:
                 raise CaseError(f"{label}.expected must be null for {kind}")
         elif kind in {"file_contains", "file_not_contains", "text_equals"}:
             _text(expected, f"{label}.expected")
+        elif kind == "file_sha256":
+            _digest(expected, f"{label}.expected")
         elif kind == "python_mapping_lookup":
             expected = _mapping(expected, f"{label}.expected")
             _exact(
@@ -703,6 +705,8 @@ def _grade_assertion(workspace: Path, assertion: dict[str, Any]) -> tuple[bool, 
         return raw is None, "required file absence"
     if raw is None:
         return False, "required file is missing"
+    if kind == "file_sha256":
+        return _sha(raw) == assertion["expected"], "exact file SHA-256 equality"
     if kind in {"file_contains", "file_not_contains", "text_equals"}:
         try:
             text = raw.decode("utf-8", "strict")
