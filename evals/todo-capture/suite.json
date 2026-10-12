@@ -1,0 +1,65 @@
+{
+  "schema_version": "project-eval-suite/v1",
+  "suite_id": "agent-kit-todo-capture",
+  "title": "Todo capture project routing",
+  "cases": [
+    {
+      "case_id": "configured-project-store",
+      "title": "Capture in an explicitly configured repository store",
+      "kind": "implementation",
+      "importance": "required",
+      "fixture": "fixtures/configured-project-store",
+      "task": "Use the todo-capture skill installed at .agents/skills/todo-capture/SKILL.md. Read README.md for the deferred finding. Capture it under repo _general, domain tooling, slug parser-cleanup, without changing the source code or staging files. Then write answer.json with exactly status (captured or blocked), backend (repository, private, or unsupported), store (project-relative store path or null), reason (none or unsupported_backend), and provider_adapter_required (boolean). Choose the values from the actual result and project configuration; do not use network access.",
+      "coverage": "regression",
+      "platforms": ["linux"],
+      "required_capabilities": ["sanitized-history"],
+      "assertion_ids": ["project-entry", "project-location", "project-index", "project-marker", "project-lock-ignore", "no-private-entry", "source-present", "project-report"]
+    },
+    {
+      "case_id": "unconfigured-private-store",
+      "title": "Use private storage without project configuration",
+      "kind": "implementation",
+      "importance": "required",
+      "fixture": "fixtures/unconfigured-private-store",
+      "task": "Use the todo-capture skill installed at .agents/skills/todo-capture/SKILL.md. Read README.md for the deferred finding and the sandbox's private-store relocation. Capture it under repo _general, domain tooling, slug parser-cleanup, without adding project configuration, changing source code, or staging files. Then write answer.json with exactly status (captured or blocked), backend (repository, private, or unsupported), store (project-relative store path or null), reason (none or unsupported_backend), and provider_adapter_required (boolean). Choose the values from the actual result; do not use network access.",
+      "coverage": "regression",
+      "platforms": ["linux"],
+      "required_capabilities": ["sanitized-history"],
+      "assertion_ids": ["private-entry", "private-location", "no-project-config", "no-project-entry", "source-present", "private-report"]
+    },
+    {
+      "case_id": "unsupported-issue-backend",
+      "title": "Reject an unsupported GitHub issue backend without fallback",
+      "kind": "implementation",
+      "importance": "required",
+      "fixture": "fixtures/unsupported-issue-backend",
+      "task": "Use the todo-capture skill installed at .agents/skills/todo-capture/SKILL.md. Read README.md for the deferred finding. Attempt to capture it under repo _general, domain tooling, slug parser-cleanup with the existing project configuration. Do not change configuration, create a remote issue, or use network access. Then write answer.json with exactly status (captured or blocked), backend (repository, private, or unsupported), store (project-relative store path or null), reason (none or unsupported_backend), and provider_adapter_required (boolean). Choose the values from the actual route and explain the outcome in your final response.",
+      "coverage": "regression",
+      "platforms": ["linux"],
+      "required_capabilities": ["sanitized-history"],
+      "assertion_ids": ["no-project-entry", "no-project-store", "no-private-entry", "config-present", "source-present", "unsupported-report"]
+    }
+  ],
+  "profiles": {
+    "smoke": {
+      "case_ids": ["configured-project-store", "unconfigured-private-store", "unsupported-issue-backend"],
+      "repetitions": 1,
+      "max_invocations": 3,
+      "max_seconds": 720,
+      "max_tokens": null,
+      "max_cost_usd": null,
+      "network": false,
+      "effects": ["workspace_edit", "command_execution"]
+    },
+    "repeat": {
+      "case_ids": ["configured-project-store", "unconfigured-private-store", "unsupported-issue-backend"],
+      "repetitions": 2,
+      "max_invocations": 6,
+      "max_seconds": 1440,
+      "max_tokens": null,
+      "max_cost_usd": null,
+      "network": false,
+      "effects": ["workspace_edit", "command_execution"]
+    }
+  }
+}

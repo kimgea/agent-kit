@@ -22,6 +22,7 @@ from typing import Any
 
 
 MAX_CAPTURE_BYTES = 8 * 1024 * 1024
+MAX_LAUNCHER_BYTES = 512 * 1024 * 1024
 MAX_PROMPT_BYTES = 64 * 1024
 MAX_TIMEOUT_SECONDS = 86_400
 MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -110,7 +111,7 @@ def discover_codex() -> dict[str, Any]:
     try:
         launcher = Path(discovered).resolve(strict=True)
         assert_no_link_components(launcher, include_final=True)
-        _, launcher_raw = read_regular(launcher, 256 * 1024 * 1024)
+        _, launcher_raw = read_regular(launcher, MAX_LAUNCHER_BYTES)
     except (OSError, SafetyError) as exc:
         raise RunnerError(f"cannot bind Codex launcher: {exc}") from exc
     command = _command_prefix(launcher)

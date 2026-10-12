@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.17.1 - 2026-10-12
+
+### Added
+
+- Add a runnable, sandboxed `project-eval` suite for configured repository,
+  default private, and unsupported issue-backend todo routing.
+- Raise the bounded Codex launcher binding limit to 512 MiB so the current
+  standalone CLI can run project evaluations.
+
+### Changed
+
+- Require the skill to explain that unsupported issue backends need a separate
+  provider adapter and explicit remote-write authority, with no todo captured.
+
 ## 1.17.0 - 2026-10-11
 
 ### Added

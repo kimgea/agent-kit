@@ -1,0 +1,17 @@
+{
+  "schema_version": "project-eval-case-control/v1",
+  "case_id": "unsupported-issue-backend",
+  "materialization": {"mode": "history", "source": null, "remove_paths": [], "history": [{"source": "history/initial", "message": "Synthetic project baseline"}]},
+  "assertions": [
+    {"assertion_id": "no-project-entry", "kind": "file_absent", "path": ".todo/_general/tooling-parser-cleanup.md", "expected": null},
+    {"assertion_id": "no-project-store", "kind": "file_absent", "path": ".todo/.todo-capture-store", "expected": null},
+    {"assertion_id": "no-private-entry", "kind": "file_absent", "path": ".eval-private/todo-capture/_general/tooling-parser-cleanup.md", "expected": null},
+    {"assertion_id": "config-present", "kind": "file_contains", "path": ".todo-capture.toml", "expected": "backend = \"github\""},
+    {"assertion_id": "source-present", "kind": "file_contains", "path": "src/parser.py", "expected": "def parse_ids(raw):"},
+    {"assertion_id": "unsupported-report", "kind": "json_equals", "path": "answer.json", "expected": {"status": "blocked", "backend": "unsupported", "store": null, "reason": "unsupported_backend", "provider_adapter_required": true}}
+  ],
+  "checks": [],
+  "hidden_grader": null,
+  "trajectory": null,
+  "reconstruction": null
+}

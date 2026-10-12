@@ -39,6 +39,31 @@ invalid project config. A selected GitHub, Jira, or Linear issue backend needs
 its own explicit provider adapter and authority rules; those are not implemented
 by this local destination change.
 
+The executable todo routing suite is at `evals/todo-capture/suite.json`. It uses
+the repository's `project-eval` runner with sanitized Git fixtures and a private
+store redirected inside each disposable workspace. Check the definitions
+without invoking a model:
+
+```bash
+python skills/project-eval/scripts/project_eval.py readiness \
+  --repo . --eval-root evals/todo-capture --suite suite.json
+```
+
+Run its Linux smoke profile only on an explicit model-backed evaluation request:
+
+```bash
+python skills/project-eval/scripts/project_eval.py run-codex-profile \
+  --repo . --eval-root evals/todo-capture --suite suite.json --profile smoke \
+  --workspace-root /tmp/todo-eval-work --host-root /tmp/todo-eval-host \
+  --model MODEL --reasoning medium --capability sanitized-history
+```
+
+`smoke` runs each of the three routing cases once; `repeat` runs each twice.
+The evaluator grades the resulting files and structured route report. These
+profiles do not call remote issue providers. The private-store relocation is an
+evaluation fixture detail, not a project storage setting. The grader does not
+score the agent's final prose response or exercise a remote provider adapter.
+
 ## Installation and setup
 
 Install the complete `skills/todo-capture` directory into each harness that
