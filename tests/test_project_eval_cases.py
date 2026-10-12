@@ -304,6 +304,7 @@ class GradingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             fixture = write_fixture(root, value, {"visible/src/parser.py": original.decode()})
+            (fixture / "visible/src/parser.py").write_bytes(original)
             case = selected_case()
             case["assertion_ids"] = ["source-unchanged"]
             prepared = case_engine.materialize_case(fixture, case, root / "workspaces")

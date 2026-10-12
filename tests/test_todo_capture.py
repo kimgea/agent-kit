@@ -673,6 +673,12 @@ class TodoEvalDefinitionTests(unittest.TestCase):
                                  if item["assertion_id"] == "source-unchanged")
                 self.assertEqual(assertion["kind"], "file_sha256")
                 self.assertEqual(assertion["expected"], hashlib.sha256(source.read_bytes()).hexdigest())
+                attribute = subprocess.run(
+                    ["git", "check-attr", "eol", "--", source.relative_to(ROOT).as_posix()],
+                    cwd=ROOT, text=True, capture_output=True, check=False,
+                )
+                self.assertEqual(attribute.returncode, 0, attribute.stderr)
+                self.assertTrue(attribute.stdout.strip().endswith(": eol: lf"), attribute.stdout)
 
     def test_project_eval_suite_is_ready(self):
         result = subprocess.run(

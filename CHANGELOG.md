@@ -10,6 +10,7 @@
   standalone CLI can run project evaluations.
 - Add a fixed `file_sha256` project-eval assertion so deferred capture cases
   fail if an agent changes the source file it was asked to leave untouched.
+- Keep the digest-checked synthetic parser at LF line endings on Windows.
 
 ### Changed
 
