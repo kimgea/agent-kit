@@ -22,8 +22,11 @@ through `scripts/todo_project.py` from within that Git worktree. It writes under
 project root's `.todo/` and is **not** in automatic permission rules. A project
 configuration is a preference, not permission to run commands or publish data.
 An invalid configuration stops the operation; do not silently fall back to the
-private store. Use direct `scripts/todo.py` only for an explicitly approved
-custom `--dir`.
+private store. If the selected backend is unsupported, tell the user that no
+todo was captured, name the supported backends, and explain that GitHub, Jira,
+and Linear issue publishing each need a separate provider adapter and explicit
+remote-write authority. Use direct `scripts/todo.py` only for an explicitly
+approved custom `--dir`.
 
 The optional configuration is a regular `.todo-capture.toml` file at the Git
 root containing exactly `version = 1` and `backend = "repository"` (or

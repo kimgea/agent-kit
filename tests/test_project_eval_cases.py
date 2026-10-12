@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -148,6 +149,15 @@ class ControlContractTests(unittest.TestCase):
         invalid_lookup["assertions"][0]["expected"]["function"] = "not a name"
         self.assertFalse(jsonschema.Draft202012Validator(control_schema).is_valid(invalid_lookup))
 
+        digest_check = control(case_id="digest")
+        digest_check["assertions"] = [{
+            "assertion_id": "source-unchanged", "kind": "file_sha256",
+            "path": "src/parser.py", "expected": "a" * 64,
+        }]
+        self.assertTrue(jsonschema.Draft202012Validator(control_schema).is_valid(digest_check))
+        digest_check["assertions"][0]["expected"] = "A" * 64
+        self.assertFalse(jsonschema.Draft202012Validator(control_schema).is_valid(digest_check))
+
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             fixture = write_fixture(root, control(), {"visible/answer.txt": "correct\n"})
@@ -277,6 +287,34 @@ class MaterializationTests(unittest.TestCase):
 
 
 class GradingTests(unittest.TestCase):
+    def test_file_sha256_requires_exact_bytes_and_valid_digest(self):
+        original = b"def parse_ids(raw):\n    return raw.split(',')\n"
+        value = control()
+        value["assertions"] = [{
+            "assertion_id": "source-unchanged",
+            "kind": "file_sha256",
+            "path": "src/parser.py",
+            "expected": hashlib.sha256(original).hexdigest(),
+        }]
+        invalid = copy.deepcopy(value)
+        invalid["assertions"][0]["expected"] = "A" * 64
+        with self.assertRaisesRegex(case_engine.CaseError, "lowercase SHA-256"):
+            case_engine.validate_control(invalid)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = write_fixture(root, value, {"visible/src/parser.py": original.decode()})
+            (fixture / "visible/src/parser.py").write_bytes(original)
+            case = selected_case()
+            case["assertion_ids"] = ["source-unchanged"]
+            prepared = case_engine.materialize_case(fixture, case, root / "workspaces")
+            workspace_file = Path(prepared["workspace"]) / "src/parser.py"
+            self.assertEqual(case_engine.grade_case(fixture, case, prepared)["status"], "passed")
+            workspace_file.write_bytes(original + b"# edit\n")
+            self.assertEqual(case_engine.grade_case(fixture, case, prepared)["status"], "failed")
+            workspace_file.unlink()
+            self.assertEqual(case_engine.grade_case(fixture, case, prepared)["status"], "failed")
+
     def test_python_mapping_lookup_accepts_behavior_not_incidental_text(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

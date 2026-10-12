@@ -5,6 +5,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -111,6 +112,16 @@ print(json.dumps({"type":"turn.completed","usage":{"total_tokens":7}}), flush=Tr
 
 
 class CodexRunnerTests(unittest.TestCase):
+    def test_launcher_binding_is_bounded_for_current_codex_binaries(self):
+        self.assertEqual(codex_runner.MAX_LAUNCHER_BYTES, 512 * 1024 * 1024)
+        with mock.patch.object(codex_runner.shutil, "which", return_value="/tmp/codex"), \
+             mock.patch.object(codex_runner.Path, "resolve", return_value=Path("/tmp/codex")), \
+             mock.patch.object(codex_runner, "assert_no_link_components"), \
+             mock.patch.object(codex_runner, "read_regular", side_effect=codex_runner.SafetyError("too large")) as read:
+            with self.assertRaisesRegex(codex_runner.RunnerError, "cannot bind Codex launcher: too large"):
+                codex_runner.discover_codex()
+        self.assertEqual(read.call_args.args[1], codex_runner.MAX_LAUNCHER_BYTES)
+
     def make_attempt(self, root, *, mode="edit", selected_profile=None, allow_network=False):
         fixture = write_fixture(root)
         case = selected_case()

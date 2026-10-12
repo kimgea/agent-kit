@@ -1,0 +1,4 @@
+interface:
+  display_name: "Todo Capture"
+  short_description: "Capture and archive deferred work safely"
+  default_prompt: "Use $todo-capture to record deferred work or manage existing todo entries safely."

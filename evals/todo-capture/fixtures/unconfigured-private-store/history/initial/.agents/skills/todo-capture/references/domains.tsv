@@ -1,0 +1,10 @@
+# repo <TAB> domain <TAB> note
+# Portable baseline vocabulary shipped with the skill. Machine/project-specific
+# repos and domains belong in <data-dir>/domains.local.tsv (which extends this),
+# NOT here — keep this file generic so the skill stays reusable across machines.
+# Read by todo.py (validates `new`) and documented in conventions.md.
+# Add a row before using a new domain — never invent one inline.
+_general	tooling	CLI tools, scripts, machine-level tooling
+_general	harness	agent harness / config (cross-repo, e.g. ~/.claude, ~/.codex)
+_general	docs	documentation, notes
+_general	workflow	rail, gh-stack, cross-repo process

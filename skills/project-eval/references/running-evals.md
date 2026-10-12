@@ -8,7 +8,9 @@ Pass only the returned workspace to a worker. Keep the prepared-case receipt in
 the evaluator-owned host area.
 
 Grade with `grade-case`. Built-in assertions read the resulting workspace.
-Use exact file/JSON assertions for simple artifacts. The fixed
+Use exact file/JSON assertions for simple artifacts. `file_sha256` checks
+bounded file bytes against a lowercase SHA-256 digest without executing code.
+The fixed
 `python_mapping_lookup` assertion is available for the narrow Python contract
 where one named top-level function must return `mapping_argument[key_argument]`;
 it parses syntax and does not execute fixture code.

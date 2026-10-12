@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -657,6 +658,53 @@ class TodoPermissionTests(unittest.TestCase):
         rules = TODO_SETUP.claude_rules()
         self.assertTrue(any(rule.startswith("Bash(") for rule in rules))
         self.assertTrue(any(rule.startswith("PowerShell(") for rule in rules))
+
+
+class TodoEvalDefinitionTests(unittest.TestCase):
+    def test_eval_source_digest_matches_each_fixture(self):
+        fixtures = ROOT / "evals/todo-capture/fixtures"
+        for case in ("configured-project-store", "unconfigured-private-store",
+                     "unsupported-issue-backend"):
+            with self.subTest(case=case):
+                fixture = fixtures / case
+                control = json.loads((fixture / "control.json").read_text(encoding="utf-8"))
+                source = fixture / "history/initial/src/parser.py"
+                assertion = next(item for item in control["assertions"]
+                                 if item["assertion_id"] == "source-unchanged")
+                self.assertEqual(assertion["kind"], "file_sha256")
+                self.assertEqual(assertion["expected"], hashlib.sha256(source.read_bytes()).hexdigest())
+                attribute = subprocess.run(
+                    ["git", "check-attr", "eol", "--", source.relative_to(ROOT).as_posix()],
+                    cwd=ROOT, text=True, capture_output=True, check=False,
+                )
+                self.assertEqual(attribute.returncode, 0, attribute.stderr)
+                self.assertTrue(attribute.stdout.strip().endswith(": eol: lf"), attribute.stdout)
+
+    def test_project_eval_suite_is_ready(self):
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "skills/project-eval/scripts/project_eval.py"),
+             "readiness", "--repo", str(ROOT), "--eval-root", "evals/todo-capture",
+             "--suite", "suite.json", "--format", "json"],
+            cwd=ROOT, text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["status"], "ready")
+
+    def test_eval_snapshots_match_skill_source(self):
+        source = {
+            file.relative_to(SKILL): file.read_bytes()
+            for file in SKILL.rglob("*") if file.is_file() and "__pycache__" not in file.parts
+        }
+        fixtures = ROOT / "evals/todo-capture/fixtures"
+        for case in ("configured-project-store", "unconfigured-private-store",
+                     "unsupported-issue-backend"):
+            with self.subTest(case=case):
+                snapshot = fixtures / case / "history/initial/.agents/skills/todo-capture"
+                actual = {
+                    file.relative_to(snapshot): file.read_bytes()
+                    for file in snapshot.rglob("*") if file.is_file()
+                }
+                self.assertEqual(actual, source)
 
 
 if __name__ == "__main__":

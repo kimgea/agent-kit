@@ -1,0 +1,19 @@
+{
+  "schema_version": "project-eval-case-control/v1",
+  "case_id": "configured-project-store",
+  "materialization": {"mode": "history", "source": null, "remove_paths": [], "history": [{"source": "history/initial", "message": "Synthetic project baseline"}]},
+  "assertions": [
+    {"assertion_id": "project-entry", "kind": "file_exists", "path": ".todo/_general/tooling-parser-cleanup.md", "expected": null},
+    {"assertion_id": "project-location", "kind": "file_contains", "path": ".todo/_general/tooling-parser-cleanup.md", "expected": "src/parser.py"},
+    {"assertion_id": "project-index", "kind": "file_contains", "path": ".todo/INDEX.md", "expected": "tooling-parser-cleanup"},
+    {"assertion_id": "project-marker", "kind": "file_contains", "path": ".todo/.todo-capture-store", "expected": "todo-capture repository store v1"},
+    {"assertion_id": "project-lock-ignore", "kind": "file_contains", "path": ".todo/.gitignore", "expected": ".todo-capture.lock"},
+    {"assertion_id": "no-private-entry", "kind": "file_absent", "path": ".eval-private/todo-capture/_general/tooling-parser-cleanup.md", "expected": null},
+    {"assertion_id": "source-unchanged", "kind": "file_sha256", "path": "src/parser.py", "expected": "1affa2934ff015dcb7b9c7e86fad2195bbf87fcc54211720fe2c3e3ff6292287"},
+    {"assertion_id": "project-report", "kind": "json_equals", "path": "answer.json", "expected": {"status": "captured", "backend": "repository", "store": ".todo", "reason": "none", "provider_adapter_required": false}}
+  ],
+  "checks": [],
+  "hidden_grader": null,
+  "trajectory": null,
+  "reconstruction": null
+}
